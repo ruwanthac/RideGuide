@@ -1,0 +1,26 @@
+{
+  "expo": {
+    "name": "AI Vehicle Diagnosis",
+    "slug": "vehicle-diagnosis-app",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "splash": { "backgroundColor": "#2563EB" },
+    "assetBundlePatterns": ["**/*"],
+    "ios": { "supportsTablet": true, "bundleIdentifier": "com.vehiclediagnosis.app" },
+    "android": {
+      "adaptiveIcon": { "backgroundColor": "#2563EB" },
+      "package": "com.vehiclediagnosis.app"
+    },
+    "web": {},
+    "plugins": [
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow $(PRODUCT_NAME) to access your camera for video calls",
+          "microphonePermission": "Allow $(PRODUCT_NAME) to access your microphone"
+        }
+      ]
+    ]
+  }
+}

@@ -1,0 +1,192 @@
+import React, { useState } from 'react';
+import { NavigationContainer, getFocusedRouteNameFromRoute } from '@react-navigation/native';
+import { Icon } from '../components';
+import type { IconName } from '../components';
+import { useResponsive } from '../hooks';
+import { createNativeStackNavigator } from '@react-navigation/native-stack';
+import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
+
+import {
+  SplashScreen,
+  LoginScreen,
+  RegisterScreen,
+  HomeScreen,
+  DiagnoseScreen,
+  CameraUploadScreen,
+  ChatAssistantScreen,
+  HistoryScreen,
+  AssistanceScreen,
+  ProfileScreen,
+  VideoCallScreen,
+} from '../screens';
+
+import type { RootStackParamList, AuthStackParamList, MainTabParamList, HomeStackParamList } from '../types/navigation';
+
+const RootStack = createNativeStackNavigator<RootStackParamList>();
+const AuthStack = createNativeStackNavigator<AuthStackParamList>();
+const MainTab = createBottomTabNavigator<MainTabParamList>();
+const HomeStack = createNativeStackNavigator<HomeStackParamList>();
+
+const HomeStackNavigator = () => (
+  <HomeStack.Navigator screenOptions={{ headerShown: false }}>
+    <HomeStack.Screen name="Home" component={HomeScreenWrapper} />
+    <HomeStack.Screen name="Diagnose" component={DiagnoseScreenWrapper} />
+    <HomeStack.Screen name="CameraUpload" component={CameraUploadScreenWrapper} />
+    <HomeStack.Screen name="ChatAssistant" component={ChatAssistantScreenWrapper} />
+    <HomeStack.Screen name="Assistance" component={AssistanceScreenWrapper} />
+    <HomeStack.Screen name="VideoCall" component={VideoCallScreenWrapper} />
+  </HomeStack.Navigator>
+);
+
+const HomeScreenWrapper = ({ navigation }: { navigation: any }) => (
+  <HomeScreen
+    onDiagnose={() => navigation.navigate('Diagnose')}
+    onCameraUpload={() => navigation.navigate('CameraUpload')}
+    onChatAssistant={() => navigation.navigate('ChatAssistant')}
+    onAssistance={() => navigation.navigate('Assistance')}
+    onProfilePress={() => navigation.getParent()?.navigate('ProfileTab')}
+    onVideoCallPress={() => navigation.navigate('VideoCall')}
+  />
+);
+
+const DiagnoseScreenWrapper = ({ navigation }: { navigation: any }) => (
+  <DiagnoseScreen onBack={() => navigation.goBack()} />
+);
+
+const CameraUploadScreenWrapper = ({ navigation }: { navigation: any }) => (
+  <CameraUploadScreen onBack={() => navigation.goBack()} />
+);
+
+const ChatAssistantScreenWrapper = ({ navigation }: { navigation: any }) => (
+  <ChatAssistantScreen onBack={() => navigation.goBack()} />
+);
+
+const AssistanceScreenWrapper = ({ navigation }: { navigation: any }) => (
+  <AssistanceScreen onBack={() => navigation.goBack()} />
+);
+
+const VideoCallScreenWrapper = ({ navigation }: { navigation: any }) => (
+  <VideoCallScreen onEndCall={() => navigation.goBack()} />
+);
+
+const AuthStackNavigator = ({ onLogin }: { onLogin: () => void }) => (
+  <AuthStack.Navigator screenOptions={{ headerShown: false }}>
+    <AuthStack.Screen name="Login">
+      {(props) => (
+        <LoginScreen
+          {...props}
+          onLogin={onLogin}
+          onNavigateToRegister={() => props.navigation.navigate('Register')}
+        />
+      )}
+    </AuthStack.Screen>
+    <AuthStack.Screen name="Register">
+      {(props) => (
+        <RegisterScreen
+          {...props}
+          onRegister={onLogin}
+          onNavigateToLogin={() => props.navigation.navigate('Login')}
+        />
+      )}
+    </AuthStack.Screen>
+  </AuthStack.Navigator>
+);
+
+const MainTabNavigator = ({ onLogout }: { onLogout: () => void }) => (
+  <MainTab.Navigator
+    screenOptions={{
+      headerShown: false,
+      tabBarActiveTintColor: '#2563EB',
+      tabBarInactiveTintColor: '#6B7280',
+      tabBarStyle: {
+        backgroundColor: '#FFFFFF',
+        borderTopColor: '#E5E7EB',
+      },
+      tabBarLabelStyle: {
+        fontSize: 12,
+        fontWeight: '500',
+      },
+    }}
+  >
+    <MainTab.Screen
+      name="HomeTab"
+      component={HomeStackNavigator}
+      options={({ route }) => {
+        const routeName = getFocusedRouteNameFromRoute(route) ?? 'Home';
+        return {
+          tabBarLabel: 'Home',
+          tabBarIcon: ({ color }) => <TabBarIcon name="home" color={color} />,
+          tabBarStyle: routeName === 'VideoCall' ? { display: 'none' } : undefined,
+        };
+      }}
+    />
+    <MainTab.Screen
+      name="HistoryTab"
+      component={HistoryStackScreen}
+      options={{ tabBarLabel: 'History', tabBarIcon: ({ color }) => <TabBarIcon name="document-text" color={color} /> }}
+    />
+    <MainTab.Screen
+      name="ProfileTab"
+      options={{ tabBarLabel: 'Profile', tabBarIcon: ({ color }) => <TabBarIcon name="person" color={color} /> }}
+    >
+      {() => (
+        <ProfileStack.Navigator screenOptions={{ headerShown: false }}>
+          <ProfileStack.Screen name="Profile">
+            {() => <ProfileScreen onLogout={onLogout} />}
+          </ProfileStack.Screen>
+        </ProfileStack.Navigator>
+      )}
+    </MainTab.Screen>
+  </MainTab.Navigator>
+);
+
+const HistoryStack = createNativeStackNavigator();
+const HistoryStackScreen = () => (
+  <HistoryStack.Navigator screenOptions={{ headerShown: false }}>
+    <HistoryStack.Screen name="History" component={HistoryScreen} />
+  </HistoryStack.Navigator>
+);
+
+const ProfileStack = createNativeStackNavigator();
+
+const TabBarIcon = ({ name, color }: { name: IconName; color: string }) => {
+  const { iconSizes } = useResponsive();
+  return <Icon name={name} size={iconSizes.md} color={color} />;
+};
+
+export const AppNavigator = () => {
+  const [isLoading, setIsLoading] = useState(true);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+
+  const handleSplashFinish = () => {
+    setIsLoading(false);
+  };
+
+  const handleLogin = () => {
+    setIsAuthenticated(true);
+  };
+
+  const handleLogout = () => {
+    setIsAuthenticated(false);
+  };
+
+  if (isLoading) {
+    return <SplashScreen onFinish={handleSplashFinish} />;
+  }
+
+  return (
+    <NavigationContainer>
+      <RootStack.Navigator screenOptions={{ headerShown: false }}>
+        {!isAuthenticated ? (
+          <RootStack.Screen name="Auth">
+            {() => <AuthStackNavigator onLogin={handleLogin} />}
+          </RootStack.Screen>
+        ) : (
+          <RootStack.Screen name="Main">
+            {() => <MainTabNavigator onLogout={handleLogout} />}
+          </RootStack.Screen>
+        )}
+      </RootStack.Navigator>
+    </NavigationContainer>
+  );
+};

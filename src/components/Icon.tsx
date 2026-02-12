@@ -1,0 +1,34 @@
+import React from 'react';
+import { StyleSheet, TextStyle } from 'react-native';
+import Ionicons from '@expo/vector-icons/Ionicons';
+
+export type IconName =
+  | 'home'
+  | 'document-text'
+  | 'person'
+  | 'construct'
+  | 'camera'
+  | 'chatbubble'
+  | 'help-circle'
+  | 'car'
+  | 'map'
+  | 'send'
+  | 'star'
+  | 'mic'
+  | 'videocam'
+  | 'call'
+  | 'close';
+
+interface IconProps {
+  name: IconName;
+  size?: number;
+  color?: string;
+  style?: TextStyle;
+}
+
+export const Icon: React.FC<IconProps> = ({
+  name,
+  size = 24,
+  color = '#111827',
+  style,
+}) => <Ionicons name={name} size={size} color={color} style={style} />;
