@@ -60,7 +60,12 @@ export const DiagnoseScreen: React.FC<DiagnoseScreenProps> = ({ onBack }) => {
 
   return (
     <View style={styles.container}>
-      <Header title="Diagnose Issue" showBack onBackPress={onBack} />
+      <Header
+        title="Diagnose Issue"
+        showBack
+        onBackPress={onBack}
+        style={{ paddingTop: spacing.xl + spacing.md }}
+      />
 
       <ScrollView
         style={styles.scroll}

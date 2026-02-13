@@ -103,7 +103,12 @@ export const ChatAssistantScreen: React.FC<ChatAssistantScreenProps> = ({ onBack
 
   return (
     <View style={styles.container}>
-      <Header title="AI Assistant" showBack onBackPress={onBack} />
+      <Header
+        title="AI Assistant"
+        showBack
+        onBackPress={onBack}
+        style={{ paddingTop: spacing.xl + spacing.md }}
+      />
 
       <KeyboardAvoidingView
         style={styles.chatContainer}

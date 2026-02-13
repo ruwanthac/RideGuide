@@ -63,7 +63,12 @@ export const CameraUploadScreen: React.FC<CameraUploadScreenProps> = ({ onBack }
 
   return (
     <View style={styles.container}>
-      <Header title="Upload Vehicle Image" showBack onBackPress={onBack} />
+      <Header
+        title="Upload Vehicle Image"
+        showBack
+        onBackPress={onBack}
+        style={{ paddingTop: spacing.xl + spacing.md }}
+      />
 
       <View style={styles.content}>
         <TouchableOpacity

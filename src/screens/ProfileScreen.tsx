@@ -15,7 +15,10 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({ onLogout }) => {
     () =>
       StyleSheet.create({
         container: { flex: 1, backgroundColor: colors.background },
-        header: { padding: spacing.lg },
+        header: {
+          padding: spacing.lg,
+          paddingTop: spacing.xl + spacing.md,
+        },
         title: {
           fontSize: fontSizes.xxl,
           fontWeight: '700',

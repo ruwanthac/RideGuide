@@ -89,7 +89,12 @@ export const AssistanceScreen: React.FC<AssistanceScreenProps> = ({ onBack }) =>
 
   return (
   <View style={styles.container}>
-    <Header title="Roadside Help" showBack onBackPress={onBack} />
+    <Header
+        title="Roadside Help"
+        showBack
+        onBackPress={onBack}
+        style={{ paddingTop: spacing.xl + spacing.md }}
+      />
 
     <ScrollView
       style={styles.scroll}
