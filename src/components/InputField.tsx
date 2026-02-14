@@ -75,9 +75,11 @@ export const InputField: React.FC<InputFieldProps> = ({
       StyleSheet.create({
         container: {
           marginBottom: spacing.md,
+          overflow: 'hidden' as const,
+          ...(label ? { paddingTop: 28 } : {}),
         },
         inputWrapper: {
-          position: 'relative',
+          position: 'relative' as const,
           justifyContent: 'center',
         },
         input: {

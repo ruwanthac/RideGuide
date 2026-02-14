@@ -225,6 +225,8 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
                   onChangeText={setEmail}
                   keyboardType="email-address"
                   autoCapitalize="none"
+                  autoComplete="email"
+                  containerStyle={{ marginBottom: spacing.sm }}
                 />
                 <InputField
                   label="Password"
@@ -232,6 +234,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
                   value={password}
                   onChangeText={setPassword}
                   secureTextEntry
+                  autoComplete="password"
                 />
                 <TouchableOpacity style={styles.forgotRow} activeOpacity={0.7}>
                   <Text style={styles.forgotText}>Forgot Password?</Text>

@@ -8,6 +8,7 @@ export type IconName =
   | 'person'
   | 'construct'
   | 'camera'
+  | 'camera-reverse'
   | 'chatbubble'
   | 'help-circle'
   | 'car'

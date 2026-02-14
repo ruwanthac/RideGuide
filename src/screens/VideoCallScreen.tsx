@@ -15,8 +15,13 @@ interface VideoCallScreenProps {
 export const VideoCallScreen: React.FC<VideoCallScreenProps> = ({ onEndCall }) => {
   const { spacing, fontSizes, scale } = useResponsive();
   const [status, setStatus] = useState<'calling' | 'connecting' | 'connected'>('calling');
+  const [cameraFacing, setCameraFacing] = useState<'front' | 'back'>('back');
   const pulseAnim = React.useRef(new Animated.Value(1)).current;
   const [permission, requestPermission] = useCameraPermissions();
+
+  const toggleCamera = () => {
+    setCameraFacing((prev) => (prev === 'back' ? 'front' : 'back'));
+  };
 
   const ringtonePlayer = useAudioPlayer(RINGTONE_SOURCE);
 
@@ -196,7 +201,7 @@ export const VideoCallScreen: React.FC<VideoCallScreenProps> = ({ onEndCall }) =
     <View style={styles.container}>
       <View style={styles.remoteVideo}>
         {showCamera ? (
-          <CameraView style={styles.camera} facing="back" />
+          <CameraView style={styles.camera} facing={cameraFacing} />
         ) : (
           <View style={styles.remotePlaceholder}>
             <Animated.View
@@ -249,9 +254,11 @@ export const VideoCallScreen: React.FC<VideoCallScreenProps> = ({ onEndCall }) =
         </TouchableOpacity>
         <TouchableOpacity
           style={[styles.controlButton, { marginLeft: spacing.xl }]}
+          onPress={toggleCamera}
           activeOpacity={0.7}
+          disabled={!showCamera}
         >
-          <Icon name="videocam" size={24} color="#FFFFFF" />
+          <Icon name="camera-reverse" size={24} color="#FFFFFF" />
         </TouchableOpacity>
       </View>
     </View>
