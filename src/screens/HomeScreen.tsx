@@ -27,6 +27,7 @@ interface MenuItem {
 
 interface HomeScreenProps {
   onDiagnose: () => void;
+  onTowTruckAssistant: () => void;
   onChatAssistant: () => void;
   onAssistance: () => void;
   onProfilePress?: () => void;
@@ -46,6 +47,7 @@ function getTimeBasedGreeting(): string {
 
 const MENU_ITEMS: Omit<MenuItem, 'onPress'>[] = [
   { id: 'diagnose', icon: 'construct', title: 'Diagnose Issue' },
+  { id: 'tow', icon: 'car', title: 'Tow Truck Assistant' },
   { id: 'chat', icon: 'chatbubble', title: 'AI Assistant' },
   { id: 'help', icon: 'help-circle', title: 'Roadside Help' },
 ];
@@ -66,12 +68,14 @@ interface ActivityItem {
 
 const LAST_ACTIVITIES: Omit<ActivityItem, 'onPress'>[] = [
   { id: '1', icon: 'construct', title: 'Diagnosis completed', subtitle: 'Engine check' },
-  { id: '2', icon: 'chatbubble', title: 'AI chat', subtitle: 'Battery question' },
-  { id: '3', icon: 'help-circle', title: 'Roadside request', subtitle: 'Flat tire' },
+  { id: '2', icon: 'car', title: 'Tow requested', subtitle: 'Quick Tow 24/7' },
+  { id: '3', icon: 'chatbubble', title: 'AI chat', subtitle: 'Battery question' },
+  { id: '4', icon: 'help-circle', title: 'Roadside request', subtitle: 'Flat tire' },
 ];
 
 export const HomeScreen: React.FC<HomeScreenProps> = ({
   onDiagnose,
+  onTowTruckAssistant,
   onChatAssistant,
   onAssistance,
   onProfilePress,
@@ -368,14 +372,16 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
 
   const items: MenuItem[] = [
     { ...MENU_ITEMS[0], onPress: onDiagnose },
-    { ...MENU_ITEMS[1], onPress: onChatAssistant },
-    { ...MENU_ITEMS[2], onPress: onAssistance },
+    { ...MENU_ITEMS[1], onPress: onTowTruckAssistant },
+    { ...MENU_ITEMS[2], onPress: onChatAssistant },
+    { ...MENU_ITEMS[3], onPress: onAssistance },
   ];
 
   const activityHandlers: Record<string, () => void> = {
     '1': onDiagnose,
-    '2': onChatAssistant,
-    '3': onAssistance,
+    '2': onTowTruckAssistant,
+    '3': onChatAssistant,
+    '4': onAssistance,
   };
 
   return (

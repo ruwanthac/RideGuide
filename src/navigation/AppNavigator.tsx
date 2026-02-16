@@ -13,6 +13,7 @@ import {
   HomeScreen,
   DiagnoseScreen,
   ChatAssistantScreen,
+  TowTruckAssistantScreen,
   HistoryScreen,
   AssistanceScreen,
   ProfileScreen,
@@ -30,6 +31,7 @@ const HomeStackNavigator = () => (
   <HomeStack.Navigator screenOptions={{ headerShown: false }}>
     <HomeStack.Screen name="Home" component={HomeScreenWrapper} />
     <HomeStack.Screen name="Diagnose" component={DiagnoseScreenWrapper} />
+    <HomeStack.Screen name="TowTruckAssistant" component={TowTruckAssistantScreenWrapper} />
     <HomeStack.Screen name="ChatAssistant" component={ChatAssistantScreenWrapper} />
     <HomeStack.Screen name="Assistance" component={AssistanceScreenWrapper} />
     <HomeStack.Screen name="VideoCall" component={VideoCallScreenWrapper} />
@@ -39,6 +41,7 @@ const HomeStackNavigator = () => (
 const HomeScreenWrapper = ({ navigation }: { navigation: any }) => (
   <HomeScreen
     onDiagnose={() => navigation.navigate('Diagnose')}
+    onTowTruckAssistant={() => navigation.navigate('TowTruckAssistant')}
     onChatAssistant={() => navigation.navigate('ChatAssistant')}
     onAssistance={() => navigation.navigate('Assistance')}
     onProfilePress={() => navigation.getParent()?.navigate('ProfileTab')}
@@ -48,6 +51,10 @@ const HomeScreenWrapper = ({ navigation }: { navigation: any }) => (
 
 const DiagnoseScreenWrapper = ({ navigation }: { navigation: any }) => (
   <DiagnoseScreen onBack={() => navigation.goBack()} />
+);
+
+const TowTruckAssistantScreenWrapper = ({ navigation }: { navigation: any }) => (
+  <TowTruckAssistantScreen onBack={() => navigation.goBack()} />
 );
 
 const ChatAssistantScreenWrapper = ({ navigation }: { navigation: any }) => (

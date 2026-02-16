@@ -20,6 +20,7 @@ export type MainTabParamList = {
 export type HomeStackParamList = {
   Home: undefined;
   Diagnose: undefined;
+  TowTruckAssistant: undefined;
   ChatAssistant: undefined;
   Assistance: undefined;
   VideoCall: undefined;
