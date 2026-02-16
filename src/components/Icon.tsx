@@ -18,7 +18,8 @@ export type IconName =
   | 'mic'
   | 'videocam'
   | 'call'
-  | 'close';
+  | 'close'
+  | 'image';
 
 interface IconProps {
   name: IconName;

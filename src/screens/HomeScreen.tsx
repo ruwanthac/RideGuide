@@ -27,7 +27,6 @@ interface MenuItem {
 
 interface HomeScreenProps {
   onDiagnose: () => void;
-  onCameraUpload: () => void;
   onChatAssistant: () => void;
   onAssistance: () => void;
   onProfilePress?: () => void;
@@ -47,7 +46,6 @@ function getTimeBasedGreeting(): string {
 
 const MENU_ITEMS: Omit<MenuItem, 'onPress'>[] = [
   { id: 'diagnose', icon: 'construct', title: 'Diagnose Issue' },
-  { id: 'camera', icon: 'camera', title: 'Upload Vehicle Image' },
   { id: 'chat', icon: 'chatbubble', title: 'AI Assistant' },
   { id: 'help', icon: 'help-circle', title: 'Roadside Help' },
 ];
@@ -68,14 +66,12 @@ interface ActivityItem {
 
 const LAST_ACTIVITIES: Omit<ActivityItem, 'onPress'>[] = [
   { id: '1', icon: 'construct', title: 'Diagnosis completed', subtitle: 'Engine check' },
-  { id: '2', icon: 'camera', title: 'Image analyzed', subtitle: 'Brake pads' },
-  { id: '3', icon: 'chatbubble', title: 'AI chat', subtitle: 'Battery question' },
-  { id: '4', icon: 'help-circle', title: 'Roadside request', subtitle: 'Flat tire' },
+  { id: '2', icon: 'chatbubble', title: 'AI chat', subtitle: 'Battery question' },
+  { id: '3', icon: 'help-circle', title: 'Roadside request', subtitle: 'Flat tire' },
 ];
 
 export const HomeScreen: React.FC<HomeScreenProps> = ({
   onDiagnose,
-  onCameraUpload,
   onChatAssistant,
   onAssistance,
   onProfilePress,
@@ -372,16 +368,14 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
 
   const items: MenuItem[] = [
     { ...MENU_ITEMS[0], onPress: onDiagnose },
-    { ...MENU_ITEMS[1], onPress: onCameraUpload },
-    { ...MENU_ITEMS[2], onPress: onChatAssistant },
-    { ...MENU_ITEMS[3], onPress: onAssistance },
+    { ...MENU_ITEMS[1], onPress: onChatAssistant },
+    { ...MENU_ITEMS[2], onPress: onAssistance },
   ];
 
   const activityHandlers: Record<string, () => void> = {
     '1': onDiagnose,
-    '2': onCameraUpload,
-    '3': onChatAssistant,
-    '4': onAssistance,
+    '2': onChatAssistant,
+    '3': onAssistance,
   };
 
   return (

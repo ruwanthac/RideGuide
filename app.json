@@ -20,6 +20,13 @@
           "cameraPermission": "Allow $(PRODUCT_NAME) to access your camera for video calls",
           "microphonePermission": "Allow $(PRODUCT_NAME) to access your microphone"
         }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow $(PRODUCT_NAME) to access your photos to select vehicle images",
+          "cameraPermission": "Allow $(PRODUCT_NAME) to access your camera to take vehicle photos"
+        }
       ]
     ]
   }

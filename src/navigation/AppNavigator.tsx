@@ -12,7 +12,6 @@ import {
   RegisterScreen,
   HomeScreen,
   DiagnoseScreen,
-  CameraUploadScreen,
   ChatAssistantScreen,
   HistoryScreen,
   AssistanceScreen,
@@ -31,7 +30,6 @@ const HomeStackNavigator = () => (
   <HomeStack.Navigator screenOptions={{ headerShown: false }}>
     <HomeStack.Screen name="Home" component={HomeScreenWrapper} />
     <HomeStack.Screen name="Diagnose" component={DiagnoseScreenWrapper} />
-    <HomeStack.Screen name="CameraUpload" component={CameraUploadScreenWrapper} />
     <HomeStack.Screen name="ChatAssistant" component={ChatAssistantScreenWrapper} />
     <HomeStack.Screen name="Assistance" component={AssistanceScreenWrapper} />
     <HomeStack.Screen name="VideoCall" component={VideoCallScreenWrapper} />
@@ -41,7 +39,6 @@ const HomeStackNavigator = () => (
 const HomeScreenWrapper = ({ navigation }: { navigation: any }) => (
   <HomeScreen
     onDiagnose={() => navigation.navigate('Diagnose')}
-    onCameraUpload={() => navigation.navigate('CameraUpload')}
     onChatAssistant={() => navigation.navigate('ChatAssistant')}
     onAssistance={() => navigation.navigate('Assistance')}
     onProfilePress={() => navigation.getParent()?.navigate('ProfileTab')}
@@ -51,10 +48,6 @@ const HomeScreenWrapper = ({ navigation }: { navigation: any }) => (
 
 const DiagnoseScreenWrapper = ({ navigation }: { navigation: any }) => (
   <DiagnoseScreen onBack={() => navigation.goBack()} />
-);
-
-const CameraUploadScreenWrapper = ({ navigation }: { navigation: any }) => (
-  <CameraUploadScreen onBack={() => navigation.goBack()} />
 );
 
 const ChatAssistantScreenWrapper = ({ navigation }: { navigation: any }) => (

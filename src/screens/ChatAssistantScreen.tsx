@@ -7,7 +7,10 @@ import {
   FlatList,
   KeyboardAvoidingView,
   Platform,
+  Alert,
+  Image,
 } from 'react-native';
+import * as ImagePicker from 'expo-image-picker';
 import { Header, ChatBubble, Icon } from '../components';
 import { colors } from '../constants/theme';
 import { useResponsive } from '../hooks';
@@ -17,6 +20,7 @@ interface Message {
   text: string;
   isUser: boolean;
   timestamp: string;
+  imageUri?: string | null;
 }
 
 interface ChatAssistantScreenProps {
@@ -24,7 +28,7 @@ interface ChatAssistantScreenProps {
 }
 
 export const ChatAssistantScreen: React.FC<ChatAssistantScreenProps> = ({ onBack }) => {
-  const { spacing, fontSizes, iconSizes, scale } = useResponsive();
+  const { spacing, fontSizes, iconSizes, scale, borderRadius } = useResponsive();
   const [messages, setMessages] = useState<Message[]>([
     {
       id: '1',
@@ -34,7 +38,66 @@ export const ChatAssistantScreen: React.FC<ChatAssistantScreenProps> = ({ onBack
     },
   ]);
   const [inputText, setInputText] = useState('');
+  const [pendingImageUri, setPendingImageUri] = useState<string | null>(null);
   const flatListRef = useRef<FlatList>(null);
+
+  const requestMediaLibraryPermission = async () => {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert(
+        'Photo library access required',
+        'Please allow photo library access to attach vehicle images.'
+      );
+      return false;
+    }
+    return true;
+  };
+
+  const requestCameraPermission = async () => {
+    const { status } = await ImagePicker.requestCameraPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert(
+        'Camera access required',
+        'Please allow camera access to take photos.'
+      );
+      return false;
+    }
+    return true;
+  };
+
+  const handlePickImage = async () => {
+    if (!(await requestMediaLibraryPermission())) return;
+    try {
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        allowsEditing: true,
+        aspect: [4, 3],
+        quality: 0.8,
+      });
+      if (!result.canceled && result.assets[0]) {
+        setPendingImageUri(result.assets[0].uri);
+      }
+    } catch {
+      Alert.alert('Error', 'Failed to open photo library.');
+    }
+  };
+
+  const handleTakePhoto = async () => {
+    if (!(await requestCameraPermission())) return;
+    try {
+      const result = await ImagePicker.launchCameraAsync({
+        mediaTypes: ['images'],
+        allowsEditing: true,
+        aspect: [4, 3],
+        quality: 0.8,
+      });
+      if (!result.canceled && result.assets[0]) {
+        setPendingImageUri(result.assets[0].uri);
+      }
+    } catch {
+      Alert.alert('Error', 'Failed to open camera.');
+    }
+  };
 
   const styles = useMemo(
     () =>
@@ -53,6 +116,15 @@ export const ChatAssistantScreen: React.FC<ChatAssistantScreenProps> = ({ onBack
           borderTopWidth: 1,
           borderTopColor: colors.border,
         },
+        attachButton: {
+          width: scale(44),
+          height: scale(44),
+          borderRadius: scale(22),
+          backgroundColor: colors.background,
+          alignItems: 'center',
+          justifyContent: 'center',
+          marginRight: spacing.sm,
+        },
         input: {
           flex: 1,
           backgroundColor: colors.background,
@@ -64,6 +136,14 @@ export const ChatAssistantScreen: React.FC<ChatAssistantScreenProps> = ({ onBack
           maxHeight: scale(100),
           marginRight: spacing.sm,
         },
+        pendingImagePreview: {
+          width: scale(60),
+          height: scale(60),
+          borderRadius: borderRadius.md,
+          backgroundColor: colors.border,
+          marginRight: spacing.sm,
+          overflow: 'hidden',
+        },
         sendButton: {
           width: scale(44),
           height: scale(44),
@@ -74,26 +154,43 @@ export const ChatAssistantScreen: React.FC<ChatAssistantScreenProps> = ({ onBack
         },
         sendDisabled: { opacity: 0.5 },
       }),
-    [spacing, fontSizes, iconSizes, scale]
+    [spacing, fontSizes, iconSizes, scale, borderRadius]
   );
 
+  const handleAttachPress = () => {
+    Alert.alert(
+      'Upload Image',
+      'Choose an option',
+      [
+        { text: 'Take Photo', onPress: handleTakePhoto },
+        { text: 'Choose from Gallery', onPress: handlePickImage },
+        { text: 'Cancel', style: 'cancel' },
+      ]
+    );
+  };
+
   const handleSend = () => {
-    if (!inputText.trim()) return;
+    const text = inputText.trim();
+    if (!text && !pendingImageUri) return;
 
     const userMessage: Message = {
       id: Date.now().toString(),
-      text: inputText.trim(),
+      text: text || (pendingImageUri ? 'Vehicle image' : ''),
       isUser: true,
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      imageUri: pendingImageUri ?? undefined,
     };
 
     setMessages((prev) => [...prev, userMessage]);
     setInputText('');
+    setPendingImageUri(null);
 
     setTimeout(() => {
       const aiResponse: Message = {
         id: (Date.now() + 1).toString(),
-        text: 'Thanks for your message. I\'ll help you diagnose your vehicle issue. Could you provide more details about the symptoms you\'re experiencing?',
+        text: pendingImageUri
+          ? "Thanks for sharing the image. I can see your vehicle. What would you like me to help you with? Describe any issues or questions you have."
+          : 'Thanks for your message. I\'ll help you diagnose your vehicle issue. Could you provide more details about the symptoms you\'re experiencing?',
         isUser: false,
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       };
@@ -124,6 +221,7 @@ export const ChatAssistantScreen: React.FC<ChatAssistantScreenProps> = ({ onBack
               message={item.text}
               isUser={item.isUser}
               timestamp={item.timestamp}
+              imageUri={item.imageUri}
             />
           )}
           contentContainerStyle={styles.messageList}
@@ -133,6 +231,26 @@ export const ChatAssistantScreen: React.FC<ChatAssistantScreenProps> = ({ onBack
         />
 
         <View style={styles.inputBar}>
+          <TouchableOpacity
+            style={styles.attachButton}
+            onPress={handleAttachPress}
+            activeOpacity={0.7}
+          >
+            <Icon name="image" size={iconSizes.lg} color={colors.primary} />
+          </TouchableOpacity>
+          {pendingImageUri ? (
+            <TouchableOpacity
+              style={styles.pendingImagePreview}
+              onPress={() => setPendingImageUri(null)}
+              activeOpacity={0.8}
+            >
+              <Image
+                source={{ uri: pendingImageUri }}
+                style={StyleSheet.absoluteFill}
+                resizeMode="cover"
+              />
+            </TouchableOpacity>
+          ) : null}
           <TextInput
             style={styles.input}
             placeholder="Type a message..."
@@ -143,9 +261,9 @@ export const ChatAssistantScreen: React.FC<ChatAssistantScreenProps> = ({ onBack
             maxLength={500}
           />
           <TouchableOpacity
-            style={[styles.sendButton, !inputText.trim() && styles.sendDisabled]}
+            style={[styles.sendButton, !inputText.trim() && !pendingImageUri && styles.sendDisabled]}
             onPress={handleSend}
-            disabled={!inputText.trim()}
+            disabled={!inputText.trim() && !pendingImageUri}
             activeOpacity={0.7}
           >
             <Icon name="send" size={iconSizes.sm} color={colors.card} />
