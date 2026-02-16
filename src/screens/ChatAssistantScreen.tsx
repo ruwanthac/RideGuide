@@ -11,7 +11,7 @@ import {
   Image,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
-import { Header, ChatBubble, Icon } from '../components';
+import { Header, ChatBubble, Icon, TypingIndicator } from '../components';
 import { colors } from '../constants/theme';
 import { useResponsive } from '../hooks';
 
@@ -39,6 +39,7 @@ export const ChatAssistantScreen: React.FC<ChatAssistantScreenProps> = ({ onBack
   ]);
   const [inputText, setInputText] = useState('');
   const [pendingImageUri, setPendingImageUri] = useState<string | null>(null);
+  const [isTyping, setIsTyping] = useState(false);
   const flatListRef = useRef<FlatList>(null);
 
   const requestMediaLibraryPermission = async () => {
@@ -169,32 +170,45 @@ export const ChatAssistantScreen: React.FC<ChatAssistantScreenProps> = ({ onBack
     );
   };
 
+  const scrollToBottom = React.useCallback(() => {
+    requestAnimationFrame(() => {
+      flatListRef.current?.scrollToEnd({ animated: true });
+    });
+  }, []);
+
   const handleSend = () => {
     const text = inputText.trim();
     if (!text && !pendingImageUri) return;
 
+    const imgUri = pendingImageUri;
     const userMessage: Message = {
       id: Date.now().toString(),
-      text: text || (pendingImageUri ? 'Vehicle image' : ''),
+      text: text || (imgUri ? 'Vehicle image' : ''),
       isUser: true,
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      imageUri: pendingImageUri ?? undefined,
+      imageUri: imgUri ?? undefined,
     };
 
     setMessages((prev) => [...prev, userMessage]);
     setInputText('');
     setPendingImageUri(null);
+    setIsTyping(true);
+    scrollToBottom();
 
     setTimeout(() => {
       const aiResponse: Message = {
         id: (Date.now() + 1).toString(),
-        text: pendingImageUri
+        text: imgUri
           ? "Thanks for sharing the image. I can see your vehicle. What would you like me to help you with? Describe any issues or questions you have."
           : 'Thanks for your message. I\'ll help you diagnose your vehicle issue. Could you provide more details about the symptoms you\'re experiencing?',
         isUser: false,
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       };
       setMessages((prev) => [...prev, aiResponse]);
+      setIsTyping(false);
+      requestAnimationFrame(() => {
+        setTimeout(scrollToBottom, 50);
+      });
     }, 1000);
   };
 
@@ -225,9 +239,9 @@ export const ChatAssistantScreen: React.FC<ChatAssistantScreenProps> = ({ onBack
             />
           )}
           contentContainerStyle={styles.messageList}
-          onContentSizeChange={() =>
-            flatListRef.current?.scrollToEnd({ animated: true })
-          }
+          ListFooterComponent={isTyping ? <TypingIndicator /> : null}
+          onContentSizeChange={scrollToBottom}
+          keyboardShouldPersistTaps="handled"
         />
 
         <View style={styles.inputBar}>
