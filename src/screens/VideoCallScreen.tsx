@@ -16,11 +16,16 @@ export const VideoCallScreen: React.FC<VideoCallScreenProps> = ({ onEndCall }) =
   const { spacing, fontSizes, scale } = useResponsive();
   const [status, setStatus] = useState<'calling' | 'connecting' | 'connected'>('calling');
   const [cameraFacing, setCameraFacing] = useState<'front' | 'back'>('back');
+  const [isMuted, setIsMuted] = useState(false);
   const pulseAnim = React.useRef(new Animated.Value(1)).current;
   const [permission, requestPermission] = useCameraPermissions();
 
   const toggleCamera = () => {
     setCameraFacing((prev) => (prev === 'back' ? 'front' : 'back'));
+  };
+
+  const toggleMute = () => {
+    setIsMuted((prev) => !prev);
   };
 
   const ringtonePlayer = useAudioPlayer(RINGTONE_SOURCE);
@@ -240,10 +245,19 @@ export const VideoCallScreen: React.FC<VideoCallScreenProps> = ({ onEndCall }) =
 
       <View style={styles.controls}>
         <TouchableOpacity
-          style={[styles.controlButton, { marginRight: spacing.xl }]}
+          style={[
+            styles.controlButton,
+            { marginRight: spacing.xl },
+            isMuted && { backgroundColor: 'rgba(220, 38, 38, 0.6)' },
+          ]}
+          onPress={toggleMute}
           activeOpacity={0.7}
         >
-          <Icon name="mic" size={24} color="#FFFFFF" />
+          <Icon
+            name={isMuted ? 'mic-off' : 'mic'}
+            size={24}
+            color="#FFFFFF"
+          />
         </TouchableOpacity>
         <TouchableOpacity
           style={styles.endCallButton}

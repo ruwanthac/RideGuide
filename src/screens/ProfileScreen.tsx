@@ -1,6 +1,14 @@
-import React, { useMemo } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
-import { Card } from '../components';
+import React, { useMemo, useState } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  ScrollView,
+  TouchableOpacity,
+  TextInput,
+  Alert,
+} from 'react-native';
+import { Card, PrimaryButton, Icon } from '../components';
 import { colors } from '../constants/theme';
 import { useResponsive } from '../hooks';
 
@@ -8,8 +16,45 @@ interface ProfileScreenProps {
   onLogout: () => void;
 }
 
+const DEFAULT_MAKE_MODEL = 'Toyota Camry 2020';
+const DEFAULT_VIN = '1HGBH41JXMN109186';
+
 export const ProfileScreen: React.FC<ProfileScreenProps> = ({ onLogout }) => {
-  const { spacing, fontSizes, borderRadius, buttonHeight } = useResponsive();
+  const { spacing, fontSizes, borderRadius, buttonHeight, iconSizes, scale } = useResponsive();
+  const [makeModel, setMakeModel] = useState(DEFAULT_MAKE_MODEL);
+  const [vin, setVin] = useState(DEFAULT_VIN);
+  const [isEditingVehicle, setIsEditingVehicle] = useState(false);
+  const [savedMakeModel, setSavedMakeModel] = useState(DEFAULT_MAKE_MODEL);
+  const [savedVin, setSavedVin] = useState(DEFAULT_VIN);
+  const [showProfiles, setShowProfiles] = useState(false);
+
+  const startEditingVehicle = () => setIsEditingVehicle(true);
+
+  const handleManageProfiles = () => {
+    setShowProfiles(!showProfiles);
+  };
+
+  const handleSelectProfile = (profileName: string) => {
+    Alert.alert('Profile Selected', `Switched to ${profileName} profile`);
+    setShowProfiles(false);
+  };
+
+  const cancelEditingVehicle = () => {
+    setMakeModel(savedMakeModel);
+    setVin(savedVin);
+    setIsEditingVehicle(false);
+  };
+
+  const handleSaveVehicle = () => {
+    if (!makeModel.trim()) {
+      Alert.alert('Invalid input', 'Make & Model is required.');
+      return;
+    }
+    setSavedMakeModel(makeModel);
+    setSavedVin(vin);
+    setIsEditingVehicle(false);
+    Alert.alert('Saved', 'Vehicle information has been updated.');
+  };
 
   const styles = useMemo(
     () =>
@@ -62,6 +107,21 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({ onLogout }) => {
           color: colors.primary,
           fontWeight: '600',
         },
+        vehicleInput: {
+          fontSize: fontSizes.md,
+          fontWeight: '500',
+          color: colors.text,
+          backgroundColor: colors.background,
+          borderRadius: borderRadius.md,
+          borderWidth: 1,
+          borderColor: colors.border,
+          paddingVertical: spacing.sm,
+          paddingHorizontal: spacing.md,
+          marginTop: 2,
+        },
+        saveVehicleButtonWrap: {
+          marginTop: spacing.md,
+        },
         menuItem: {
           flexDirection: 'row',
           justifyContent: 'space-between',
@@ -96,8 +156,42 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({ onLogout }) => {
           fontWeight: '600',
           color: colors.primary,
         },
+        profileItem: {
+          flexDirection: 'row',
+          alignItems: 'center',
+          paddingVertical: spacing.md,
+          paddingHorizontal: spacing.md,
+          borderBottomWidth: 1,
+          borderBottomColor: colors.border,
+          backgroundColor: colors.background,
+        },
+        profileItemLast: {
+          borderBottomWidth: 0,
+        },
+        profileIcon: {
+          width: scale(40),
+          height: scale(40),
+          borderRadius: scale(20),
+          backgroundColor: colors.primary,
+          alignItems: 'center',
+          justifyContent: 'center',
+          marginRight: spacing.md,
+        },
+        profileInfo: {
+          flex: 1,
+        },
+        profileName: {
+          fontSize: fontSizes.md,
+          fontWeight: '600',
+          color: colors.text,
+        },
+        profileRole: {
+          fontSize: fontSizes.sm,
+          color: colors.textSecondary,
+          marginTop: 2,
+        },
       }),
-    [spacing, fontSizes, borderRadius, buttonHeight]
+    [spacing, fontSizes, borderRadius, buttonHeight, iconSizes, scale]
   );
 
   return (
@@ -116,15 +210,52 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({ onLogout }) => {
         <Text style={styles.sectionTitle}>Vehicle Info</Text>
         <View style={styles.infoRow}>
           <Text style={styles.infoLabel}>Make & Model</Text>
-          <Text style={styles.infoValue}>Toyota Camry 2020</Text>
+          {isEditingVehicle ? (
+            <TextInput
+              style={styles.vehicleInput}
+              value={makeModel}
+              onChangeText={setMakeModel}
+              placeholder="e.g. Toyota Camry 2020"
+              placeholderTextColor={colors.textSecondary}
+            />
+          ) : (
+            <Text style={styles.infoValue}>{makeModel}</Text>
+          )}
         </View>
         <View style={styles.infoRow}>
           <Text style={styles.infoLabel}>VIN</Text>
-          <Text style={styles.infoValue}>1HGBH41JXMN109186</Text>
+          {isEditingVehicle ? (
+            <TextInput
+              style={styles.vehicleInput}
+              value={vin}
+              onChangeText={setVin}
+              placeholder="e.g. 1HGBH41JXMN109186"
+              placeholderTextColor={colors.textSecondary}
+            />
+          ) : (
+            <Text style={styles.infoValue}>{vin}</Text>
+          )}
         </View>
-        <TouchableOpacity style={styles.editButton}>
-          <Text style={styles.editButtonText}>Edit Vehicle</Text>
-        </TouchableOpacity>
+        {isEditingVehicle ? (
+          <View style={styles.saveVehicleButtonWrap}>
+            <PrimaryButton title="Save" onPress={handleSaveVehicle} />
+            <TouchableOpacity
+              style={[styles.editButton, { marginTop: spacing.sm }]}
+              onPress={cancelEditingVehicle}
+              activeOpacity={0.7}
+            >
+              <Text style={[styles.editButtonText, { color: colors.textSecondary }]}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        ) : (
+          <TouchableOpacity
+            style={styles.editButton}
+            onPress={startEditingVehicle}
+            activeOpacity={0.7}
+          >
+            <Text style={styles.editButtonText}>Edit Vehicle</Text>
+          </TouchableOpacity>
+        )}
       </Card>
 
       <Card style={styles.section} padded>
@@ -141,6 +272,48 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({ onLogout }) => {
           <Text style={styles.menuText}>Privacy</Text>
           <Text style={styles.menuArrow}>›</Text>
         </TouchableOpacity>
+      </Card>
+
+      <Card style={styles.section} padded>
+        <Text style={styles.sectionTitle}>Switch Profiles</Text>
+        <TouchableOpacity
+          style={[styles.menuItem, showProfiles && styles.menuItemLast]}
+          onPress={handleManageProfiles}
+          activeOpacity={0.7}
+        >
+          <Text style={styles.menuText}>Manage Profiles</Text>
+          <Text style={styles.menuArrow}>{showProfiles ? '▼' : '›'}</Text>
+        </TouchableOpacity>
+        {showProfiles && (
+          <>
+            <TouchableOpacity
+              style={styles.profileItem}
+              onPress={() => handleSelectProfile('Mechanic')}
+              activeOpacity={0.7}
+            >
+              <View style={styles.profileIcon}>
+                <Icon name="construct" size={20} color="#FFFFFF" />
+              </View>
+              <View style={styles.profileInfo}>
+                <Text style={styles.profileName}>Mechanic</Text>
+                <Text style={styles.profileRole}>Vehicle repair specialist</Text>
+              </View>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.profileItem, styles.profileItemLast]}
+              onPress={() => handleSelectProfile('Tow Truck Driver')}
+              activeOpacity={0.7}
+            >
+              <View style={styles.profileIcon}>
+                <Icon name="car" size={20} color="#FFFFFF" />
+              </View>
+              <View style={styles.profileInfo}>
+                <Text style={styles.profileName}>Tow Truck Driver</Text>
+                <Text style={styles.profileRole}>Vehicle towing specialist</Text>
+              </View>
+            </TouchableOpacity>
+          </>
+        )}
       </Card>
 
       <TouchableOpacity

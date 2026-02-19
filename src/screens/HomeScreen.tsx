@@ -29,7 +29,6 @@ interface HomeScreenProps {
   onDiagnose: () => void;
   onTowTruckAssistant: () => void;
   onChatAssistant: () => void;
-  onAssistance: () => void;
   onProfilePress?: () => void;
   onVideoCallPress?: () => void;
 }
@@ -47,9 +46,8 @@ function getTimeBasedGreeting(): string {
 
 const MENU_ITEMS: Omit<MenuItem, 'onPress'>[] = [
   { id: 'diagnose', icon: 'construct', title: 'Diagnose Issue' },
-  { id: 'tow', icon: 'car', title: 'Tow Truck Assistant' },
   { id: 'chat', icon: 'chatbubble', title: 'AI Assistant' },
-  { id: 'help', icon: 'help-circle', title: 'Roadside Help' },
+  { id: 'tow', icon: 'car', title: 'Tow Truck Assistant and Roadside Help' },
 ];
 
 const BANNER_IMAGES = [
@@ -68,20 +66,18 @@ interface ActivityItem {
 
 const LAST_ACTIVITIES: Omit<ActivityItem, 'onPress'>[] = [
   { id: '1', icon: 'construct', title: 'Diagnosis completed', subtitle: 'Engine check' },
-  { id: '2', icon: 'car', title: 'Tow requested', subtitle: 'Quick Tow 24/7' },
-  { id: '3', icon: 'chatbubble', title: 'AI chat', subtitle: 'Battery question' },
-  { id: '4', icon: 'help-circle', title: 'Roadside request', subtitle: 'Flat tire' },
+  { id: '2', icon: 'chatbubble', title: 'AI chat', subtitle: 'Battery question' },
+  { id: '3', icon: 'car', title: 'Tow requested', subtitle: 'Quick Tow 24/7' },
 ];
 
 export const HomeScreen: React.FC<HomeScreenProps> = ({
   onDiagnose,
   onTowTruckAssistant,
   onChatAssistant,
-  onAssistance,
   onProfilePress,
   onVideoCallPress,
 }) => {
-  const { spacing, fontSizes, iconSizes, isSmallScreen, scale, width } = useResponsive();
+  const { spacing, fontSizes, iconSizes, isSmallScreen, scale, width, verticalScale } = useResponsive();
   const greeting = getTimeBasedGreeting();
   const [quickInput, setQuickInput] = useState('');
   const [bannerIndex, setBannerIndex] = useState(0);
@@ -161,6 +157,14 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
           padding: spacing.sm,
           marginBottom: spacing.md,
         },
+        cardWrapperFullWidth: {
+          width: '100%',
+        },
+        cardContent: {
+          alignItems: 'center',
+          justifyContent: 'center',
+          minHeight: verticalScale(120),
+        },
         cardIcon: {
           marginBottom: spacing.md,
         },
@@ -168,6 +172,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
           fontSize: fontSizes.md,
           fontWeight: '600',
           color: colors.text,
+          textAlign: 'center',
         },
         heroBanner: {
           width: width,
@@ -372,16 +377,14 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
 
   const items: MenuItem[] = [
     { ...MENU_ITEMS[0], onPress: onDiagnose },
-    { ...MENU_ITEMS[1], onPress: onTowTruckAssistant },
-    { ...MENU_ITEMS[2], onPress: onChatAssistant },
-    { ...MENU_ITEMS[3], onPress: onAssistance },
+    { ...MENU_ITEMS[1], onPress: onChatAssistant },
+    { ...MENU_ITEMS[2], onPress: onTowTruckAssistant },
   ];
 
   const activityHandlers: Record<string, () => void> = {
     '1': onDiagnose,
-    '2': onTowTruckAssistant,
-    '3': onChatAssistant,
-    '4': onAssistance,
+    '2': onChatAssistant,
+    '3': onTowTruckAssistant,
   };
 
   return (
@@ -453,10 +456,15 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
 
       <View style={[styles.contentPadded, styles.grid]}>
         {items.map((item) => (
-          <View key={item.id} style={styles.cardWrapper}>
+          <View
+            key={item.id}
+            style={[styles.cardWrapper, item.id === 'tow' && styles.cardWrapperFullWidth]}
+          >
             <Card onPress={item.onPress} padded>
-              <Icon name={item.icon} size={iconSizes.lg} color={colors.primary} style={styles.cardIcon} />
-              <Text style={styles.cardTitle}>{item.title}</Text>
+              <View style={styles.cardContent}>
+                <Icon name={item.icon} size={iconSizes.lg} color={colors.primary} style={styles.cardIcon} />
+                <Text style={styles.cardTitle}>{item.title}</Text>
+              </View>
             </Card>
           </View>
         ))}

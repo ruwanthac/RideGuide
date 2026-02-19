@@ -1,6 +1,7 @@
 import React, { useState, useRef, useMemo } from 'react';
 import {
   View,
+  Text,
   TextInput,
   TouchableOpacity,
   StyleSheet,
@@ -9,9 +10,10 @@ import {
   Platform,
   Alert,
   Image,
+  StatusBar,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
-import { Header, ChatBubble, Icon, TypingIndicator } from '../components';
+import { ChatBubble, Icon, TypingIndicator } from '../components';
 import { colors } from '../constants/theme';
 import { useResponsive } from '../hooks';
 
@@ -25,9 +27,10 @@ interface Message {
 
 interface ChatAssistantScreenProps {
   onBack: () => void;
+  onVideoCallPress?: () => void;
 }
 
-export const ChatAssistantScreen: React.FC<ChatAssistantScreenProps> = ({ onBack }) => {
+export const ChatAssistantScreen: React.FC<ChatAssistantScreenProps> = ({ onBack, onVideoCallPress }) => {
   const { spacing, fontSizes, iconSizes, scale, borderRadius } = useResponsive();
   const [messages, setMessages] = useState<Message[]>([
     {
@@ -103,10 +106,53 @@ export const ChatAssistantScreen: React.FC<ChatAssistantScreenProps> = ({ onBack
   const styles = useMemo(
     () =>
       StyleSheet.create({
-        container: { flex: 1, backgroundColor: colors.background },
-        chatContainer: { flex: 1 },
+        container: {
+          flex: 1,
+          backgroundColor: '#F0F2F5',
+        },
+        header: {
+          backgroundColor: '#FFFFFF',
+          paddingTop: Platform.OS === 'ios' ? spacing.xl + spacing.md : StatusBar.currentHeight || spacing.lg,
+          paddingBottom: spacing.md,
+          paddingHorizontal: spacing.md,
+          borderBottomWidth: 1,
+          borderBottomColor: '#E4E6EB',
+          flexDirection: 'row',
+          alignItems: 'center',
+          elevation: 1,
+          shadowColor: '#000',
+          shadowOffset: { width: 0, height: 1 },
+          shadowOpacity: 0.05,
+          shadowRadius: 2,
+        },
+        backButton: {
+          width: scale(40),
+          height: scale(40),
+          borderRadius: scale(20),
+          alignItems: 'center',
+          justifyContent: 'center',
+          marginRight: spacing.md,
+        },
+        headerTitle: {
+          fontSize: fontSizes.lg,
+          fontWeight: '600',
+          color: '#111B21',
+          flex: 1,
+        },
+        videoCallButton: {
+          width: scale(40),
+          height: scale(40),
+          borderRadius: scale(20),
+          alignItems: 'center',
+          justifyContent: 'center',
+          marginLeft: spacing.md,
+        },
+        chatContainer: {
+          flex: 1,
+          backgroundColor: '#F0F2F5',
+        },
         messageList: {
-          padding: spacing.lg,
+          padding: spacing.md,
           paddingBottom: spacing.md,
         },
         inputBar: {
@@ -214,12 +260,26 @@ export const ChatAssistantScreen: React.FC<ChatAssistantScreenProps> = ({ onBack
 
   return (
     <View style={styles.container}>
-      <Header
-        title="AI Assistant"
-        showBack
-        onBackPress={onBack}
-        style={{ paddingTop: spacing.xl + spacing.md }}
-      />
+      <StatusBar barStyle="dark-content" />
+      <View style={styles.header}>
+        <TouchableOpacity
+          style={styles.backButton}
+          onPress={onBack}
+          activeOpacity={0.7}
+        >
+          <Icon name="close" size={iconSizes.md} color={colors.text} />
+        </TouchableOpacity>
+        <Text style={styles.headerTitle}>AI Assistant</Text>
+        {onVideoCallPress && (
+          <TouchableOpacity
+            style={styles.videoCallButton}
+            onPress={onVideoCallPress}
+            activeOpacity={0.7}
+          >
+            <Icon name="videocam" size={iconSizes.md} color={colors.primary} />
+          </TouchableOpacity>
+        )}
+      </View>
 
       <KeyboardAvoidingView
         style={styles.chatContainer}

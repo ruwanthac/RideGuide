@@ -27,6 +27,12 @@
           "photosPermission": "Allow $(PRODUCT_NAME) to access your photos to select vehicle images",
           "cameraPermission": "Allow $(PRODUCT_NAME) to access your camera to take vehicle photos"
         }
+      ],
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "Allow $(PRODUCT_NAME) to use your location to find nearby tow trucks."
+        }
       ]
     ]
   }

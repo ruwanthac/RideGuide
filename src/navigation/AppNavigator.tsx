@@ -43,7 +43,6 @@ const HomeScreenWrapper = ({ navigation }: { navigation: any }) => (
     onDiagnose={() => navigation.navigate('Diagnose')}
     onTowTruckAssistant={() => navigation.navigate('TowTruckAssistant')}
     onChatAssistant={() => navigation.navigate('ChatAssistant')}
-    onAssistance={() => navigation.navigate('Assistance')}
     onProfilePress={() => navigation.getParent()?.navigate('ProfileTab')}
     onVideoCallPress={() => navigation.navigate('VideoCall')}
   />
@@ -58,7 +57,10 @@ const TowTruckAssistantScreenWrapper = ({ navigation }: { navigation: any }) => 
 );
 
 const ChatAssistantScreenWrapper = ({ navigation }: { navigation: any }) => (
-  <ChatAssistantScreen onBack={() => navigation.goBack()} />
+  <ChatAssistantScreen
+    onBack={() => navigation.goBack()}
+    onVideoCallPress={() => navigation.navigate('VideoCall')}
+  />
 );
 
 const AssistanceScreenWrapper = ({ navigation }: { navigation: any }) => (

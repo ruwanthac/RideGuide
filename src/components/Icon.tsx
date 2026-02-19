@@ -16,6 +16,7 @@ export type IconName =
   | 'send'
   | 'star'
   | 'mic'
+  | 'mic-off'
   | 'videocam'
   | 'call'
   | 'close'
