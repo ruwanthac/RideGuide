@@ -5,6 +5,8 @@ import type { IconName } from '../components';
 import { useResponsive } from '../hooks';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
+import { UserRoleProvider } from '../context/UserRoleContext';
+import { VehiclesProvider } from '../context/VehiclesContext';
 
 import {
   SplashScreen,
@@ -18,6 +20,9 @@ import {
   AssistanceScreen,
   ProfileScreen,
   VideoCallScreen,
+  ActivitiesScreen,
+  RequestMapScreen,
+  RequestChatScreen,
 } from '../screens';
 
 import type { RootStackParamList, AuthStackParamList, MainTabParamList, HomeStackParamList } from '../types/navigation';
@@ -35,6 +40,8 @@ const HomeStackNavigator = () => (
     <HomeStack.Screen name="ChatAssistant" component={ChatAssistantScreenWrapper} />
     <HomeStack.Screen name="Assistance" component={AssistanceScreenWrapper} />
     <HomeStack.Screen name="VideoCall" component={VideoCallScreenWrapper} />
+    <HomeStack.Screen name="RequestMap" component={RequestMapScreenWrapper} />
+    <HomeStack.Screen name="RequestChat" component={RequestChatScreenWrapper} />
   </HomeStack.Navigator>
 );
 
@@ -69,6 +76,20 @@ const AssistanceScreenWrapper = ({ navigation }: { navigation: any }) => (
 
 const VideoCallScreenWrapper = ({ navigation }: { navigation: any }) => (
   <VideoCallScreen onEndCall={() => navigation.goBack()} />
+);
+
+const RequestMapScreenWrapper = ({ navigation }: { navigation: any }) => (
+  <RequestMapScreen onBack={() => navigation.goBack()} />
+);
+
+const RequestChatScreenWrapper = ({ navigation, route }: { navigation: any; route: any }) => (
+  <RequestChatScreen
+    onBack={() => navigation.goBack()}
+    requestId={route.params?.requestId ?? ''}
+    userName={route.params?.userName ?? 'Customer'}
+    vehicle={route.params?.vehicle ?? ''}
+    issue={route.params?.issue ?? ''}
+  />
 );
 
 const AuthStackNavigator = ({ onLogin }: { onLogin: () => void }) => (
@@ -136,6 +157,11 @@ const MainTabNavigator = ({ onLogout }: { onLogout: () => void }) => (
           <ProfileStack.Screen name="Profile">
             {() => <ProfileScreen onLogout={onLogout} />}
           </ProfileStack.Screen>
+          <ProfileStack.Screen name="Activities">
+            {({ navigation }) => (
+              <ActivitiesScreen onBack={() => navigation.goBack()} />
+            )}
+          </ProfileStack.Screen>
         </ProfileStack.Navigator>
       )}
     </MainTab.Screen>
@@ -177,18 +203,22 @@ export const AppNavigator = () => {
   }
 
   return (
-    <NavigationContainer>
-      <RootStack.Navigator screenOptions={{ headerShown: false }}>
-        {!isAuthenticated ? (
-          <RootStack.Screen name="Auth">
-            {() => <AuthStackNavigator onLogin={handleLogin} />}
-          </RootStack.Screen>
-        ) : (
-          <RootStack.Screen name="Main">
-            {() => <MainTabNavigator onLogout={handleLogout} />}
-          </RootStack.Screen>
-        )}
-      </RootStack.Navigator>
-    </NavigationContainer>
+    <UserRoleProvider>
+      <VehiclesProvider>
+        <NavigationContainer>
+        <RootStack.Navigator screenOptions={{ headerShown: false }}>
+          {!isAuthenticated ? (
+            <RootStack.Screen name="Auth">
+              {() => <AuthStackNavigator onLogin={handleLogin} />}
+            </RootStack.Screen>
+          ) : (
+            <RootStack.Screen name="Main">
+              {() => <MainTabNavigator onLogout={handleLogout} />}
+            </RootStack.Screen>
+          )}
+        </RootStack.Navigator>
+        </NavigationContainer>
+      </VehiclesProvider>
+    </UserRoleProvider>
   );
 };

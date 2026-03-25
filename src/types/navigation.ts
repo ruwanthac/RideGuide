@@ -24,6 +24,8 @@ export type HomeStackParamList = {
   ChatAssistant: undefined;
   Assistance: undefined;
   VideoCall: undefined;
+  RequestMap: { location: string; latitude: number; longitude: number };
+  RequestChat: { requestId: string; userName: string; vehicle: string; issue: string };
 };
 
 export type HistoryStackParamList = {

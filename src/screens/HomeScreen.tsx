@@ -12,11 +12,14 @@ import {
   NativeSyntheticEvent,
   NativeScrollEvent,
   RefreshControl,
+  Linking,
 } from 'react-native';
 import { Card, Icon } from '../components';
 import { colors } from '../constants/theme';
 import type { IconName } from '../components';
 import { useResponsive } from '../hooks';
+import { useUserRole } from '../context/UserRoleContext';
+import { useNavigation } from '@react-navigation/native';
 
 interface MenuItem {
   id: string;
@@ -70,6 +73,31 @@ const LAST_ACTIVITIES: Omit<ActivityItem, 'onPress'>[] = [
   { id: '3', icon: 'car', title: 'Tow requested', subtitle: 'Quick Tow 24/7' },
 ];
 
+interface RoadsideRequest {
+  id: string;
+  userName: string;
+  location: string;
+  issue: string;
+  vehicle: string;
+  phoneNumber: string;
+  latitude: number;
+  longitude: number;
+}
+
+const DUMMY_ROADSIDE_REQUESTS: RoadsideRequest[] = [
+  { id: 'r1', userName: 'Alex', location: 'Colombo 07', issue: 'Battery dead', vehicle: 'Toyota Camry', phoneNumber: '+94771234567', latitude: 6.9271, longitude: 79.8612 },
+  { id: 'r2', userName: 'Sarah', location: 'Kandy Rd, Kadawata', issue: 'Flat tire', vehicle: 'Honda Civic', phoneNumber: '+94772345678', latitude: 7.0012, longitude: 79.9485 },
+  { id: 'r3', userName: 'James', location: 'Galle Rd, Dehiwala', issue: 'Out of fuel', vehicle: 'Nissan Leaf', phoneNumber: '+94773456789', latitude: 6.8408, longitude: 79.8631 },
+];
+
+type TowRequest = RoadsideRequest;
+
+const DUMMY_TOW_REQUESTS: TowRequest[] = [
+  { id: 't1', userName: 'Maria', location: 'Nugegoda, Colombo', issue: 'Engine breakdown', vehicle: 'Mitsubishi Lancer', phoneNumber: '+94774567890', latitude: 6.8636, longitude: 79.8977 },
+  { id: 't2', userName: 'David', location: 'Malabe', issue: 'Transmission failure', vehicle: 'Honda Accord', phoneNumber: '+94775678901', latitude: 6.9271, longitude: 79.9632 },
+  { id: 't3', userName: 'Priya', location: 'Ratmalana', issue: 'Accident – need tow', vehicle: 'Suzuki Swift', phoneNumber: '+94776789012', latitude: 6.8219, longitude: 79.8865 },
+];
+
 export const HomeScreen: React.FC<HomeScreenProps> = ({
   onDiagnose,
   onTowTruckAssistant,
@@ -78,11 +106,53 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   onVideoCallPress,
 }) => {
   const { spacing, fontSizes, iconSizes, isSmallScreen, scale, width, verticalScale } = useResponsive();
+  const { role } = useUserRole();
   const greeting = getTimeBasedGreeting();
   const [quickInput, setQuickInput] = useState('');
   const [bannerIndex, setBannerIndex] = useState(0);
   const [refreshing, setRefreshing] = useState(false);
+  const [roadsideRequests, setRoadsideRequests] = useState<RoadsideRequest[]>(DUMMY_ROADSIDE_REQUESTS);
+  const [towRequests, setTowRequests] = useState<TowRequest[]>(DUMMY_TOW_REQUESTS);
   const bannerScrollRef = useRef<ScrollView>(null);
+
+  const handleAcceptRequest = (id: string) => {
+    setRoadsideRequests((prev) => prev.filter((r) => r.id !== id));
+  };
+
+  const handleDeclineRequest = (id: string) => {
+    setRoadsideRequests((prev) => prev.filter((r) => r.id !== id));
+  };
+
+  const handleAcceptTowRequest = (id: string) => {
+    setTowRequests((prev) => prev.filter((r) => r.id !== id));
+  };
+
+  const handleDeclineTowRequest = (id: string) => {
+    setTowRequests((prev) => prev.filter((r) => r.id !== id));
+  };
+
+  const navigation = useNavigation<any>();
+
+  const openCall = (phoneNumber: string) => {
+    Linking.openURL(`tel:${phoneNumber}`);
+  };
+
+  const openRequestChat = (request: RoadsideRequest) => {
+    navigation.navigate('RequestChat', {
+      requestId: request.id,
+      userName: request.userName,
+      vehicle: request.vehicle,
+      issue: request.issue,
+    });
+  };
+
+  const openRequestOnMap = (request: RoadsideRequest) => {
+    navigation.navigate('RequestMap', {
+      location: request.location,
+      latitude: request.latitude,
+      longitude: request.longitude,
+    });
+  };
 
   const onRefresh = async () => {
     setRefreshing(true);
@@ -145,6 +215,19 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
           fontSize: fontSizes.md,
           color: colors.textSecondary,
           marginTop: spacing.xs,
+        },
+        rolePill: {
+          alignSelf: 'flex-start',
+          marginTop: spacing.sm,
+          paddingHorizontal: spacing.sm,
+          paddingVertical: spacing.xs,
+          borderRadius: scale(20),
+          backgroundColor: 'rgba(37, 99, 235, 0.08)',
+        },
+        rolePillText: {
+          fontSize: fontSizes.xs,
+          color: colors.primary,
+          fontWeight: '500',
         },
         grid: {
           flexDirection: 'row',
@@ -371,6 +454,188 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
           width: 24,
           backgroundColor: colors.primary,
         },
+        requestsCard: {
+          padding: spacing.lg,
+        },
+        requestHeaderRow: {
+          flexDirection: 'row',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          marginBottom: spacing.md,
+        },
+        requestSectionTitle: {
+          fontSize: fontSizes.lg,
+          fontWeight: '600',
+          color: colors.text,
+        },
+        requestSectionSubtitle: {
+          fontSize: fontSizes.sm,
+          color: colors.textSecondary,
+          marginTop: spacing.xs,
+        },
+        requestBadge: {
+          minWidth: scale(28),
+          paddingHorizontal: spacing.xs,
+          paddingVertical: spacing.xs / 2,
+          borderRadius: 999,
+          backgroundColor: colors.primary + '18',
+          alignItems: 'center',
+          justifyContent: 'center',
+        },
+        requestBadgeText: {
+          fontSize: fontSizes.sm,
+          fontWeight: '600',
+          color: colors.primary,
+        },
+        emptyRequestsContainer: {
+          alignItems: 'center',
+          justifyContent: 'center',
+          paddingVertical: spacing.xl,
+        },
+        emptyRequestsTitle: {
+          fontSize: fontSizes.md,
+          fontWeight: '600',
+          color: colors.text,
+          marginTop: spacing.sm,
+          marginBottom: spacing.xs,
+        },
+        requestRow: {
+          paddingVertical: spacing.md,
+          paddingHorizontal: spacing.md,
+          borderRadius: 12,
+          borderWidth: 1,
+          borderColor: colors.border,
+          marginBottom: spacing.sm,
+          backgroundColor: colors.card,
+        },
+        requestRowLast: {
+          marginBottom: 0,
+        },
+        requestRowMain: {
+          flexDirection: 'row',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+        },
+        requestAvatar: {
+          width: 32,
+          height: 32,
+          borderRadius: 16,
+          backgroundColor: colors.primary + '18',
+          alignItems: 'center',
+          justifyContent: 'center',
+          marginRight: spacing.sm,
+        },
+        requestAvatarText: {
+          fontSize: fontSizes.sm,
+          fontWeight: '600',
+          color: colors.primary,
+        },
+        requestInfo: {
+          flex: 1,
+          marginRight: spacing.sm,
+        },
+        requestTitle: {
+          fontSize: fontSizes.md,
+          fontWeight: '600',
+          color: colors.text,
+        },
+        requestMeta: {
+          fontSize: fontSizes.sm,
+          color: colors.textSecondary,
+          marginTop: 2,
+        },
+        requestChip: {
+          paddingHorizontal: spacing.sm,
+          paddingVertical: spacing.xs / 2,
+          borderRadius: 999,
+          backgroundColor: colors.primary + '12',
+        },
+        requestChipText: {
+          fontSize: fontSizes.xs,
+          fontWeight: '600',
+          color: colors.primary,
+        },
+        requestFooterRow: {
+          flexDirection: 'row',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          marginTop: spacing.sm,
+        },
+        requestPhoneInline: {
+          flexDirection: 'row',
+          alignItems: 'center',
+        },
+        requestPhoneText: {
+          fontSize: fontSizes.sm,
+          color: colors.textSecondary,
+          marginLeft: spacing.xs,
+        },
+        requestFooterActions: {
+          flexDirection: 'row',
+          alignItems: 'center',
+        },
+        iconActionBtn: {
+          width: 32,
+          height: 32,
+          borderRadius: 16,
+          alignItems: 'center',
+          justifyContent: 'center',
+          backgroundColor: colors.primary + '08',
+          marginLeft: spacing.xs,
+        },
+        requestActions: {
+          flexDirection: 'row',
+          justifyContent: 'space-between',
+          marginTop: spacing.sm,
+        },
+        acceptBtn: {
+          paddingVertical: spacing.sm,
+          paddingHorizontal: spacing.md,
+          borderRadius: 8,
+          backgroundColor: colors.success,
+          minWidth: 80,
+          alignItems: 'center',
+        },
+        declineBtn: {
+          paddingVertical: spacing.sm,
+          paddingHorizontal: spacing.md,
+          borderRadius: 8,
+          backgroundColor: colors.card,
+          borderWidth: 1,
+          borderColor: colors.border,
+          minWidth: 80,
+          alignItems: 'center',
+        },
+        acceptBtnText: {
+          fontSize: fontSizes.sm,
+          fontWeight: '600',
+          color: '#FFFFFF',
+        },
+        declineBtnText: {
+          fontSize: fontSizes.sm,
+          fontWeight: '500',
+          color: colors.textSecondary,
+        },
+        viewMapBtn: {
+          flexDirection: 'row',
+          alignItems: 'center',
+          marginTop: spacing.sm,
+          paddingVertical: spacing.xs,
+          paddingHorizontal: 0,
+          alignSelf: 'flex-start',
+        },
+        viewMapBtnText: {
+          fontSize: fontSizes.sm,
+          fontWeight: '500',
+          color: colors.primary,
+          marginLeft: spacing.xs,
+        },
+        emptyRequestsText: {
+          fontSize: fontSizes.sm,
+          color: colors.textSecondary,
+          textAlign: 'center',
+          paddingVertical: spacing.lg,
+        },
       }),
     [spacing, fontSizes, iconSizes, isSmallScreen, scale, width]
   );
@@ -405,9 +670,15 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
         <View style={styles.heroBanner}>
           <Image source={HERO_IMAGE} style={styles.heroImage} resizeMode="cover" />
           <View style={styles.heroOverlay}>
-          <Text style={styles.heroGreeting}>{greeting}</Text>
-          <Text style={styles.heroSubtitle}>How can we help you today?</Text>
-        </View>
+            <Text style={styles.heroGreeting}>{greeting}</Text>
+            <Text style={styles.heroSubtitle}>
+              {role === 'mechanic'
+                ? 'Manage your workshop and service jobs.'
+                : role === 'tow'
+                ? 'Handle live tow requests and availability.'
+                : 'How can we help you today?'}
+            </Text>
+          </View>
           <TouchableOpacity
             style={styles.videoCallButton}
             onPress={onVideoCallPress}
@@ -460,12 +731,138 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
             key={item.id}
             style={[styles.cardWrapper, item.id === 'tow' && styles.cardWrapperFullWidth]}
           >
-            <Card onPress={item.onPress} padded>
-              <View style={styles.cardContent}>
-                <Icon name={item.icon} size={iconSizes.lg} color={colors.primary} style={styles.cardIcon} />
-                <Text style={styles.cardTitle}>{item.title}</Text>
-              </View>
-            </Card>
+            {(role === 'mechanic' || role === 'tow') && item.id === 'tow' ? (
+              (() => {
+                const isTow = role === 'tow';
+                const sectionTitle = isTow ? 'Tow truck requests' : 'Roadside help requests';
+                const requests = isTow ? towRequests : roadsideRequests;
+                const onAccept = isTow ? handleAcceptTowRequest : handleAcceptRequest;
+                const onDecline = isTow ? handleDeclineTowRequest : handleDeclineRequest;
+                return (
+                  <Card padded style={styles.requestsCard}>
+                    <View style={styles.requestHeaderRow}>
+                      <View>
+                        <Text style={styles.requestSectionTitle}>{sectionTitle}</Text>
+                        <Text style={styles.requestSectionSubtitle}>
+                          Handle incoming {isTow ? 'tow' : 'roadside'} requests in real time.
+                        </Text>
+                      </View>
+                    </View>
+                    {requests.length === 0 ? (
+                      <View style={styles.emptyRequestsContainer}>
+                        <Icon
+                          name={isTow ? 'car' : 'help-circle'}
+                          size={iconSizes.lg}
+                          color={colors.textSecondary}
+                        />
+                        <Text style={styles.emptyRequestsTitle}>You’re all caught up</Text>
+                        <Text style={styles.emptyRequestsText}>
+                          New {isTow ? 'tow' : 'roadside'} requests will appear here instantly.
+                        </Text>
+                      </View>
+                    ) : (
+                      requests.map((req, index) => (
+                        <TouchableOpacity
+                          key={req.id}
+                          style={[
+                            styles.requestRow,
+                            index === requests.length - 1 && styles.requestRowLast,
+                          ]}
+                          activeOpacity={0.8}
+                          onPress={() => openRequestOnMap(req)}
+                        >
+                          <View style={styles.requestRowMain}>
+                            <View style={styles.requestAvatar}>
+                              <Text style={styles.requestAvatarText}>
+                                {req.userName.charAt(0).toUpperCase()}
+                              </Text>
+                            </View>
+                            <View style={styles.requestInfo}>
+                              <Text style={styles.requestTitle}>
+                                {req.userName} · {req.vehicle}
+                              </Text>
+                              <Text style={styles.requestMeta}>{req.location}</Text>
+                              <Text style={styles.requestMeta}>{req.issue}</Text>
+                            </View>
+                            <View style={styles.requestChip}>
+                              <Text style={styles.requestChipText}>NEW</Text>
+                            </View>
+                          </View>
+                          <View style={styles.requestFooterRow}>
+                            <View style={styles.requestPhoneInline}>
+                              <Icon
+                                name="call"
+                                size={iconSizes.sm}
+                                color={colors.textSecondary}
+                              />
+                              <Text style={styles.requestPhoneText}>{req.phoneNumber}</Text>
+                            </View>
+                            <View style={styles.requestFooterActions}>
+                              <TouchableOpacity
+                                style={styles.iconActionBtn}
+                                onPress={() => openCall(req.phoneNumber)}
+                                activeOpacity={0.8}
+                              >
+                                <Icon
+                                  name="call"
+                                  size={iconSizes.sm}
+                                  color={colors.primary}
+                                />
+                              </TouchableOpacity>
+                              <TouchableOpacity
+                                style={styles.iconActionBtn}
+                                onPress={() => openRequestChat(req)}
+                                activeOpacity={0.8}
+                              >
+                                <Icon
+                                  name="chatbubble"
+                                  size={iconSizes.sm}
+                                  color={colors.primary}
+                                />
+                              </TouchableOpacity>
+                              <TouchableOpacity
+                                style={styles.iconActionBtn}
+                                onPress={() => openRequestOnMap(req)}
+                                activeOpacity={0.8}
+                              >
+                                <Icon
+                                  name="map"
+                                  size={iconSizes.sm}
+                                  color={colors.primary}
+                                />
+                              </TouchableOpacity>
+                            </View>
+                          </View>
+                          <View style={styles.requestActions}>
+                            <TouchableOpacity
+                              style={styles.acceptBtn}
+                              onPress={() => onAccept(req.id)}
+                              activeOpacity={0.9}
+                            >
+                              <Text style={styles.acceptBtnText}>Accept</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                              style={styles.declineBtn}
+                              onPress={() => onDecline(req.id)}
+                              activeOpacity={0.9}
+                            >
+                              <Text style={styles.declineBtnText}>Decline</Text>
+                            </TouchableOpacity>
+                          </View>
+                        </TouchableOpacity>
+                      ))
+                    )}
+                  </Card>
+                );
+              })()
+            ) : (
+              <Card onPress={item.onPress} padded>
+                <View style={styles.cardContent}>
+                  <Icon name={item.icon} size={iconSizes.lg} color={colors.primary} style={styles.cardIcon} />
+                  <Text style={styles.cardTitle}>{item.title}</Text>
+                </View>
+              </Card>
+            )}
           </View>
         ))}
       </View>

@@ -20,7 +20,8 @@ export type IconName =
   | 'videocam'
   | 'call'
   | 'close'
-  | 'image';
+  | 'image'
+  | 'chevron-back';
 
 interface IconProps {
   name: IconName;

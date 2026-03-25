@@ -9,3 +9,6 @@ export { HistoryScreen } from './HistoryScreen';
 export { AssistanceScreen } from './AssistanceScreen';
 export { ProfileScreen } from './ProfileScreen';
 export { VideoCallScreen } from './VideoCallScreen';
+export { ActivitiesScreen } from './ActivitiesScreen';
+export { RequestMapScreen } from './RequestMapScreen';
+export { RequestChatScreen } from './RequestChatScreen';

@@ -5,7 +5,6 @@ import {
   StyleSheet,
   TouchableOpacity,
   ScrollView,
-  Image,
   KeyboardAvoidingView,
   Platform,
 } from 'react-native';
@@ -14,8 +13,8 @@ import { colors } from '../constants/theme';
 import { useResponsive } from '../hooks';
 import { shadows } from '../constants/theme';
 
-const LOGO_IMAGE = 'https://images.unsplash.com/photo-1492144534655-ae79c964c9d7?w=600';
-const HERO_IMAGE = 'https://images.unsplash.com/photo-1486262715619-67b85e0b08d3?w=800';
+const APP_NAME = 'Vehicle Diagnosis';
+const APP_TAGLINE = 'Smart diagnostics at your fingertips';
 
 interface LoginScreenProps {
   onLogin: () => void;
@@ -28,8 +27,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
 }) => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [imageError, setImageError] = useState(false);
-  const { spacing, fontSizes, width, scale } = useResponsive();
+  const { spacing, fontSizes, width, scale, verticalScale } = useResponsive();
 
   const styles = useMemo(
     () =>
@@ -39,53 +37,40 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
           backgroundColor: colors.background,
         },
         heroSection: {
-          height: scale(200),
           backgroundColor: colors.primary,
-          overflow: 'hidden',
-        },
-        heroImage: {
-          width: '100%',
-          height: '100%',
-          resizeMode: 'cover',
-          opacity: 0.85,
-        },
-        heroOverlay: {
-          ...StyleSheet.absoluteFillObject,
-          backgroundColor: 'rgba(37, 99, 235, 0.4)',
-        },
-        logoContainer: {
-          position: 'absolute',
-          bottom: -scale(50),
-          left: 0,
-          right: 0,
-          alignItems: 'center',
-          zIndex: 2,
-        },
-        logoWrapper: {
-          width: scale(100),
-          height: scale(100),
-          borderRadius: scale(24),
-          backgroundColor: colors.card,
+          paddingTop: verticalScale(60),
+          paddingBottom: verticalScale(40),
           alignItems: 'center',
           justifyContent: 'center',
-          overflow: 'hidden',
+          borderBottomLeftRadius: scale(32),
+          borderBottomRightRadius: scale(32),
           ...shadows.lg,
         },
-        logoImage: {
-          width: '100%',
-          height: '100%',
-          resizeMode: 'cover',
-        },
-        logoFallback: {
-          width: '100%',
-          height: '100%',
+        logoCircle: {
+          width: scale(100),
+          height: scale(100),
+          borderRadius: scale(50),
+          backgroundColor: '#FFFFFF',
           alignItems: 'center',
           justifyContent: 'center',
-          backgroundColor: colors.primary,
+          marginBottom: spacing.lg,
+          ...shadows.md,
+        },
+        appName: {
+          fontSize: fontSizes.xxxl,
+          fontWeight: '700',
+          color: '#FFFFFF',
+          marginBottom: spacing.xs,
+          textAlign: 'center',
+        },
+        appTagline: {
+          fontSize: fontSizes.md,
+          color: 'rgba(255, 255, 255, 0.9)',
+          textAlign: 'center',
         },
         scrollContent: {
           flexGrow: 1,
-          paddingTop: scale(70),
+          paddingTop: spacing.xl,
           paddingHorizontal: spacing.lg,
           paddingBottom: spacing.xl * 2,
         },
@@ -161,41 +146,17 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
           fontWeight: '700',
         },
       }),
-    [spacing, fontSizes, width, scale]
+    [spacing, fontSizes, width, scale, verticalScale]
   );
 
   return (
     <View style={styles.container}>
       <View style={styles.heroSection}>
-        {!imageError ? (
-          <Image
-            source={{ uri: HERO_IMAGE }}
-            style={styles.heroImage}
-            resizeMode="cover"
-            onError={() => setImageError(true)}
-          />
-        ) : (
-          <View style={[StyleSheet.absoluteFillObject, styles.logoFallback]}>
-            <Icon name="car" size={scale(80)} color="#FFFFFF" />
-          </View>
-        )}
-        <View style={styles.heroOverlay} />
-        <View style={styles.logoContainer}>
-          <View style={styles.logoWrapper}>
-            {!imageError ? (
-              <Image
-                source={{ uri: LOGO_IMAGE }}
-                style={styles.logoImage}
-                resizeMode="cover"
-                onError={() => setImageError(true)}
-              />
-            ) : (
-              <View style={[styles.logoFallback, { backgroundColor: colors.primary }]}>
-                <Icon name="car" size={scale(44)} color="#FFFFFF" />
-              </View>
-            )}
-          </View>
+        <View style={styles.logoCircle}>
+          <Icon name="car" size={scale(50)} color={colors.primary} />
         </View>
+        <Text style={styles.appName}>{APP_NAME}</Text>
+        <Text style={styles.appTagline}>{APP_TAGLINE}</Text>
       </View>
 
       <KeyboardAvoidingView
