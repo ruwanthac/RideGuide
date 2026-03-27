@@ -9,7 +9,10 @@ import {
   TouchableOpacity,
   TextInput,
   Modal,
+  Alert,
+  Image,
 } from 'react-native';
+import * as ImagePicker from 'expo-image-picker';
 import { useNavigation } from '@react-navigation/native';
 import { Card, PrimaryButton } from '../';
 import { colors } from '../../constants/theme';
@@ -25,21 +28,48 @@ const DUMMY_COMPLETED_JOBS = 14;
 const DUMMY_LOCATION = 'Near Colombo 07';
 
 type AddMode = 'company' | 'truck';
+type VerificationStatus = 'submitted' | 'approved' | 'rejected';
+type VerificationDocField =
+  | 'businessRegistrationCopy'
+  | 'companyNicCopy'
+  | 'vehicleRegistrationCopy'
+  | 'truckNicCopy';
+
+interface CompanyProfile {
+  name: string;
+  businessRegistrationCopy: string;
+  nicCopy: string;
+  verificationStatus: VerificationStatus;
+}
+
+interface TowTruck {
+  id: string;
+  name: string;
+  plate?: string;
+  isActive: boolean;
+  vehicleRegistrationCopy: string;
+  nicCopy: string;
+  verificationStatus: VerificationStatus;
+}
 
 export const TowDashboard: React.FC<TowDashboardProps> = ({ driverName }) => {
   const { spacing, fontSizes, borderRadius, scale, iconSizes } = useResponsive();
   const navigation = useNavigation<{ navigate: (name: string) => void }>();
   const fadeAnim = useRef(new Animated.Value(0)).current;
 
-  const [companyName, setCompanyName] = useState<string>('');
-  const [towTrucks, setTowTrucks] = useState<Array<{ id: string; name: string; plate?: string }>>(
-    []
-  );
+  const [companyProfile, setCompanyProfile] = useState<CompanyProfile | null>(null);
+  const [towTrucks, setTowTrucks] = useState<TowTruck[]>([]);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [addMode, setAddMode] = useState<AddMode>('truck');
   const [truckNameDraft, setTruckNameDraft] = useState('');
   const [truckPlateDraft, setTruckPlateDraft] = useState('');
   const [companyNameDraft, setCompanyNameDraft] = useState('');
+  const [businessRegistrationDraft, setBusinessRegistrationDraft] = useState<string | null>(null);
+  const [companyNicDraft, setCompanyNicDraft] = useState<string | null>(null);
+  const [vehicleRegistrationDraft, setVehicleRegistrationDraft] = useState<string | null>(null);
+  const [truckNicDraft, setTruckNicDraft] = useState<string | null>(null);
+  const [truckActiveDraft, setTruckActiveDraft] = useState(true);
+  const [isAvailable, setIsAvailable] = useState(true);
 
   const styles = useMemo(
     () =>
@@ -198,6 +228,80 @@ export const TowDashboard: React.FC<TowDashboardProps> = ({ driverName }) => {
           color: colors.text,
           fontWeight: '600',
         },
+        verificationBadge: {
+          marginTop: spacing.xs,
+          alignSelf: 'flex-start',
+          paddingHorizontal: spacing.sm,
+          paddingVertical: spacing.xs / 2,
+          borderRadius: borderRadius.full,
+          backgroundColor: 'rgba(245,158,11,0.16)',
+        },
+        verificationBadgeText: {
+          fontSize: fontSizes.xs,
+          fontWeight: '600',
+          color: '#B45309',
+        },
+        docCopyText: {
+          fontSize: fontSizes.xs,
+          color: colors.textSecondary,
+          marginTop: 2,
+        },
+        docUploadCard: {
+          borderWidth: 1,
+          borderColor: colors.border,
+          borderRadius: borderRadius.lg,
+          backgroundColor: colors.background,
+          padding: spacing.sm,
+          marginBottom: spacing.md,
+        },
+        docUploadLabel: {
+          fontSize: fontSizes.xs,
+          fontWeight: '600',
+          color: colors.textSecondary,
+          textTransform: 'uppercase',
+          marginBottom: spacing.xs,
+        },
+        docPreviewImage: {
+          width: '100%',
+          height: scale(120),
+          borderRadius: borderRadius.md,
+          backgroundColor: colors.card,
+        },
+        docPreviewText: {
+          fontSize: fontSizes.xs,
+          color: colors.textSecondary,
+          marginTop: spacing.xs,
+        },
+        docUploadActions: {
+          flexDirection: 'row',
+          marginTop: spacing.sm,
+          alignItems: 'stretch',
+        },
+        docUploadActionBtn: {
+          flex: 1,
+          flexDirection: 'row',
+          alignItems: 'center',
+          justifyContent: 'center',
+          minHeight: scale(44),
+          paddingVertical: spacing.sm,
+          paddingHorizontal: spacing.sm,
+          borderRadius: borderRadius.md,
+          borderWidth: 1,
+          borderColor: colors.primary,
+          backgroundColor: 'rgba(37,99,235,0.06)',
+        },
+        docUploadActionBtnSpacer: {
+          width: spacing.sm,
+        },
+        docUploadActionIcon: {
+          marginRight: spacing.xs,
+        },
+        docUploadActionText: {
+          fontSize: fontSizes.sm,
+          fontWeight: '600',
+          color: colors.primary,
+          textAlign: 'center',
+        },
         fleetEmptyText: {
           fontSize: fontSizes.sm,
           color: colors.textSecondary,
@@ -307,6 +411,11 @@ export const TowDashboard: React.FC<TowDashboardProps> = ({ driverName }) => {
     setTruckNameDraft('');
     setTruckPlateDraft('');
     setCompanyNameDraft('');
+    setBusinessRegistrationDraft(null);
+    setCompanyNicDraft(null);
+    setVehicleRegistrationDraft(null);
+    setTruckNicDraft(null);
+    setTruckActiveDraft(true);
   };
 
   const closeAddModal = () => {
@@ -315,21 +424,168 @@ export const TowDashboard: React.FC<TowDashboardProps> = ({ driverName }) => {
 
   const saveDraft = () => {
     if (addMode === 'company') {
-      const cleaned = companyNameDraft.trim();
-      if (!cleaned) return;
-      setCompanyName(cleaned);
+      const cleanedName = companyNameDraft.trim();
+      const cleanedBusinessReg = (businessRegistrationDraft ?? '').trim();
+      const cleanedNicCopy = (companyNicDraft ?? '').trim();
+      if (!cleanedName || !cleanedBusinessReg || !cleanedNicCopy) return;
+      setCompanyProfile({
+        name: cleanedName,
+        businessRegistrationCopy: cleanedBusinessReg,
+        nicCopy: cleanedNicCopy,
+        verificationStatus: 'submitted',
+      });
       closeAddModal();
       return;
     }
 
     const cleanedName = truckNameDraft.trim();
+    const cleanedVehicleReg = (vehicleRegistrationDraft ?? '').trim();
+    const cleanedNicCopy = (truckNicDraft ?? '').trim();
     if (!cleanedName) return;
+    if (!cleanedVehicleReg || !cleanedNicCopy) return;
     const cleanedPlate = truckPlateDraft.trim() || undefined;
     setTowTrucks((prev) => [
       ...prev,
-      { id: `truck-${Date.now()}`, name: cleanedName, plate: cleanedPlate },
+      {
+        id: `truck-${Date.now()}`,
+        name: cleanedName,
+        plate: cleanedPlate,
+        isActive: truckActiveDraft,
+        vehicleRegistrationCopy: cleanedVehicleReg,
+        nicCopy: cleanedNicCopy,
+        verificationStatus: 'submitted',
+      },
     ]);
     closeAddModal();
+  };
+
+  const activeTowTrucks = towTrucks.filter((t) => t.isActive);
+  const inactiveTowTrucks = towTrucks.filter((t) => !t.isActive);
+
+  const setTruckActive = (truckId: string, nextActive: boolean) => {
+    setTowTrucks((prev) =>
+      prev.map((t) => (t.id === truckId ? { ...t, isActive: nextActive } : t))
+    );
+  };
+
+  const renderDocUploadField = (
+    label: string,
+    field: VerificationDocField,
+    value: string | null
+  ) => (
+    <View style={styles.docUploadCard}>
+      <Text style={styles.docUploadLabel}>{label}</Text>
+      {value ? (
+        <>
+          <Image source={{ uri: value }} style={styles.docPreviewImage} />
+          <Text numberOfLines={1} style={styles.docPreviewText}>
+            Uploaded: {value}
+          </Text>
+        </>
+      ) : (
+        <Text style={styles.docPreviewText}>No document image uploaded yet.</Text>
+      )}
+      <View style={styles.docUploadActions}>
+        <TouchableOpacity
+          style={styles.docUploadActionBtn}
+          onPress={() => pickDocFromGallery(field)}
+          activeOpacity={0.8}
+        >
+          <Icon
+            name="image"
+            size={iconSizes.sm}
+            color={colors.primary}
+            style={styles.docUploadActionIcon}
+          />
+          <Text numberOfLines={1} style={styles.docUploadActionText}>
+            Gallery
+          </Text>
+        </TouchableOpacity>
+        <View style={styles.docUploadActionBtnSpacer} />
+        <TouchableOpacity
+          style={styles.docUploadActionBtn}
+          onPress={() => captureDocWithCamera(field)}
+          activeOpacity={0.8}
+        >
+          <Icon
+            name="camera"
+            size={iconSizes.sm}
+            color={colors.primary}
+            style={styles.docUploadActionIcon}
+          />
+          <Text numberOfLines={1} style={styles.docUploadActionText}>
+            Take Photo
+          </Text>
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+
+  const requestGalleryPermission = async () => {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert('Permission required', 'Please allow gallery access to upload documents.');
+      return false;
+    }
+    return true;
+  };
+
+  const requestCameraPermission = async () => {
+    const { status } = await ImagePicker.requestCameraPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert('Permission required', 'Please allow camera access to capture documents.');
+      return false;
+    }
+    return true;
+  };
+
+  const setDocValue = (field: VerificationDocField, uri: string) => {
+    switch (field) {
+      case 'businessRegistrationCopy':
+        setBusinessRegistrationDraft(uri);
+        break;
+      case 'companyNicCopy':
+        setCompanyNicDraft(uri);
+        break;
+      case 'vehicleRegistrationCopy':
+        setVehicleRegistrationDraft(uri);
+        break;
+      case 'truckNicCopy':
+        setTruckNicDraft(uri);
+        break;
+    }
+  };
+
+  const pickDocFromGallery = async (field: VerificationDocField) => {
+    if (!(await requestGalleryPermission())) return;
+    try {
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        allowsEditing: true,
+        quality: 0.8,
+      });
+      if (!result.canceled && result.assets[0]) {
+        setDocValue(field, result.assets[0].uri);
+      }
+    } catch {
+      Alert.alert('Upload failed', 'Unable to pick image from gallery.');
+    }
+  };
+
+  const captureDocWithCamera = async (field: VerificationDocField) => {
+    if (!(await requestCameraPermission())) return;
+    try {
+      const result = await ImagePicker.launchCameraAsync({
+        mediaTypes: ['images'],
+        allowsEditing: true,
+        quality: 0.8,
+      });
+      if (!result.canceled && result.assets[0]) {
+        setDocValue(field, result.assets[0].uri);
+      }
+    } catch {
+      Alert.alert('Capture failed', 'Unable to capture image from camera.');
+    }
   };
 
   return (
@@ -365,9 +621,11 @@ export const TowDashboard: React.FC<TowDashboardProps> = ({ driverName }) => {
             </View>
           </View>
           <Switch
-            value
+            value={isAvailable}
             trackColor={styles.switchTrackColor}
-            thumbColor={styles.switchThumbColor.true}
+            thumbColor={
+              isAvailable ? styles.switchThumbColor.true : styles.switchThumbColor.false
+            }
           />
         </View>
       </Card>
@@ -426,12 +684,18 @@ export const TowDashboard: React.FC<TowDashboardProps> = ({ driverName }) => {
 
         <View style={styles.fleetSection}>
           <Text style={styles.fleetSectionLabel}>Company</Text>
-          {companyName ? (
+          {companyProfile ? (
             <View>
-              <Text style={styles.fleetValue}>{companyName}</Text>
-              <Text style={styles.fleetEmptyText}>
-                You can update this by adding a new company.
+              <Text style={styles.fleetValue}>{companyProfile.name}</Text>
+              <Text style={styles.docCopyText}>
+                Business registration copy: {companyProfile.businessRegistrationCopy}
               </Text>
+              <Text style={styles.docCopyText}>NIC copy: {companyProfile.nicCopy}</Text>
+              <View style={styles.verificationBadge}>
+                <Text style={styles.verificationBadgeText}>
+                  Verification {companyProfile.verificationStatus}
+                </Text>
+              </View>
             </View>
           ) : (
             <Text style={styles.fleetEmptyText}>No company added yet.</Text>
@@ -443,23 +707,97 @@ export const TowDashboard: React.FC<TowDashboardProps> = ({ driverName }) => {
           {towTrucks.length === 0 ? (
             <Text style={styles.fleetEmptyText}>No tow trucks added yet.</Text>
           ) : (
-            <View style={styles.fleetTruckList}>
-              {towTrucks.map((t, idx) => (
-                <View
-                  key={t.id}
-                  style={[
-                    styles.fleetTruckRow,
-                    idx === towTrucks.length - 1 && styles.fleetTruckRowLast,
-                  ]}
-                >
-                  <View style={{ flex: 1, paddingRight: spacing.sm }}>
-                    <Text style={styles.fleetTruckName}>{t.name}</Text>
-                    {t.plate ? <Text style={styles.fleetTruckPlate}>{t.plate}</Text> : null}
+            <>
+              {!isAvailable ? (
+                <Text style={styles.fleetEmptyText}>
+                  You’re offline. Active trucks won’t be visible to nearby drivers.
+                </Text>
+              ) : null}
+
+              <View style={{ marginTop: spacing.md }}>
+                <Text style={styles.fleetSectionLabel}>Active</Text>
+                {activeTowTrucks.length === 0 ? (
+                  <Text style={styles.fleetEmptyText}>No active trucks.</Text>
+                ) : (
+                  <View style={styles.fleetTruckList}>
+                    {activeTowTrucks.map((t, idx) => (
+                      <View
+                        key={t.id}
+                        style={[
+                          styles.fleetTruckRow,
+                          idx === activeTowTrucks.length - 1 &&
+                            styles.fleetTruckRowLast,
+                        ]}
+                      >
+                        <View style={{ flex: 1, paddingRight: spacing.sm }}>
+                          <Text style={styles.fleetTruckName}>{t.name}</Text>
+                          {t.plate ? (
+                            <Text style={styles.fleetTruckPlate}>{t.plate}</Text>
+                          ) : null}
+                          <Text style={styles.docCopyText}>
+                            Vehicle registration copy: {t.vehicleRegistrationCopy}
+                          </Text>
+                          <Text style={styles.docCopyText}>NIC copy: {t.nicCopy}</Text>
+                          <View style={styles.verificationBadge}>
+                            <Text style={styles.verificationBadgeText}>
+                              Verification {t.verificationStatus}
+                            </Text>
+                          </View>
+                        </View>
+                        <Switch
+                          value={true}
+                          onValueChange={(v) => setTruckActive(t.id, v)}
+                          trackColor={styles.switchTrackColor}
+                          thumbColor={styles.switchThumbColor.true}
+                        />
+                      </View>
+                    ))}
                   </View>
-                  <Icon name="map" size={iconSizes.sm} color={colors.textSecondary} />
-                </View>
-              ))}
-            </View>
+                )}
+              </View>
+
+              <View style={{ marginTop: spacing.lg }}>
+                <Text style={styles.fleetSectionLabel}>Inactive</Text>
+                {inactiveTowTrucks.length === 0 ? (
+                  <Text style={styles.fleetEmptyText}>No inactive trucks.</Text>
+                ) : (
+                  <View style={styles.fleetTruckList}>
+                    {inactiveTowTrucks.map((t, idx) => (
+                      <View
+                        key={t.id}
+                        style={[
+                          styles.fleetTruckRow,
+                          idx === inactiveTowTrucks.length - 1 &&
+                            styles.fleetTruckRowLast,
+                        ]}
+                      >
+                        <View style={{ flex: 1, paddingRight: spacing.sm }}>
+                          <Text style={styles.fleetTruckName}>{t.name}</Text>
+                          {t.plate ? (
+                            <Text style={styles.fleetTruckPlate}>{t.plate}</Text>
+                          ) : null}
+                          <Text style={styles.docCopyText}>
+                            Vehicle registration copy: {t.vehicleRegistrationCopy}
+                          </Text>
+                          <Text style={styles.docCopyText}>NIC copy: {t.nicCopy}</Text>
+                          <View style={styles.verificationBadge}>
+                            <Text style={styles.verificationBadgeText}>
+                              Verification {t.verificationStatus}
+                            </Text>
+                          </View>
+                        </View>
+                        <Switch
+                          value={false}
+                          onValueChange={(v) => setTruckActive(t.id, v)}
+                          trackColor={styles.switchTrackColor}
+                          thumbColor={styles.switchThumbColor.false}
+                        />
+                      </View>
+                    ))}
+                  </View>
+                )}
+              </View>
+            </>
           )}
         </View>
 
@@ -486,8 +824,8 @@ export const TowDashboard: React.FC<TowDashboardProps> = ({ driverName }) => {
             </Text>
             <Text style={styles.modalSubtitle}>
               {addMode === 'company'
-                ? 'Add your company name so nearby drivers know who to contact.'
-                : 'Add a tow truck for your fleet. You can include a plate/identifier.'}
+                ? 'Add company details and required verification document copies.'
+                : 'Add tow truck details and required verification document copies.'}
             </Text>
 
             {addMode === 'company' ? (
@@ -501,6 +839,12 @@ export const TowDashboard: React.FC<TowDashboardProps> = ({ driverName }) => {
                   style={styles.modalInput}
                   autoCapitalize="words"
                 />
+                {renderDocUploadField(
+                  'Business registration document copy',
+                  'businessRegistrationCopy',
+                  businessRegistrationDraft
+                )}
+                {renderDocUploadField('NIC copy', 'companyNicCopy', companyNicDraft)}
               </>
             ) : (
               <>
@@ -522,6 +866,35 @@ export const TowDashboard: React.FC<TowDashboardProps> = ({ driverName }) => {
                   style={styles.modalInput}
                   autoCapitalize="characters"
                 />
+                {renderDocUploadField(
+                  'Vehicle registration document copy',
+                  'vehicleRegistrationCopy',
+                  vehicleRegistrationDraft
+                )}
+                {renderDocUploadField('NIC copy', 'truckNicCopy', truckNicDraft)}
+
+                <View
+                  style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    marginTop: spacing.sm,
+                  }}
+                >
+                  <Text style={[styles.modalFieldLabel, { marginBottom: 0 }]}>
+                    Mark Active
+                  </Text>
+                  <Switch
+                    value={truckActiveDraft}
+                    onValueChange={setTruckActiveDraft}
+                    trackColor={styles.switchTrackColor}
+                    thumbColor={
+                      truckActiveDraft
+                        ? styles.switchThumbColor.true
+                        : styles.switchThumbColor.false
+                    }
+                  />
+                </View>
               </>
             )}
 
@@ -547,8 +920,12 @@ export const TowDashboard: React.FC<TowDashboardProps> = ({ driverName }) => {
                     onPress={saveDraft}
                     disabled={
                       addMode === 'company'
-                        ? companyNameDraft.trim().length === 0
-                        : truckNameDraft.trim().length === 0
+                        ? companyNameDraft.trim().length === 0 ||
+                          !businessRegistrationDraft ||
+                          !companyNicDraft
+                        : truckNameDraft.trim().length === 0 ||
+                          !vehicleRegistrationDraft ||
+                          !truckNicDraft
                     }
                   />
                 </View>

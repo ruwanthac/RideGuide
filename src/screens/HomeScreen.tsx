@@ -82,20 +82,24 @@ interface RoadsideRequest {
   phoneNumber: string;
   latitude: number;
   longitude: number;
+  createdAt: number;
 }
 
+const REQUEST_TTL_MS = 30 * 60 * 1000;
+const now = Date.now();
+
 const DUMMY_ROADSIDE_REQUESTS: RoadsideRequest[] = [
-  { id: 'r1', userName: 'Alex', location: 'Colombo 07', issue: 'Battery dead', vehicle: 'Toyota Camry', phoneNumber: '+94771234567', latitude: 6.9271, longitude: 79.8612 },
-  { id: 'r2', userName: 'Sarah', location: 'Kandy Rd, Kadawata', issue: 'Flat tire', vehicle: 'Honda Civic', phoneNumber: '+94772345678', latitude: 7.0012, longitude: 79.9485 },
-  { id: 'r3', userName: 'James', location: 'Galle Rd, Dehiwala', issue: 'Out of fuel', vehicle: 'Nissan Leaf', phoneNumber: '+94773456789', latitude: 6.8408, longitude: 79.8631 },
+  { id: 'r1', userName: 'Alex', location: 'Colombo 07', issue: 'Battery dead', vehicle: 'Toyota Camry', phoneNumber: '+94771234567', latitude: 6.9271, longitude: 79.8612, createdAt: now - 2 * 60 * 1000 },
+  { id: 'r2', userName: 'Sarah', location: 'Kandy Rd, Kadawata', issue: 'Flat tire', vehicle: 'Honda Civic', phoneNumber: '+94772345678', latitude: 7.0012, longitude: 79.9485, createdAt: now - 7 * 60 * 1000 },
+  { id: 'r3', userName: 'James', location: 'Galle Rd, Dehiwala', issue: 'Out of fuel', vehicle: 'Nissan Leaf', phoneNumber: '+94773456789', latitude: 6.8408, longitude: 79.8631, createdAt: now - 12 * 60 * 1000 },
 ];
 
 type TowRequest = RoadsideRequest;
 
 const DUMMY_TOW_REQUESTS: TowRequest[] = [
-  { id: 't1', userName: 'Maria', location: 'Nugegoda, Colombo', issue: 'Engine breakdown', vehicle: 'Mitsubishi Lancer', phoneNumber: '+94774567890', latitude: 6.8636, longitude: 79.8977 },
-  { id: 't2', userName: 'David', location: 'Malabe', issue: 'Transmission failure', vehicle: 'Honda Accord', phoneNumber: '+94775678901', latitude: 6.9271, longitude: 79.9632 },
-  { id: 't3', userName: 'Priya', location: 'Ratmalana', issue: 'Accident – need tow', vehicle: 'Suzuki Swift', phoneNumber: '+94776789012', latitude: 6.8219, longitude: 79.8865 },
+  { id: 't1', userName: 'Maria', location: 'Nugegoda, Colombo', issue: 'Engine breakdown', vehicle: 'Mitsubishi Lancer', phoneNumber: '+94774567890', latitude: 6.8636, longitude: 79.8977, createdAt: now - 1 * 60 * 1000 },
+  { id: 't2', userName: 'David', location: 'Malabe', issue: 'Transmission failure', vehicle: 'Honda Accord', phoneNumber: '+94775678901', latitude: 6.9271, longitude: 79.9632, createdAt: now - 9 * 60 * 1000 },
+  { id: 't3', userName: 'Priya', location: 'Ratmalana', issue: 'Accident – need tow', vehicle: 'Suzuki Swift', phoneNumber: '+94776789012', latitude: 6.8219, longitude: 79.8865, createdAt: now - 15 * 60 * 1000 },
 ];
 
 export const HomeScreen: React.FC<HomeScreenProps> = ({
@@ -111,6 +115,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   const [quickInput, setQuickInput] = useState('');
   const [bannerIndex, setBannerIndex] = useState(0);
   const [refreshing, setRefreshing] = useState(false);
+  const [timeNow, setTimeNow] = useState(Date.now());
   const [roadsideRequests, setRoadsideRequests] = useState<RoadsideRequest[]>(DUMMY_ROADSIDE_REQUESTS);
   const [towRequests, setTowRequests] = useState<TowRequest[]>(DUMMY_TOW_REQUESTS);
   const bannerScrollRef = useRef<ScrollView>(null);
@@ -119,15 +124,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
     setRoadsideRequests((prev) => prev.filter((r) => r.id !== id));
   };
 
-  const handleDeclineRequest = (id: string) => {
-    setRoadsideRequests((prev) => prev.filter((r) => r.id !== id));
-  };
-
   const handleAcceptTowRequest = (id: string) => {
-    setTowRequests((prev) => prev.filter((r) => r.id !== id));
-  };
-
-  const handleDeclineTowRequest = (id: string) => {
     setTowRequests((prev) => prev.filter((r) => r.id !== id));
   };
 
@@ -171,6 +168,28 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
     }, BANNER_AUTO_SCROLL_INTERVAL);
     return () => clearInterval(timer);
   }, []);
+
+  useEffect(() => {
+    const removeExpiredRequests = () => {
+      const current = Date.now();
+      setTimeNow(current);
+      const cutoff = current - REQUEST_TTL_MS;
+      setRoadsideRequests((prev) => prev.filter((r) => r.createdAt >= cutoff));
+      setTowRequests((prev) => prev.filter((r) => r.createdAt >= cutoff));
+    };
+
+    removeExpiredRequests();
+    const timer = setInterval(removeExpiredRequests, 15000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const formatRemainingTime = (createdAt: number) => {
+    const remainingMs = Math.max(0, createdAt + REQUEST_TTL_MS - timeNow);
+    const totalSeconds = Math.ceil(remainingMs / 1000);
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds % 60;
+    return `${minutes}:${String(seconds).padStart(2, '0')}`;
+  };
 
   useEffect(() => {
     bannerScrollRef.current?.scrollTo({
@@ -585,7 +604,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
         },
         requestActions: {
           flexDirection: 'row',
-          justifyContent: 'space-between',
+          justifyContent: 'flex-start',
           marginTop: spacing.sm,
         },
         acceptBtn: {
@@ -596,25 +615,10 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
           minWidth: 80,
           alignItems: 'center',
         },
-        declineBtn: {
-          paddingVertical: spacing.sm,
-          paddingHorizontal: spacing.md,
-          borderRadius: 8,
-          backgroundColor: colors.card,
-          borderWidth: 1,
-          borderColor: colors.border,
-          minWidth: 80,
-          alignItems: 'center',
-        },
         acceptBtnText: {
           fontSize: fontSizes.sm,
           fontWeight: '600',
           color: '#FFFFFF',
-        },
-        declineBtnText: {
-          fontSize: fontSizes.sm,
-          fontWeight: '500',
-          color: colors.textSecondary,
         },
         viewMapBtn: {
           flexDirection: 'row',
@@ -737,7 +741,6 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                 const sectionTitle = isTow ? 'Tow truck requests' : 'Roadside help requests';
                 const requests = isTow ? towRequests : roadsideRequests;
                 const onAccept = isTow ? handleAcceptTowRequest : handleAcceptRequest;
-                const onDecline = isTow ? handleDeclineTowRequest : handleDeclineRequest;
                 return (
                   <Card padded style={styles.requestsCard}>
                     <View style={styles.requestHeaderRow}>
@@ -785,7 +788,9 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                               <Text style={styles.requestMeta}>{req.issue}</Text>
                             </View>
                             <View style={styles.requestChip}>
-                              <Text style={styles.requestChipText}>NEW</Text>
+                              <Text style={styles.requestChipText}>
+                                {formatRemainingTime(req.createdAt)}
+                              </Text>
                             </View>
                           </View>
                           <View style={styles.requestFooterRow}>
@@ -840,13 +845,6 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                               activeOpacity={0.9}
                             >
                               <Text style={styles.acceptBtnText}>Accept</Text>
-                            </TouchableOpacity>
-                            <TouchableOpacity
-                              style={styles.declineBtn}
-                              onPress={() => onDecline(req.id)}
-                              activeOpacity={0.9}
-                            >
-                              <Text style={styles.declineBtnText}>Decline</Text>
                             </TouchableOpacity>
                           </View>
                         </TouchableOpacity>
