@@ -37,6 +37,10 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({ onLogout }) => {
   const [showProfiles, setShowProfiles] = useState(false);
 
   const currentVehicle = vehicles.find((v) => v.id === selectedVehicleId) ?? vehicles[0];
+  const currentVehicleDisplay =
+    currentVehicle?.makeModel?.trim() ||
+    currentVehicle?.label ||
+    'No vehicle selected';
 
   const startEditingVehicle = () => {
     setEditMakeModel(currentVehicle.makeModel);
@@ -150,6 +154,20 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({ onLogout }) => {
         subtitle: {
           fontSize: fontSizes.sm,
           color: colors.textSecondary,
+          marginTop: spacing.xs,
+        },
+        headerUserBlock: {
+          marginTop: spacing.md,
+        },
+        headerUserName: {
+          fontSize: fontSizes.xxl,
+          fontWeight: '700',
+          color: colors.primary,
+        },
+        headerSelectedVehicle: {
+          fontSize: fontSizes.md,
+          fontWeight: '400',
+          color: colors.text,
           marginTop: spacing.xs,
         },
         scroll: { flex: 1 },
@@ -370,6 +388,14 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({ onLogout }) => {
       <View style={styles.header}>
         <Text style={styles.title}>Profile</Text>
         <Text style={styles.subtitle}>Manage your account & vehicle</Text>
+        {userRole === 'owner' ? (
+          <View style={styles.headerUserBlock}>
+            <Text style={styles.headerUserName}>{userName}</Text>
+            <Text style={styles.headerSelectedVehicle} numberOfLines={2}>
+              {currentVehicleDisplay}
+            </Text>
+          </View>
+        ) : null}
       </View>
 
       <ScrollView

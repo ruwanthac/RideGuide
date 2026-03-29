@@ -616,12 +616,15 @@ export const TowDashboard: React.FC<TowDashboardProps> = ({ driverName }) => {
             </Text>
             <View className="availability-pill" style={styles.availabilityPill}>
               <Text style={styles.availabilityPillText}>
-                Live · visible to nearby drivers
+                {isAvailable
+                  ? 'Live · visible to nearby drivers'
+                  : 'Offline · not visible to drivers'}
               </Text>
             </View>
           </View>
           <Switch
             value={isAvailable}
+            onValueChange={setIsAvailable}
             trackColor={styles.switchTrackColor}
             thumbColor={
               isAvailable ? styles.switchThumbColor.true : styles.switchThumbColor.false
