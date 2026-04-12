@@ -1,6 +1,15 @@
-import React, { createContext, useContext, useMemo, useState } from 'react';
+import React, {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+} from 'react';
+import { useAuth } from './AuthContext';
+import { updateUserProfile, type UserRole as BackendUserRole } from '../backend';
 
-export type UserRole = 'owner' | 'mechanic' | 'tow';
+export type UserRole = BackendUserRole;
 
 interface UserRoleContextValue {
   role: UserRole;
@@ -13,8 +22,30 @@ const UserRoleContext = createContext<UserRoleContextValue | undefined>(undefine
 export const UserRoleProvider: React.FC<{ children: React.ReactNode }> = ({
   children,
 }) => {
-  const [role, setRole] = useState<UserRole>('owner');
-  const name = 'Alex';
+  const { user, profile, refreshProfile } = useAuth();
+  const [role, setRoleState] = useState<UserRole>('owner');
+
+  useEffect(() => {
+    if (profile?.role) {
+      setRoleState(profile.role);
+    }
+  }, [profile?.role, user?.uid]);
+
+  const setRole = useCallback(
+    (next: UserRole) => {
+      setRoleState(next);
+      if (user?.uid) {
+        void updateUserProfile(user.uid, { role: next })
+          .then(() => refreshProfile())
+          .catch(() => {
+            /* offline / rules; local role still applied */
+          });
+      }
+    },
+    [user?.uid, refreshProfile]
+  );
+
+  const name = profile?.displayName?.trim() || 'Alex';
 
   const value = useMemo(
     () => ({
@@ -22,7 +53,7 @@ export const UserRoleProvider: React.FC<{ children: React.ReactNode }> = ({
       setRole,
       name,
     }),
-    [role]
+    [role, name, setRole]
   );
 
   return (
@@ -37,4 +68,3 @@ export const useUserRole = (): UserRoleContextValue => {
   }
   return ctx;
 };
-

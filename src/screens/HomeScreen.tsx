@@ -20,6 +20,11 @@ import type { IconName } from '../components';
 import { useResponsive } from '../hooks';
 import { useUserRole } from '../context/UserRoleContext';
 import { useNavigation } from '@react-navigation/native';
+import {
+  subscribeServiceRequests,
+  deleteServiceRequest,
+  type ServiceRequestRow,
+} from '../backend';
 
 interface MenuItem {
   id: string;
@@ -86,21 +91,23 @@ interface RoadsideRequest {
 }
 
 const REQUEST_TTL_MS = 30 * 60 * 1000;
-const now = Date.now();
-
-const DUMMY_ROADSIDE_REQUESTS: RoadsideRequest[] = [
-  { id: 'r1', userName: 'Alex', location: 'Colombo 07', issue: 'Battery dead', vehicle: 'Toyota Camry', phoneNumber: '+94771234567', latitude: 6.9271, longitude: 79.8612, createdAt: now - 2 * 60 * 1000 },
-  { id: 'r2', userName: 'Sarah', location: 'Kandy Rd, Kadawata', issue: 'Flat tire', vehicle: 'Honda Civic', phoneNumber: '+94772345678', latitude: 7.0012, longitude: 79.9485, createdAt: now - 7 * 60 * 1000 },
-  { id: 'r3', userName: 'James', location: 'Galle Rd, Dehiwala', issue: 'Out of fuel', vehicle: 'Nissan Leaf', phoneNumber: '+94773456789', latitude: 6.8408, longitude: 79.8631, createdAt: now - 12 * 60 * 1000 },
-];
 
 type TowRequest = RoadsideRequest;
 
-const DUMMY_TOW_REQUESTS: TowRequest[] = [
-  { id: 't1', userName: 'Maria', location: 'Nugegoda, Colombo', issue: 'Engine breakdown', vehicle: 'Mitsubishi Lancer', phoneNumber: '+94774567890', latitude: 6.8636, longitude: 79.8977, createdAt: now - 1 * 60 * 1000 },
-  { id: 't2', userName: 'David', location: 'Malabe', issue: 'Transmission failure', vehicle: 'Honda Accord', phoneNumber: '+94775678901', latitude: 6.9271, longitude: 79.9632, createdAt: now - 9 * 60 * 1000 },
-  { id: 't3', userName: 'Priya', location: 'Ratmalana', issue: 'Accident – need tow', vehicle: 'Suzuki Swift', phoneNumber: '+94776789012', latitude: 6.8219, longitude: 79.8865, createdAt: now - 15 * 60 * 1000 },
-];
+function mapRowToRequest(row: ServiceRequestRow): RoadsideRequest {
+  const createdAt = row.createdAt?.toMillis?.() ?? Date.now();
+  return {
+    id: row.id,
+    userName: row.userName ?? '',
+    location: row.location ?? '',
+    issue: row.issue ?? '',
+    vehicle: row.vehicle ?? '',
+    phoneNumber: row.phoneNumber ?? '',
+    latitude: typeof row.latitude === 'number' ? row.latitude : 0,
+    longitude: typeof row.longitude === 'number' ? row.longitude : 0,
+    createdAt,
+  };
+}
 
 export const HomeScreen: React.FC<HomeScreenProps> = ({
   onDiagnose,
@@ -116,16 +123,36 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   const [bannerIndex, setBannerIndex] = useState(0);
   const [refreshing, setRefreshing] = useState(false);
   const [timeNow, setTimeNow] = useState(Date.now());
-  const [roadsideRequests, setRoadsideRequests] = useState<RoadsideRequest[]>(DUMMY_ROADSIDE_REQUESTS);
-  const [towRequests, setTowRequests] = useState<TowRequest[]>(DUMMY_TOW_REQUESTS);
+  const [serviceRequestRows, setServiceRequestRows] = useState<ServiceRequestRow[]>([]);
+
+  useEffect(() => {
+    const unsub = subscribeServiceRequests(setServiceRequestRows);
+    return unsub;
+  }, []);
+
+  const roadsideRequests = useMemo(() => {
+    const cutoff = timeNow - REQUEST_TTL_MS;
+    return serviceRequestRows
+      .filter((r) => r.type === 'roadside')
+      .map(mapRowToRequest)
+      .filter((r) => r.createdAt >= cutoff);
+  }, [serviceRequestRows, timeNow]);
+
+  const towRequests = useMemo(() => {
+    const cutoff = timeNow - REQUEST_TTL_MS;
+    return serviceRequestRows
+      .filter((r) => r.type === 'tow')
+      .map(mapRowToRequest)
+      .filter((r) => r.createdAt >= cutoff);
+  }, [serviceRequestRows, timeNow]);
   const bannerScrollRef = useRef<ScrollView>(null);
 
   const handleAcceptRequest = (id: string) => {
-    setRoadsideRequests((prev) => prev.filter((r) => r.id !== id));
+    void deleteServiceRequest(id);
   };
 
   const handleAcceptTowRequest = (id: string) => {
-    setTowRequests((prev) => prev.filter((r) => r.id !== id));
+    void deleteServiceRequest(id);
   };
 
   const navigation = useNavigation<any>();
@@ -170,16 +197,9 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   }, []);
 
   useEffect(() => {
-    const removeExpiredRequests = () => {
-      const current = Date.now();
-      setTimeNow(current);
-      const cutoff = current - REQUEST_TTL_MS;
-      setRoadsideRequests((prev) => prev.filter((r) => r.createdAt >= cutoff));
-      setTowRequests((prev) => prev.filter((r) => r.createdAt >= cutoff));
-    };
-
-    removeExpiredRequests();
-    const timer = setInterval(removeExpiredRequests, 15000);
+    const tick = () => setTimeNow(Date.now());
+    tick();
+    const timer = setInterval(tick, 1000);
     return () => clearInterval(timer);
   }, []);
 
