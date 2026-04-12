@@ -3,12 +3,17 @@ import { View, Text, StyleSheet, ScrollView } from 'react-native';
 import { Header, InputField, PrimaryButton, Card } from '../components';
 import { colors } from '../constants/theme';
 import { useResponsive } from '../hooks';
+import { useAuth } from '../context/AuthContext';
+import { useVehicles } from '../context/VehiclesContext';
+import { addDiagnosisHistoryEntry } from '../backend';
 
 interface DiagnoseScreenProps {
   onBack: () => void;
 }
 
 export const DiagnoseScreen: React.FC<DiagnoseScreenProps> = ({ onBack }) => {
+  const { user } = useAuth();
+  const { vehicles, selectedVehicleId } = useVehicles();
   const [symptoms, setSymptoms] = useState('');
   const [obdCode, setObdCode] = useState('');
   const [result, setResult] = useState<string | null>(null);
@@ -50,11 +55,21 @@ export const DiagnoseScreen: React.FC<DiagnoseScreenProps> = ({ onBack }) => {
 
   const handleSubmit = () => {
     setLoading(true);
+    const diagnosisText =
+      'Based on your symptoms and OBD code, we recommend checking the oxygen sensor. Common causes include a faulty sensor or exhaust leak. Schedule a diagnostic at a nearby mechanic.';
     setTimeout(() => {
-      setResult(
-        'Based on your symptoms and OBD code, we recommend checking the oxygen sensor. Common causes include a faulty sensor or exhaust leak. Schedule a diagnostic at a nearby mechanic.'
-      );
+      setResult(diagnosisText);
       setLoading(false);
+      const v = vehicles.find((x) => x.id === selectedVehicleId) ?? vehicles[0];
+      if (user?.uid && v) {
+        void addDiagnosisHistoryEntry(user.uid, {
+          vehicleId: v.id,
+          vehicleLabel: (v.makeModel || v.label || 'Vehicle').trim(),
+          symptoms,
+          obdCode,
+          diagnosis: diagnosisText,
+        });
+      }
     }, 1500);
   };
 

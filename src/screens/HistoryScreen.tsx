@@ -1,73 +1,22 @@
-import React, { useMemo } from 'react';
-import { View, Text, StyleSheet, FlatList } from 'react-native';
+import React, { useEffect, useMemo, useState } from 'react';
+import { View, Text, StyleSheet, FlatList, ActivityIndicator } from 'react-native';
 import { Card } from '../components';
 import { colors } from '../constants/theme';
 import { useResponsive } from '../hooks';
 import { useUserRole } from '../context/UserRoleContext';
 import { useVehicles } from '../context/VehiclesContext';
+import { useAuth } from '../context/AuthContext';
+import type { Timestamp } from 'firebase/firestore';
+import {
+  subscribeDiagnosisHistory,
+  type DiagnosisHistoryRow,
+} from '../backend';
 
 interface HistoryItem {
   id: string;
   date: string;
   symptoms: string;
   diagnosis: string;
-}
-
-const OWNER_HISTORY_CAR_1: HistoryItem[] = [
-  {
-    id: '1',
-    date: 'Feb 8, 2025',
-    symptoms: 'Engine knocking sound, Check engine light',
-    diagnosis: 'Possible oxygen sensor issue - P0420',
-  },
-  {
-    id: '2',
-    date: 'Feb 5, 2025',
-    symptoms: 'Brake pedal feels soft',
-    diagnosis: 'Brake fluid low - top up recommended',
-  },
-  {
-    id: '3',
-    date: 'Feb 1, 2025',
-    symptoms: 'Battery warning light',
-    diagnosis: 'Alternator or battery - tested OK',
-  },
-];
-
-const OWNER_HISTORY_CAR_2: HistoryItem[] = [
-  {
-    id: '1',
-    date: 'Mar 2, 2025',
-    symptoms: 'Oil change reminder, Mileage check',
-    diagnosis: 'Scheduled maintenance completed',
-  },
-  {
-    id: '2',
-    date: 'Feb 28, 2025',
-    symptoms: 'Tire pressure warning',
-    diagnosis: 'All tires adjusted to spec',
-  },
-  {
-    id: '3',
-    date: 'Feb 15, 2025',
-    symptoms: 'AC not cooling',
-    diagnosis: 'Refrigerant topped up - no leak found',
-  },
-];
-
-const OWNER_HISTORY_DEFAULT: HistoryItem[] = [
-  {
-    id: '1',
-    date: 'Recent',
-    symptoms: 'No diagnoses yet',
-    diagnosis: 'Run a diagnosis to see history here.',
-  },
-];
-
-function getOwnerHistoryForVehicle(vehicleId: string, vehicleIndex: number): HistoryItem[] {
-  if (vehicleId === 'vehicle-1') return OWNER_HISTORY_CAR_1;
-  if (vehicleIndex === 1) return OWNER_HISTORY_CAR_2;
-  return OWNER_HISTORY_DEFAULT;
 }
 
 const MECHANIC_HISTORY: HistoryItem[] = [
@@ -112,6 +61,30 @@ const TOW_HISTORY: HistoryItem[] = [
   },
 ];
 
+function formatHistoryDate(ts: Timestamp | null): string {
+  if (!ts?.toDate) return '';
+  return ts.toDate().toLocaleDateString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  });
+}
+
+function rowsToOwnerHistory(
+  rows: DiagnosisHistoryRow[],
+  selectedVehicleId: string
+): HistoryItem[] {
+  return rows
+    .filter((r) => r.vehicleId === selectedVehicleId)
+    .map((r) => ({
+      id: r.id,
+      date: formatHistoryDate(r.createdAt) || '—',
+      symptoms:
+        r.symptoms + (r.obdCode ? ` · OBD ${r.obdCode}` : ''),
+      diagnosis: r.diagnosis,
+    }));
+}
+
 interface HistoryScreenProps {
   onBack?: () => void;
 }
@@ -120,6 +93,27 @@ export const HistoryScreen: React.FC<HistoryScreenProps> = () => {
   const { spacing, fontSizes } = useResponsive();
   const { role } = useUserRole();
   const { vehicles, selectedVehicleId } = useVehicles();
+  const { user } = useAuth();
+  const [ownerRows, setOwnerRows] = useState<DiagnosisHistoryRow[]>([]);
+  const [ownerLoading, setOwnerLoading] = useState(true);
+
+  useEffect(() => {
+    if (role !== 'owner' || !user?.uid) {
+      setOwnerRows([]);
+      setOwnerLoading(false);
+      return;
+    }
+    setOwnerLoading(true);
+    const unsub = subscribeDiagnosisHistory(
+      user.uid,
+      (items) => {
+        setOwnerRows(items);
+        setOwnerLoading(false);
+      },
+      () => setOwnerLoading(false)
+    );
+    return unsub;
+  }, [role, user?.uid]);
 
   const styles = useMemo(
     () =>
@@ -161,6 +155,13 @@ export const HistoryScreen: React.FC<HistoryScreenProps> = () => {
           color: colors.textSecondary,
           lineHeight: fontSizes.sm * 1.4,
         },
+        empty: {
+          fontSize: fontSizes.md,
+          color: colors.textSecondary,
+          textAlign: 'center',
+          marginTop: spacing.xl,
+        },
+        loading: { marginTop: spacing.xl },
       }),
     [spacing, fontSizes]
   );
@@ -184,15 +185,14 @@ export const HistoryScreen: React.FC<HistoryScreenProps> = () => {
       ? `${carLabel} · Your previous vehicle diagnoses`
       : 'Your previous vehicle diagnoses';
 
-  const data =
-    role === 'mechanic'
-      ? MECHANIC_HISTORY
-      : role === 'tow'
-      ? TOW_HISTORY
-      : getOwnerHistoryForVehicle(
-          selectedVehicleId,
-          selectedVehicleIndex >= 0 ? selectedVehicleIndex : 0
-        );
+  const data: HistoryItem[] = useMemo(() => {
+    if (role === 'mechanic') return MECHANIC_HISTORY;
+    if (role === 'tow') return TOW_HISTORY;
+    return rowsToOwnerHistory(ownerRows, selectedVehicleId);
+  }, [role, ownerRows, selectedVehicleId]);
+
+  const showOwnerEmpty =
+    role === 'owner' && !ownerLoading && data.length === 0;
 
   return (
     <View style={styles.container}>
@@ -201,18 +201,33 @@ export const HistoryScreen: React.FC<HistoryScreenProps> = () => {
         <Text style={styles.subtitle}>{subtitle}</Text>
       </View>
 
-      <FlatList
-        data={data}
-        keyExtractor={(item) => item.id}
-        contentContainerStyle={styles.list}
-        renderItem={({ item }) => (
-          <Card style={styles.card} padded>
-            <Text style={styles.date}>{item.date}</Text>
-            <Text style={styles.symptoms}>{item.symptoms}</Text>
-            <Text style={styles.diagnosis}>{item.diagnosis}</Text>
-          </Card>
-        )}
-      />
+      {role === 'owner' && ownerLoading ? (
+        <ActivityIndicator
+          style={styles.loading}
+          color={colors.primary}
+        />
+      ) : (
+        <FlatList
+          data={data}
+          keyExtractor={(item) => item.id}
+          contentContainerStyle={styles.list}
+          ListEmptyComponent={
+            showOwnerEmpty ? (
+              <Text style={styles.empty}>
+                No saved diagnoses for this vehicle yet. Run a diagnosis from Home
+                to build your history.
+              </Text>
+            ) : null
+          }
+          renderItem={({ item }) => (
+            <Card style={styles.card} padded>
+              <Text style={styles.date}>{item.date}</Text>
+              <Text style={styles.symptoms}>{item.symptoms}</Text>
+              <Text style={styles.diagnosis}>{item.diagnosis}</Text>
+            </Card>
+          )}
+        />
+      )}
     </View>
   );
 };

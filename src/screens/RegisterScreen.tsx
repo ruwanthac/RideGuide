@@ -8,27 +8,29 @@ import {
   Image,
   KeyboardAvoidingView,
   Platform,
+  ActivityIndicator,
 } from 'react-native';
 import { PrimaryButton, InputField, Icon } from '../components';
 import { colors } from '../constants/theme';
 import { useResponsive } from '../hooks';
 import { shadows } from '../constants/theme';
+import { useAuth } from '../context/AuthContext';
+import { formatAuthError } from '../backend';
 
 const HERO_IMAGE = 'https://images.unsplash.com/photo-1503376780353-7e6692767b70?w=800';
 
 interface RegisterScreenProps {
-  onRegister: () => void;
   onNavigateToLogin: () => void;
 }
 
-export const RegisterScreen: React.FC<RegisterScreenProps> = ({
-  onRegister,
-  onNavigateToLogin,
-}) => {
+export const RegisterScreen: React.FC<RegisterScreenProps> = ({ onNavigateToLogin }) => {
+  const { registerWithEmail } = useAuth();
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [imageError, setImageError] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const { spacing, fontSizes, width, scale } = useResponsive();
 
   const styles = useMemo(
@@ -117,9 +119,27 @@ export const RegisterScreen: React.FC<RegisterScreenProps> = ({
           color: colors.primary,
           fontWeight: '700',
         },
+        errorText: {
+          fontSize: fontSizes.sm,
+          color: colors.error,
+          marginBottom: spacing.sm,
+          textAlign: 'center',
+        },
       }),
     [spacing, fontSizes, width, scale]
   );
+
+  const handleRegister = () => {
+    setError(null);
+    if (!name.trim() || !email.trim() || !password) {
+      setError('Fill in name, email, and password.');
+      return;
+    }
+    setSubmitting(true);
+    void registerWithEmail(name, email, password)
+      .catch((e) => setError(formatAuthError(e)))
+      .finally(() => setSubmitting(false));
+  };
 
   return (
     <View style={styles.container}>
@@ -190,11 +210,17 @@ export const RegisterScreen: React.FC<RegisterScreenProps> = ({
                   secureTextEntry
                 />
 
-                <PrimaryButton
-                  title="Create Account"
-                  onPress={onRegister}
-                  style={styles.button}
-                />
+                {error ? <Text style={styles.errorText}>{error}</Text> : null}
+
+                {submitting ? (
+                  <ActivityIndicator color={colors.primary} style={{ marginVertical: spacing.md }} />
+                ) : (
+                  <PrimaryButton
+                    title="Create Account"
+                    onPress={handleRegister}
+                    style={styles.button}
+                  />
+                )}
               </View>
             </View>
 

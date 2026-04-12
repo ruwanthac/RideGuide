@@ -7,26 +7,28 @@ import {
   ScrollView,
   KeyboardAvoidingView,
   Platform,
+  ActivityIndicator,
 } from 'react-native';
 import { PrimaryButton, InputField, Icon } from '../components';
 import { colors } from '../constants/theme';
 import { useResponsive } from '../hooks';
 import { shadows } from '../constants/theme';
+import { useAuth } from '../context/AuthContext';
+import { formatAuthError } from '../backend';
 
 const APP_NAME = 'Vehicle Diagnosis';
 const APP_TAGLINE = 'Smart diagnostics at your fingertips';
 
 interface LoginScreenProps {
-  onLogin: () => void;
   onNavigateToRegister: () => void;
 }
 
-export const LoginScreen: React.FC<LoginScreenProps> = ({
-  onLogin,
-  onNavigateToRegister,
-}) => {
+export const LoginScreen: React.FC<LoginScreenProps> = ({ onNavigateToRegister }) => {
+  const { signInWithEmail } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const { spacing, fontSizes, width, scale, verticalScale } = useResponsive();
 
   const styles = useMemo(
@@ -145,9 +147,27 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
           color: colors.primary,
           fontWeight: '700',
         },
+        errorText: {
+          fontSize: fontSizes.sm,
+          color: colors.error,
+          marginBottom: spacing.sm,
+          textAlign: 'center',
+        },
       }),
     [spacing, fontSizes, width, scale, verticalScale]
   );
+
+  const handleSignIn = () => {
+    setError(null);
+    if (!email.trim() || !password) {
+      setError('Enter your email and password.');
+      return;
+    }
+    setSubmitting(true);
+    void signInWithEmail(email, password)
+      .catch((e) => setError(formatAuthError(e)))
+      .finally(() => setSubmitting(false));
+  };
 
   return (
     <View style={styles.container}>
@@ -201,7 +221,13 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
                   <Text style={styles.forgotText}>Forgot Password?</Text>
                 </TouchableOpacity>
 
-                <PrimaryButton title="Sign In" onPress={onLogin} style={styles.button} />
+                {error ? <Text style={styles.errorText}>{error}</Text> : null}
+
+                {submitting ? (
+                  <ActivityIndicator color={colors.primary} style={{ marginVertical: spacing.md }} />
+                ) : (
+                  <PrimaryButton title="Sign In" onPress={handleSignIn} style={styles.button} />
+                )}
               </View>
             </View>
 

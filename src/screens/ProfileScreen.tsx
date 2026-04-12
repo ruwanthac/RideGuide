@@ -15,21 +15,26 @@ import { OwnerDashboard } from '../components/dashboards/OwnerDashboard';
 import { MechanicDashboard } from '../components/dashboards/MechanicDashboard';
 import { TowDashboard } from '../components/dashboards/TowDashboard';
 import { useUserRole, type UserRole } from '../context/UserRoleContext';
-import { useVehicles, INITIAL_VEHICLES, type Vehicle } from '../context/VehiclesContext';
+import { useVehicles } from '../context/VehiclesContext';
+import { useAuth } from '../context/AuthContext';
 import { useNavigation } from '@react-navigation/native';
-
-interface ProfileScreenProps {
-  onLogout: () => void;
-}
 
 const DEFAULT_MAKE_MODEL = 'Toyota Camry 2020';
 const DEFAULT_VIN = '1HGBH41JXMN109186';
 
-export const ProfileScreen: React.FC<ProfileScreenProps> = ({ onLogout }) => {
+export const ProfileScreen: React.FC = () => {
+  const { signOutUser } = useAuth();
   const { spacing, fontSizes, borderRadius, buttonHeight, iconSizes, scale } =
     useResponsive();
   const { role: userRole, setRole: setUserRole, name: userName } = useUserRole();
-  const { vehicles, setVehicles, selectedVehicleId, setSelectedVehicleId } = useVehicles();
+  const {
+    vehicles,
+    selectedVehicleId,
+    setSelectedVehicleId,
+    addVehicle,
+    saveVehicle,
+    removeVehicle,
+  } = useVehicles();
   const navigation = useNavigation<any>();
   const [editMakeModel, setEditMakeModel] = useState(DEFAULT_MAKE_MODEL);
   const [editVin, setEditVin] = useState(DEFAULT_VIN);
@@ -43,6 +48,10 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({ onLogout }) => {
     'No vehicle selected';
 
   const startEditingVehicle = () => {
+    if (!currentVehicle) {
+      Alert.alert('No vehicle', 'No vehicle found for this account yet.');
+      return;
+    }
     setEditMakeModel(currentVehicle.makeModel);
     setEditVin(currentVehicle.vin);
     setIsEditingVehicle(true);
@@ -74,41 +83,37 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({ onLogout }) => {
   };
 
   const handleSaveVehicle = () => {
+    if (!currentVehicle || !selectedVehicleId) {
+      Alert.alert('No vehicle', 'No vehicle found to save right now.');
+      return;
+    }
     if (!editMakeModel.trim()) {
       Alert.alert('Invalid input', 'Make & Model is required.');
       return;
     }
-    setVehicles((prev) =>
-      prev.map((v) =>
-        v.id === selectedVehicleId
-          ? { ...v, makeModel: editMakeModel.trim(), vin: editVin.trim() }
-          : v
-      )
-    );
-    setIsEditingVehicle(false);
-    Alert.alert('Saved', 'Vehicle information has been updated.');
+    void saveVehicle(selectedVehicleId, editMakeModel, editVin)
+      .then(() => {
+        setIsEditingVehicle(false);
+        Alert.alert('Saved', 'Vehicle information has been updated.');
+      })
+      .catch(() => {
+        Alert.alert('Error', 'Could not save. Check your connection and try again.');
+      });
   };
 
   const handleAddVehicle = () => {
-    const id = `vehicle-${Date.now()}`;
-    const newVehicle: Vehicle = {
-      id,
-      label: `Car ${vehicles.length + 1}`,
-      makeModel: '',
-      vin: '',
-    };
-    setVehicles((prev) => [...prev, newVehicle]);
-    setSelectedVehicleId(id);
-    setEditMakeModel('');
-    setEditVin('');
-    setIsEditingVehicle(true);
+    void addVehicle()
+      .then(() => {
+        setEditMakeModel('');
+        setEditVin('');
+        setIsEditingVehicle(true);
+      })
+      .catch(() => {
+        Alert.alert('Error', 'Could not add vehicle. Try again.');
+      });
   };
 
   const handleDeleteVehicle = (vehicleId: string) => {
-    if (vehicleId === INITIAL_VEHICLES[0].id) {
-      Alert.alert('Cannot delete', 'Your primary vehicle (Car 1) cannot be removed.');
-      return;
-    }
     if (vehicles.length <= 1) {
       Alert.alert('Cannot delete', 'You must have at least one vehicle.');
       return;
@@ -122,16 +127,15 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({ onLogout }) => {
           text: 'Delete',
           style: 'destructive',
           onPress: () => {
-            const next = vehicles.filter((v) => v.id !== vehicleId);
-            setVehicles(next);
-            if (selectedVehicleId === vehicleId) {
-              setSelectedVehicleId(next[0].id);
-              setEditMakeModel(next[0].makeModel);
-              setEditVin(next[0].vin);
-            }
-            if (isEditingVehicle && selectedVehicleId === vehicleId) {
-              setIsEditingVehicle(false);
-            }
+            void removeVehicle(vehicleId)
+              .then(() => {
+                if (isEditingVehicle && selectedVehicleId === vehicleId) {
+                  setIsEditingVehicle(false);
+                }
+              })
+              .catch(() => {
+                Alert.alert('Error', 'Could not delete vehicle.');
+              });
           },
         },
       ]
@@ -379,7 +383,11 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({ onLogout }) => {
         return <TowDashboard driverName={userName} />;
       case 'owner':
       default:
-        return <OwnerDashboard vehicleName={currentVehicle.makeModel || currentVehicle.label} />;
+        return (
+          <OwnerDashboard
+            vehicleName={currentVehicle?.makeModel || currentVehicle?.label || 'No vehicle'}
+          />
+        );
     }
   };
 
@@ -413,8 +421,7 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({ onLogout }) => {
               <View style={styles.vehicleChipsContainer}>
                 {vehicles.map((vehicle, index) => {
                   const isActive = vehicle.id === selectedVehicleId;
-                  const canDelete =
-                    vehicles.length > 1 && vehicle.id !== INITIAL_VEHICLES[0].id;
+                  const canDelete = vehicles.length > 1;
                   const displayLabel = `Car ${index + 1}`;
                   return (
                     <View
@@ -476,7 +483,7 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({ onLogout }) => {
                 />
               ) : (
                 <Text style={styles.infoValue}>
-                  {currentVehicle.makeModel || 'Not set'}
+                  {currentVehicle?.makeModel || 'Not set'}
                 </Text>
               )}
             </View>
@@ -492,7 +499,7 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({ onLogout }) => {
                 />
               ) : (
                 <Text style={styles.infoValue}>
-                  {currentVehicle.vin || 'Not set'}
+                  {currentVehicle?.vin || 'Not set'}
                 </Text>
               )}
             </View>
@@ -634,7 +641,7 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({ onLogout }) => {
 
         <TouchableOpacity
           style={styles.logoutButton}
-          onPress={onLogout}
+          onPress={() => void signOutUser()}
           activeOpacity={0.7}
         >
           <Text style={styles.logoutButtonText}>Log Out</Text>

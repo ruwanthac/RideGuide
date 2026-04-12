@@ -1,4 +1,19 @@
-import React, { createContext, useContext, useMemo, useState } from 'react';
+import React, {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+} from 'react';
+import { useAuth } from './AuthContext';
+import {
+  subscribeUserVehicles,
+  addUserVehicle,
+  updateUserVehicle,
+  deleteUserVehicle,
+  updateUserProfile,
+} from '../backend';
 
 export type Vehicle = {
   id: string;
@@ -7,34 +22,119 @@ export type Vehicle = {
   vin: string;
 };
 
-const DEFAULT_MAKE_MODEL = 'Toyota Camry 2020';
-const DEFAULT_VIN = '1HGBH41JXMN109186';
-
-export const INITIAL_VEHICLES: Vehicle[] = [
-  { id: 'vehicle-1', label: 'Car 1', makeModel: DEFAULT_MAKE_MODEL, vin: DEFAULT_VIN },
-];
-
 interface VehiclesContextValue {
   vehicles: Vehicle[];
-  setVehicles: React.Dispatch<React.SetStateAction<Vehicle[]>>;
   selectedVehicleId: string;
   setSelectedVehicleId: (id: string) => void;
+  addVehicle: () => Promise<void>;
+  saveVehicle: (vehicleId: string, makeModel: string, vin: string) => Promise<void>;
+  removeVehicle: (vehicleId: string) => Promise<void>;
 }
 
 const VehiclesContext = createContext<VehiclesContextValue | undefined>(undefined);
 
 export const VehiclesProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [vehicles, setVehicles] = useState<Vehicle[]>(INITIAL_VEHICLES);
-  const [selectedVehicleId, setSelectedVehicleId] = useState<string>(INITIAL_VEHICLES[0].id);
+  const { user, profile } = useAuth();
+  const [vehicles, setVehicles] = useState<Vehicle[]>([]);
+  const [selectedVehicleId, setSelectedVehicleIdState] = useState('');
+  const [listReady, setListReady] = useState(false);
+
+  useEffect(() => {
+    if (!user?.uid) {
+      setVehicles([]);
+      setSelectedVehicleIdState('');
+      setListReady(false);
+      return;
+    }
+    const unsub = subscribeUserVehicles(
+      user.uid,
+      (list) => {
+        setVehicles(
+          list.map(({ id, data }) => ({
+            id,
+            label: data.label,
+            makeModel: data.makeModel,
+            vin: data.vin,
+          }))
+        );
+        setListReady(true);
+      },
+      () => setListReady(true)
+    );
+    return unsub;
+  }, [user?.uid]);
+
+  useEffect(() => {
+    if (!listReady || vehicles.length === 0) return;
+    setSelectedVehicleIdState((prev) => {
+      const fromProfile = profile?.selectedVehicleId;
+      if (fromProfile && vehicles.some((v) => v.id === fromProfile)) {
+        return fromProfile;
+      }
+      if (prev && vehicles.some((v) => v.id === prev)) {
+        return prev;
+      }
+      return vehicles[0]!.id;
+    });
+  }, [listReady, vehicles, profile?.selectedVehicleId]);
+
+  const setSelectedVehicleId = useCallback(
+    (id: string) => {
+      setSelectedVehicleIdState(id);
+      if (user?.uid) {
+        updateUserProfile(user.uid, { selectedVehicleId: id }).catch(() => {});
+      }
+    },
+    [user?.uid]
+  );
+
+  const addVehicle = useCallback(async () => {
+    if (!user?.uid) return;
+    const n = vehicles.length + 1;
+    const id = await addUserVehicle(user.uid, {
+      label: `Car ${n}`,
+      makeModel: '',
+      vin: '',
+    });
+    setSelectedVehicleId(id);
+  }, [user?.uid, vehicles.length, setSelectedVehicleId]);
+
+  const saveVehicle = useCallback(
+    async (vehicleId: string, makeModel: string, vin: string) => {
+      if (!user?.uid) return;
+      await updateUserVehicle(user.uid, vehicleId, {
+        makeModel: makeModel.trim(),
+        vin: vin.trim(),
+      });
+    },
+    [user?.uid]
+  );
+
+  const removeVehicle = useCallback(
+    async (vehicleId: string) => {
+      if (!user?.uid) return;
+      await deleteUserVehicle(user.uid, vehicleId);
+    },
+    [user?.uid]
+  );
 
   const value = useMemo(
     () => ({
       vehicles,
-      setVehicles,
       selectedVehicleId,
       setSelectedVehicleId,
+      addVehicle,
+      saveVehicle,
+      removeVehicle,
     }),
-    [vehicles, selectedVehicleId]
+    [
+      vehicles,
+      selectedVehicleId,
+      setSelectedVehicleId,
+      addVehicle,
+      saveVehicle,
+      removeVehicle,
+    ]
   );
 
   return (

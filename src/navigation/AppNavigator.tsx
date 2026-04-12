@@ -1,12 +1,12 @@
 import React, { useState } from 'react';
+import { View, ActivityIndicator } from 'react-native';
 import { NavigationContainer, getFocusedRouteNameFromRoute } from '@react-navigation/native';
 import { Icon } from '../components';
 import type { IconName } from '../components';
 import { useResponsive } from '../hooks';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
-import { UserRoleProvider } from '../context/UserRoleContext';
-import { VehiclesProvider } from '../context/VehiclesContext';
+import { useAuth } from '../context/AuthContext';
 
 import {
   SplashScreen,
@@ -92,13 +92,12 @@ const RequestChatScreenWrapper = ({ navigation, route }: { navigation: any; rout
   />
 );
 
-const AuthStackNavigator = ({ onLogin }: { onLogin: () => void }) => (
+const AuthStackNavigator = () => (
   <AuthStack.Navigator screenOptions={{ headerShown: false }}>
     <AuthStack.Screen name="Login">
       {(props) => (
         <LoginScreen
           {...props}
-          onLogin={onLogin}
           onNavigateToRegister={() => props.navigation.navigate('Register')}
         />
       )}
@@ -107,7 +106,6 @@ const AuthStackNavigator = ({ onLogin }: { onLogin: () => void }) => (
       {(props) => (
         <RegisterScreen
           {...props}
-          onRegister={onLogin}
           onNavigateToLogin={() => props.navigation.navigate('Login')}
         />
       )}
@@ -115,7 +113,7 @@ const AuthStackNavigator = ({ onLogin }: { onLogin: () => void }) => (
   </AuthStack.Navigator>
 );
 
-const MainTabNavigator = ({ onLogout }: { onLogout: () => void }) => (
+const MainTabNavigator = () => (
   <MainTab.Navigator
     screenOptions={{
       headerShown: false,
@@ -154,9 +152,7 @@ const MainTabNavigator = ({ onLogout }: { onLogout: () => void }) => (
     >
       {() => (
         <ProfileStack.Navigator screenOptions={{ headerShown: false }}>
-          <ProfileStack.Screen name="Profile">
-            {() => <ProfileScreen onLogout={onLogout} />}
-          </ProfileStack.Screen>
+          <ProfileStack.Screen name="Profile" component={ProfileScreen} />
           <ProfileStack.Screen name="Activities">
             {({ navigation }) => (
               <ActivitiesScreen onBack={() => navigation.goBack()} />
@@ -183,42 +179,34 @@ const TabBarIcon = ({ name, color }: { name: IconName; color: string }) => {
 };
 
 export const AppNavigator = () => {
-  const [isLoading, setIsLoading] = useState(true);
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [splashDone, setSplashDone] = useState(false);
+  const { user, authReady } = useAuth();
 
-  const handleSplashFinish = () => {
-    setIsLoading(false);
-  };
+  if (!splashDone) {
+    return <SplashScreen onFinish={() => setSplashDone(true)} />;
+  }
 
-  const handleLogin = () => {
-    setIsAuthenticated(true);
-  };
-
-  const handleLogout = () => {
-    setIsAuthenticated(false);
-  };
-
-  if (isLoading) {
-    return <SplashScreen onFinish={handleSplashFinish} />;
+  if (!authReady) {
+    return (
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+        <ActivityIndicator size="large" color="#2563EB" />
+      </View>
+    );
   }
 
   return (
-    <UserRoleProvider>
-      <VehiclesProvider>
-        <NavigationContainer>
-        <RootStack.Navigator screenOptions={{ headerShown: false }}>
-          {!isAuthenticated ? (
-            <RootStack.Screen name="Auth">
-              {() => <AuthStackNavigator onLogin={handleLogin} />}
-            </RootStack.Screen>
-          ) : (
-            <RootStack.Screen name="Main">
-              {() => <MainTabNavigator onLogout={handleLogout} />}
-            </RootStack.Screen>
-          )}
-        </RootStack.Navigator>
-        </NavigationContainer>
-      </VehiclesProvider>
-    </UserRoleProvider>
+    <NavigationContainer>
+      <RootStack.Navigator screenOptions={{ headerShown: false }}>
+        {!user ? (
+          <RootStack.Screen name="Auth">
+            {() => <AuthStackNavigator />}
+          </RootStack.Screen>
+        ) : (
+          <RootStack.Screen name="Main">
+            {() => <MainTabNavigator />}
+          </RootStack.Screen>
+        )}
+      </RootStack.Navigator>
+    </NavigationContainer>
   );
 };
