@@ -1,0 +1,21 @@
+import { Router } from 'express';
+import authRoutes from './auth.routes';
+import userRoutes from './user.routes';
+import vehicleRoutes from './vehicle.routes';
+import { diagnosisRouter, diagnosisHistoryRouter } from './diagnosis.routes';
+import requestRoutes from './request.routes';
+import assistantRoutes from './assistant.routes';
+import mechanicRoutes from './mechanic.routes';
+import adminRoutes from './admin.routes';
+
+const api = Router();
+api.use('/auth', authRoutes);
+api.use('/users', userRoutes);
+api.use('/vehicles', vehicleRoutes);
+api.use('/diagnosis', diagnosisRouter);
+api.use('/diagnosis-history', diagnosisHistoryRouter);
+api.use('/requests', requestRoutes);
+api.use('/chat', assistantRoutes);
+api.use('/mechanics', mechanicRoutes);
+api.use('/admin', adminRoutes);
+export default api;
