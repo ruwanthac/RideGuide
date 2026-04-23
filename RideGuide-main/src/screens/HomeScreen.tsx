@@ -35,7 +35,6 @@ interface HomeScreenProps {
   onDiagnose: () => void;
   onTowTruckAssistant: () => void;
   onChatAssistant: () => void;
-  onProfilePress?: () => void;
   onVideoCallPress?: () => void;
 }
 
@@ -81,7 +80,6 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   onDiagnose,
   onTowTruckAssistant,
   onChatAssistant,
-  onProfilePress,
   onVideoCallPress,
 }) => {
   const { spacing, fontSizes, iconSizes, isSmallScreen, scale, width, verticalScale } = useResponsive();
@@ -291,18 +289,6 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
           textShadowColor: 'rgba(0, 0, 0, 0.5)',
           textShadowOffset: { width: 0, height: 1 },
           textShadowRadius: 2,
-        },
-        profileIconButton: {
-          position: 'absolute',
-          top: spacing.xl + spacing.sm,
-          right: spacing.lg,
-          width: 40,
-          height: 40,
-          borderRadius: 20,
-          backgroundColor: 'rgba(255, 255, 255, 0.3)',
-          alignItems: 'center',
-          justifyContent: 'center',
-          zIndex: 100,
         },
         videoCallButton: {
           position: 'absolute',
@@ -906,13 +892,6 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
         </View>
       </View>
       </ScrollView>
-      <TouchableOpacity
-        style={styles.profileIconButton}
-        onPress={onProfilePress}
-        activeOpacity={0.7}
-      >
-        <Icon name="person" size={22} color="#FFFFFF" />
-      </TouchableOpacity>
     </View>
   );
 };

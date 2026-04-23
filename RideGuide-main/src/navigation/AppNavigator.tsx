@@ -52,7 +52,6 @@ const HomeScreenWrapper = ({ navigation }: { navigation: any }) => (
     onDiagnose={() => navigation.navigate('Diagnose')}
     onTowTruckAssistant={() => navigation.navigate('TowTruckAssistant')}
     onChatAssistant={() => navigation.navigate('ChatAssistant')}
-    onProfilePress={() => navigation.getParent()?.navigate('ProfileTab')}
     onVideoCallPress={() => navigation.navigate('VideoCall')}
   />
 );

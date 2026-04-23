@@ -1,7 +1,7 @@
 import { io, Socket } from 'socket.io-client';
-import { getAuthToken } from './apiClient';
+import { getAuthToken, api } from './apiClient';
 
-const baseURL = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000';
+const baseURL = api.defaults.baseURL?.replace(/\/api$/, '') ?? 'http://localhost:3000';
 
 let socket: Socket | null = null;
 
