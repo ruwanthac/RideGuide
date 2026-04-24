@@ -3,6 +3,7 @@ import { Server as IoServer, Socket } from 'socket.io';
 import { verifyToken } from '../services/auth.service';
 import { env } from '../config/env';
 import { registerChatHandlers } from './chat.socket';
+import { registerLiveAiHandlers } from './live-ai.socket';
 
 let io: IoServer | null = null;
 
@@ -29,6 +30,7 @@ export function attachSockets(httpServer: HttpServer): IoServer {
     if (role === 'mechanic') socket.join('providers:mechanic');
     if (role === 'tow') socket.join('providers:tow');
     registerChatHandlers(server, socket);
+    registerLiveAiHandlers(server, socket);
   });
 
   io = server;

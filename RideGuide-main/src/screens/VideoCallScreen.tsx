@@ -1,10 +1,21 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Animated } from 'react-native';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  Animated,
+  TextInput,
+  FlatList,
+  KeyboardAvoidingView,
+  Platform,
+} from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { useAudioPlayer, setAudioModeAsync } from 'expo-audio';
 import { Icon } from '../components';
 import { colors } from '../constants/theme';
 import { useResponsive } from '../hooks';
+import { joinLiveAiCall } from '../backend/liveAiCallService';
 
 const RINGTONE_SOURCE = require('../../assets/call.mp3');
 
@@ -12,13 +23,28 @@ interface VideoCallScreenProps {
   onEndCall: () => void;
 }
 
+interface LiveMessage {
+  id: string;
+  role: 'user' | 'model';
+  content: string;
+}
+
 export const VideoCallScreen: React.FC<VideoCallScreenProps> = ({ onEndCall }) => {
   const { spacing, fontSizes, scale } = useResponsive();
-  const [status, setStatus] = useState<'calling' | 'connecting' | 'connected'>('calling');
+  const [status, setStatus] = useState<
+    'calling' | 'connecting' | 'connected' | 'error' | 'ended'
+  >('calling');
   const [cameraFacing, setCameraFacing] = useState<'front' | 'back'>('back');
   const [isMuted, setIsMuted] = useState(false);
+  const [inputText, setInputText] = useState('');
+  const [messages, setMessages] = useState<LiveMessage[]>([]);
+  const [isSending, setIsSending] = useState(false);
+  const [sessionError, setSessionError] = useState<string | null>(null);
   const pulseAnim = React.useRef(new Animated.Value(1)).current;
   const [permission, requestPermission] = useCameraPermissions();
+  const sessionIdRef = useRef<string>(`ai-call-${Date.now()}`);
+  const sendRef = useRef<null | ((text: string) => Promise<void>)>(null);
+  const stopRef = useRef<null | (() => Promise<void>)>(null);
 
   const toggleCamera = () => {
     setCameraFacing((prev) => (prev === 'back' ? 'front' : 'back'));
@@ -60,24 +86,79 @@ export const VideoCallScreen: React.FC<VideoCallScreenProps> = ({ onEndCall }) =
   }, [status]);
 
   useEffect(() => {
-    if (status === 'calling') {
-      const timer = setTimeout(() => {
-        setStatus('connecting');
-      }, 2000);
-      return () => clearTimeout(timer);
-    }
-  }, [status]);
+    let active = true;
+    setStatus('connecting');
+    setSessionError(null);
+    (async () => {
+      try {
+        const sessionId = sessionIdRef.current;
+        const session = await joinLiveAiCall(sessionId, {
+          onReady: () => {
+            if (!active) return;
+            setStatus('connected');
+          },
+          onUserText: (text) => {
+            if (!active) return;
+            setMessages((prev) => [
+              ...prev,
+              { id: `${Date.now()}-${Math.random()}`, role: 'user', content: text },
+            ]);
+          },
+          onAgentText: (text) => {
+            if (!active) return;
+            setMessages((prev) => [
+              ...prev,
+              { id: `${Date.now()}-${Math.random()}`, role: 'model', content: text },
+            ]);
+          },
+          onError: (message) => {
+            if (!active) return;
+            setStatus('error');
+            setSessionError(message);
+          },
+          onEnded: () => {
+            if (!active) return;
+            setStatus('ended');
+          },
+        });
+        sendRef.current = session.sendText;
+        stopRef.current = session.stop;
+      } catch (e) {
+        if (!active) return;
+        setStatus('error');
+        setSessionError(
+          e instanceof Error
+            ? e.message
+            : 'Failed to connect to AI assistant. Ensure backend is running and you are logged in.'
+        );
+      }
+    })();
 
-  useEffect(() => {
-    if (status === 'connecting') {
-      const timer = setTimeout(() => setStatus('connected'), 2500);
-      return () => clearTimeout(timer);
-    }
-  }, [status]);
+    return () => {
+      active = false;
+      void stopRef.current?.();
+    };
+  }, []);
 
   const handleEndCall = () => {
     safePause();
+    void stopRef.current?.();
     onEndCall();
+  };
+
+  const handleSendQuestion = async () => {
+    const cleaned = inputText.trim();
+    if (!cleaned || !sendRef.current || isSending) return;
+    try {
+      setIsSending(true);
+      setSessionError(null);
+      await sendRef.current(cleaned);
+      setInputText('');
+    } catch (e) {
+      setSessionError(e instanceof Error ? e.message : 'Failed to send question.');
+    } finally {
+      setIsSending(false);
+    }
   };
 
   useEffect(() => {
@@ -105,7 +186,15 @@ export const VideoCallScreen: React.FC<VideoCallScreenProps> = ({ onEndCall }) =
   }, []);
 
   const statusText =
-    status === 'calling' ? 'Calling...' : status === 'connecting' ? 'Connecting...' : 'Connected';
+    status === 'calling'
+      ? 'Calling...'
+      : status === 'connecting'
+      ? 'Connecting to AI...'
+      : status === 'connected'
+      ? 'Connected to AI'
+      : status === 'ended'
+      ? 'Call ended'
+      : 'Connection issue';
 
   const styles = useMemo(
     () =>
@@ -173,7 +262,7 @@ export const VideoCallScreen: React.FC<VideoCallScreenProps> = ({ onEndCall }) =
         },
         controls: {
           position: 'absolute',
-          bottom: spacing.xl * 3,
+          bottom: scale(250),
           left: 0,
           right: 0,
           flexDirection: 'row',
@@ -195,6 +284,67 @@ export const VideoCallScreen: React.FC<VideoCallScreenProps> = ({ onEndCall }) =
           backgroundColor: '#DC2626',
           alignItems: 'center',
           justifyContent: 'center',
+        },
+        chatPanel: {
+          position: 'absolute',
+          left: spacing.md,
+          right: spacing.md,
+          bottom: spacing.md,
+          maxHeight: scale(220),
+          backgroundColor: 'rgba(0,0,0,0.5)',
+          borderRadius: 14,
+          padding: spacing.sm,
+        },
+        chatList: {
+          maxHeight: scale(140),
+          marginBottom: spacing.sm,
+        },
+        chatRow: {
+          marginBottom: spacing.xs,
+          alignSelf: 'flex-start',
+          maxWidth: '92%',
+          paddingHorizontal: spacing.sm,
+          paddingVertical: spacing.xs,
+          borderRadius: 10,
+          backgroundColor: 'rgba(255,255,255,0.16)',
+        },
+        chatRowUser: {
+          alignSelf: 'flex-end',
+          backgroundColor: 'rgba(37,99,235,0.6)',
+        },
+        chatText: {
+          color: '#FFFFFF',
+          fontSize: fontSizes.sm,
+        },
+        chatInputRow: {
+          flexDirection: 'row',
+          alignItems: 'center',
+        },
+        chatInput: {
+          flex: 1,
+          borderRadius: 999,
+          backgroundColor: 'rgba(255,255,255,0.14)',
+          color: '#FFFFFF',
+          fontSize: fontSizes.sm,
+          paddingHorizontal: spacing.md,
+          paddingVertical: spacing.sm,
+        },
+        chatSendBtn: {
+          marginLeft: spacing.sm,
+          width: scale(40),
+          height: scale(40),
+          borderRadius: scale(20),
+          backgroundColor: colors.primary,
+          alignItems: 'center',
+          justifyContent: 'center',
+        },
+        chatSendBtnDisabled: {
+          opacity: 0.5,
+        },
+        errorText: {
+          color: '#FECACA',
+          fontSize: fontSizes.xs,
+          marginBottom: spacing.xs,
         },
       }),
     [spacing, fontSizes, scale]
@@ -275,6 +425,47 @@ export const VideoCallScreen: React.FC<VideoCallScreenProps> = ({ onEndCall }) =
           <Icon name="camera-reverse" size={24} color="#FFFFFF" />
         </TouchableOpacity>
       </View>
+
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? scale(24) : 0}
+        style={styles.chatPanel}
+      >
+        {sessionError ? <Text style={styles.errorText}>{sessionError}</Text> : null}
+        <FlatList
+          data={messages}
+          keyExtractor={(item) => item.id}
+          style={styles.chatList}
+          renderItem={({ item }) => (
+            <View style={[styles.chatRow, item.role === 'user' && styles.chatRowUser]}>
+              <Text style={styles.chatText}>{item.content}</Text>
+            </View>
+          )}
+        />
+        <View style={styles.chatInputRow}>
+          <TextInput
+            style={styles.chatInput}
+            value={inputText}
+            onChangeText={setInputText}
+            editable={status === 'connected' && !isSending}
+            placeholder="Ask the AI about your vehicle..."
+            placeholderTextColor="rgba(255,255,255,0.72)"
+            maxLength={1000}
+          />
+          <TouchableOpacity
+            style={[
+              styles.chatSendBtn,
+              (!inputText.trim() || status !== 'connected' || isSending) &&
+                styles.chatSendBtnDisabled,
+            ]}
+            disabled={!inputText.trim() || status !== 'connected' || isSending}
+            onPress={handleSendQuestion}
+            activeOpacity={0.8}
+          >
+            <Icon name="send" size={18} color="#FFFFFF" />
+          </TouchableOpacity>
+        </View>
+      </KeyboardAvoidingView>
     </View>
   );
 };

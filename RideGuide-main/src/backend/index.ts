@@ -10,6 +10,7 @@ export * from './types';
 export * from './authErrors';
 export * from './chatService';
 export * from './assistantService';
+export * from './liveAiCallService';
 export * from './mechanicsService';
 export * from './adminService';
 export * from './vehicleRecordsService';
