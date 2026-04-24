@@ -13,7 +13,6 @@ import {
   Image,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
-import { useNavigation } from '@react-navigation/native';
 import { Card, PrimaryButton } from '../';
 import { colors } from '../../constants/theme';
 import { useResponsive } from '../../hooks';
@@ -54,7 +53,6 @@ interface TowTruck {
 
 export const TowDashboard: React.FC<TowDashboardProps> = ({ driverName }) => {
   const { spacing, fontSizes, borderRadius, scale, iconSizes } = useResponsive();
-  const navigation = useNavigation<{ navigate: (name: string) => void }>();
   const fadeAnim = useRef(new Animated.Value(0)).current;
 
   const [companyProfile, setCompanyProfile] = useState<CompanyProfile | null>(null);
@@ -177,21 +175,6 @@ export const TowDashboard: React.FC<TowDashboardProps> = ({ driverName }) => {
         hintText: {
           fontSize: fontSizes.xs,
           color: colors.textSecondary,
-        },
-        activitiesButton: {
-          flexDirection: 'row',
-          alignItems: 'center',
-          justifyContent: 'center',
-          paddingVertical: spacing.md,
-          paddingHorizontal: spacing.lg,
-          backgroundColor: colors.primary,
-          borderRadius: borderRadius.lg,
-        },
-        activitiesButtonText: {
-          fontSize: fontSizes.md,
-          fontWeight: '600',
-          color: '#FFFFFF',
-          marginLeft: spacing.sm,
         },
         switchTrackColor: {
           false: 'rgba(156,163,175,0.32)',
@@ -647,17 +630,6 @@ export const TowDashboard: React.FC<TowDashboardProps> = ({ driverName }) => {
             <Text style={styles.metricCaption}>Last 30 days</Text>
           </View>
         </View>
-      </Card>
-
-      <Card style={{ marginBottom: spacing.md }} padded>
-        <TouchableOpacity
-          style={styles.activitiesButton}
-          onPress={() => navigation.navigate('Activities')}
-          activeOpacity={0.8}
-        >
-          <Icon name="document-text" size={iconSizes.md} color="#FFFFFF" />
-          <Text style={styles.activitiesButtonText}>Your activities</Text>
-        </TouchableOpacity>
       </Card>
 
       <Card padded>

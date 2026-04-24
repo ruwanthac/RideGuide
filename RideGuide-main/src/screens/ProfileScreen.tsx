@@ -544,10 +544,6 @@ export const ProfileScreen: React.FC = () => {
           <Text style={styles.menuText}>Privacy</Text>
           <Text style={styles.menuArrow}>›</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.menuItem} onPress={() => navigation.navigate('Activities' as never)} activeOpacity={0.7}>
-          <Text style={styles.menuText}>My Activities</Text>
-          <Text style={styles.menuArrow}>›</Text>
-        </TouchableOpacity>
         {userRole === 'owner' && selectedVehicleId && (
           <TouchableOpacity
             style={[styles.menuItem, styles.menuItemLast]}
