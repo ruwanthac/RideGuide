@@ -24,16 +24,24 @@ interface SessionState {
   liveSession: any | null;
   closedByClient: boolean;
   fallbackModel: any | null;
+  reconnecting: boolean;
+  lastFallbackReplyAt: number;
 }
 
 const MAX_HISTORY_MESSAGES = 24;
 const WAIT_FOR_TEXT_REPLY_MS = 8000;
+const MIN_FALLBACK_REPLY_INTERVAL_MS = 4500;
+const MIN_AUDIO_CHUNK_BASE64_SIZE = 9000;
 
 const LIVE_SYSTEM_PROMPT = `You are a live AI mechanic assistant.
 You can receive text, audio transcripts, and vehicle camera context.
 Give practical and safety-first vehicle troubleshooting guidance.
 When uncertain, ask concise clarifying questions.`;
-const LIVE_MODEL_FALLBACKS = ['gemini-live-2.5-flash-preview', 'gemini-2.0-flash-live-001'];
+const LIVE_MODEL_FALLBACKS = [
+  'gemini-2.5-flash-native-audio-latest',
+  'gemini-2.5-flash-native-audio-preview-12-2025',
+  'gemini-3.1-flash-live-preview',
+];
 
 function getClient(): GoogleGenAI {
   if (!env.GEMINI_API_KEY) {
@@ -71,6 +79,8 @@ export async function createGeminiLiveSession(params: {
     liveSession: null,
     closedByClient: false,
     fallbackModel: null,
+    reconnecting: false,
+    lastFallbackReplyAt: 0,
   };
 
   const client = getClient();
@@ -94,17 +104,27 @@ export async function createGeminiLiveSession(params: {
     }
   };
 
-  const preferredModel = env.GEMINI_MODEL_LIVE || LIVE_MODEL_FALLBACKS[0];
+  const requestedModel = env.GEMINI_MODEL_LIVE || LIVE_MODEL_FALLBACKS[0];
+  const preferredModel = requestedModel;
   const modelCandidates = Array.from(new Set([preferredModel, ...LIVE_MODEL_FALLBACKS]));
-  let connectError: unknown = null;
-  for (const modelName of modelCandidates) {
-    try {
-      state.liveSession = await client.live.connect({
+
+  const connectLiveSession = async (): Promise<void> => {
+    let connectError: unknown = null;
+    for (const modelName of modelCandidates) {
+      try {
+        state.liveSession = await client.live.connect({
         model: modelName,
         config: {
-          responseModalities: [Modality.TEXT, Modality.AUDIO],
+          responseModalities: [Modality.AUDIO],
           inputAudioTranscription: {},
           outputAudioTranscription: {},
+          speechConfig: {
+            voiceConfig: {
+              prebuiltVoiceConfig: {
+                voiceName: 'Aoede',
+              },
+            },
+          },
           systemInstruction: `${LIVE_SYSTEM_PROMPT}\n\nVehicle Context:\n${params.vehicleContext}`,
         } as any,
         callbacks: {
@@ -145,25 +165,44 @@ export async function createGeminiLiveSession(params: {
             const closeReason = event?.reason || 'unknown';
             console.warn('[gemini-live] onclose', { model: modelName, closeCode, closeReason });
             if (!state.closedByClient) {
-              params.callbacks.onError?.(
-                `Live voice session disconnected (${closeCode ?? 'n/a'}: ${closeReason}).`
-              );
+              if (!(closeCode === 1006 && closeReason === 'unknown')) {
+                params.callbacks.onError?.(
+                  `Live voice session disconnected (${closeCode ?? 'n/a'}: ${closeReason}).`
+                );
+              }
+              if (!state.reconnecting) {
+                state.reconnecting = true;
+                setTimeout(() => {
+                  if (state.closedByClient) {
+                    state.reconnecting = false;
+                    return;
+                  }
+                  void connectLiveSession()
+                    .catch(() => {
+                      // Stay on fallback mode if reconnect keeps failing.
+                    })
+                    .finally(() => {
+                      state.reconnecting = false;
+                    });
+                }, 1200);
+              }
             }
           },
         },
       });
-      break;
-    } catch (error) {
-      connectError = error;
-      console.warn('[gemini-live] connect failed', { model: modelName, error });
-      state.liveSession = null;
+        return;
+      } catch (error) {
+        connectError = error;
+        console.warn('[gemini-live] connect failed', { model: modelName, error });
+        state.liveSession = null;
+      }
     }
-  }
-  if (!state.liveSession) {
     throw (connectError instanceof Error
       ? connectError
       : new Error('Unable to establish Gemini Live session with configured models.'));
-  }
+  };
+
+  await connectLiveSession();
 
   const waitForNextModelText = () =>
     new Promise<string>((resolve) => {
@@ -185,6 +224,16 @@ export async function createGeminiLiveSession(params: {
 
   const addUserText = async (text: string): Promise<string> => {
     if (!state.liveSession) {
+      if (!state.reconnecting) {
+        state.reconnecting = true;
+        void connectLiveSession()
+          .catch(() => {
+            // fallback remains available
+          })
+          .finally(() => {
+            state.reconnecting = false;
+          });
+      }
       throw new Error('Live voice session unavailable.');
     }
     params.callbacks.onListening?.();
@@ -212,11 +261,18 @@ export async function createGeminiLiveSession(params: {
 
     if (!state.liveSession || !looksLikePcm) {
       if (!state.fallbackModel) return;
+      if ((audioBase64 || '').length < MIN_AUDIO_CHUNK_BASE64_SIZE) {
+        return;
+      }
+      const now = Date.now();
+      if (now - state.lastFallbackReplyAt < MIN_FALLBACK_REPLY_INTERVAL_MS) {
+        return;
+      }
       try {
         const result = await state.fallbackModel.generateContent([
           {
             text:
-              'Transcribe the user voice and answer as a concise vehicle mechanic. Return plain response text only.',
+              'Transcribe the user voice and answer as a concise vehicle mechanic. If speech is unclear/silent/noise-only, return exactly [NO_SPEECH]. Return plain response text only.',
           },
           {
             inlineData: {
@@ -227,7 +283,11 @@ export async function createGeminiLiveSession(params: {
         ] as any);
         const response = (result as any)?.response || result;
         const replyText = safeResponseText(response).trim();
+        if (!replyText || replyText === '[NO_SPEECH]' || /\[No speech detected\]/i.test(replyText)) {
+          return;
+        }
         if (replyText) {
+          state.lastFallbackReplyAt = now;
           state.history.push({ role: 'user', content: '[voice message]' });
           state.history.push({ role: 'model', content: replyText });
           trimHistory(state.history);

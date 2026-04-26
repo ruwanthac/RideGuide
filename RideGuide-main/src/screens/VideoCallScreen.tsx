@@ -12,8 +12,9 @@ import {
 } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { Audio } from 'expo-av';
-import { useAudioPlayer, setAudioModeAsync } from 'expo-audio';
+import { useAudioPlayer } from 'expo-audio';
 import * as Speech from 'expo-speech';
+import * as Haptics from 'expo-haptics';
 import { Icon } from '../components';
 import { colors } from '../constants/theme';
 import { useResponsive } from '../hooks';
@@ -21,8 +22,6 @@ import { joinLiveAiCall } from '../backend/liveAiCallService';
 import { useVehicles } from '../context/VehiclesContext';
 
 const RINGTONE_SOURCE = require('../../assets/call.mp3');
-const AUDIO_CHUNK_MS = 1200;
-const AUDIO_LOOP_GAP_MS = 120;
 const AUDIO_MIME_TYPE = Platform.OS === 'web' ? 'audio/webm' : 'audio/m4a';
 const AGENT_AUDIO_PRIORITY_WINDOW_MS = 1200;
 
@@ -52,13 +51,11 @@ const RECORDING_OPTIONS: Audio.RecordingOptions = {
   },
 };
 
-function sleep(ms: number) {
-  return new Promise<void>((resolve) => setTimeout(resolve, ms));
-}
-
 function normalizeAgentText(text: string): string {
   return text
     .replace(/\(No audio was provided, so I cannot generate audio output\.\)/gi, '')
+    .replace(/\[No speech detected\]/gi, '')
+    .replace(/I didn't (hear|detect) any speech\.[^\n]*/gi, '')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
 }
@@ -101,13 +98,14 @@ export const VideoCallScreen: React.FC<VideoCallScreenProps> = ({ onEndCall }) =
     'calling' | 'connecting' | 'connected' | 'error' | 'ended'
   >('calling');
   const [cameraFacing, setCameraFacing] = useState<'front' | 'back'>('back');
-  const [isMuted, setIsMuted] = useState(false);
+  const [isHoldingMic, setIsHoldingMic] = useState(false);
   const [inputText, setInputText] = useState('');
   const [messages, setMessages] = useState<LiveMessage[]>([]);
   const [isSending, setIsSending] = useState(false);
   const [sessionError, setSessionError] = useState<string | null>(null);
   const [aiState, setAiState] = useState<'idle' | 'listening' | 'thinking' | 'speaking'>('idle');
   const [audioSentCount, setAudioSentCount] = useState(0);
+  const [audioAckCount, setAudioAckCount] = useState(0);
   const [lastAudioMeta, setLastAudioMeta] = useState<string>('');
   const pulseAnim = React.useRef(new Animated.Value(1)).current;
   const [permission, requestPermission] = useCameraPermissions();
@@ -122,18 +120,93 @@ export const VideoCallScreen: React.FC<VideoCallScreenProps> = ({ onEndCall }) =
   );
   const stopRef = useRef<null | (() => Promise<void>)>(null);
   const recordingRef = useRef<Audio.Recording | null>(null);
-  const audioLoopActiveRef = useRef(false);
+  const recordingBusyRef = useRef(false);
   const microphoneGrantedRef = useRef(false);
   const lastAgentAudioAtRef = useRef(0);
   const speechAvailableRef = useRef(false);
+  const isAiSpeakingRef = useRef(false);
   const { selectedVehicleId } = useVehicles();
-
   const toggleCamera = () => {
     setCameraFacing((prev) => (prev === 'back' ? 'front' : 'back'));
   };
 
-  const toggleMute = () => {
-    setIsMuted((prev) => !prev);
+  const handleMicPressIn = () => {
+    setIsHoldingMic(true);
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {
+      // haptics unavailable on some devices
+    });
+    void (async () => {
+      if (
+        status !== 'connected' ||
+        !sendAudioChunkRef.current ||
+        isAiSpeakingRef.current ||
+        recordingBusyRef.current ||
+        recordingRef.current
+      ) {
+        return;
+      }
+      recordingBusyRef.current = true;
+      try {
+        if (!microphoneGrantedRef.current) {
+          const micPermission = await Audio.requestPermissionsAsync();
+          microphoneGrantedRef.current = micPermission.granted;
+        }
+        if (!microphoneGrantedRef.current) {
+          setSessionError('Microphone permission is required for voice uplink.');
+          return;
+        }
+        await Audio.setAudioModeAsync({
+          allowsRecordingIOS: true,
+          playsInSilentModeIOS: true,
+          staysActiveInBackground: false,
+          interruptionModeIOS: 1,
+          shouldDuckAndroid: true,
+          interruptionModeAndroid: 1,
+          playThroughEarpieceAndroid: false,
+        });
+        const created = await Audio.Recording.createAsync(RECORDING_OPTIONS);
+        recordingRef.current = created.recording;
+      } catch (error) {
+        setSessionError(
+          error instanceof Error
+            ? error.message
+            : 'Unable to start microphone recording. Try holding mic again.'
+        );
+        setIsHoldingMic(false);
+      } finally {
+        recordingBusyRef.current = false;
+      }
+    })();
+  };
+
+  const handleMicPressOut = () => {
+    setIsHoldingMic(false);
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {
+      // haptics unavailable on some devices
+    });
+    void (async () => {
+      if (recordingBusyRef.current) return;
+      const recording = recordingRef.current;
+      if (!recording || !sendAudioChunkRef.current) return;
+      recordingBusyRef.current = true;
+      recordingRef.current = null;
+      try {
+        await recording.stopAndUnloadAsync();
+        const uri = recording.getURI();
+        if (!uri) return;
+        const base64Audio = await recordingUriToBase64(uri);
+        if (!base64Audio || !sendAudioChunkRef.current) return;
+        await sendAudioChunkRef.current(base64Audio, AUDIO_MIME_TYPE);
+        setAudioSentCount((prev) => prev + 1);
+        setLastAudioMeta(`${AUDIO_MIME_TYPE} • ${Math.round(base64Audio.length / 1024)}KB`);
+      } catch (error) {
+        setSessionError(
+          error instanceof Error ? error.message : 'Unable to stop/send microphone recording.'
+        );
+      } finally {
+        recordingBusyRef.current = false;
+      }
+    })();
   };
 
   const ringtonePlayer = useAudioPlayer(RINGTONE_SOURCE);
@@ -141,12 +214,30 @@ export const VideoCallScreen: React.FC<VideoCallScreenProps> = ({ onEndCall }) =
   useEffect(() => {
     const setupAudio = async () => {
       try {
-        await setAudioModeAsync({ playsInSilentMode: true, allowsRecording: true });
+        await Audio.setAudioModeAsync({
+          allowsRecordingIOS: true,
+          playsInSilentModeIOS: true,
+          staysActiveInBackground: false,
+          interruptionModeIOS: 1,
+          shouldDuckAndroid: true,
+          interruptionModeAndroid: 1,
+          playThroughEarpieceAndroid: false,
+        });
+      } catch (error) {
+        setSessionError(
+          error instanceof Error ? error.message : 'Failed to initialize audio recording mode.'
+        );
+      }
+      try {
         const micPermission = await Audio.requestPermissionsAsync();
         microphoneGrantedRef.current = micPermission.granted;
+      } catch {
+        microphoneGrantedRef.current = false;
+      }
+      try {
         speechAvailableRef.current = await Speech.isAvailableAsync();
       } catch {
-        // Ignore
+        speechAvailableRef.current = false;
       }
     };
     setupAudio();
@@ -169,6 +260,10 @@ export const VideoCallScreen: React.FC<VideoCallScreenProps> = ({ onEndCall }) =
     }
     return () => safePause();
   }, [status]);
+
+  useEffect(() => {
+    isAiSpeakingRef.current = aiState === 'speaking';
+  }, [aiState]);
 
   useEffect(() => {
     let active = true;
@@ -247,7 +342,7 @@ export const VideoCallScreen: React.FC<VideoCallScreenProps> = ({ onEndCall }) =
           },
           onAudioReceived: ({ mimeType, size }) => {
             if (!active) return;
-            setAudioSentCount((prev) => prev + 1);
+            setAudioAckCount((prev) => prev + 1);
             setLastAudioMeta(`${mimeType} • ${Math.round(size / 1024)}KB`);
           },
           onError: (message) => {
@@ -343,68 +438,6 @@ export const VideoCallScreen: React.FC<VideoCallScreenProps> = ({ onEndCall }) =
   }, [status, permission?.granted]);
 
   useEffect(() => {
-    if (
-      status !== 'connected' ||
-      isMuted ||
-      aiState === 'speaking' ||
-      !sendAudioChunkRef.current ||
-      !microphoneGrantedRef.current
-    ) {
-      return;
-    }
-
-    audioLoopActiveRef.current = true;
-    void (async () => {
-      while (audioLoopActiveRef.current) {
-        let recording: Audio.Recording | null = null;
-        try {
-          const created = await Audio.Recording.createAsync(RECORDING_OPTIONS);
-          recording = created.recording;
-          recordingRef.current = recording;
-          await sleep(AUDIO_CHUNK_MS);
-          if (!audioLoopActiveRef.current) break;
-          await recording.stopAndUnloadAsync();
-          const uri = recording.getURI();
-          recordingRef.current = null;
-          recording = null;
-
-          if (!uri) {
-            await sleep(AUDIO_LOOP_GAP_MS);
-            continue;
-          }
-
-          const base64Audio = await recordingUriToBase64(uri);
-          if (base64Audio && sendAudioChunkRef.current && audioLoopActiveRef.current) {
-            await sendAudioChunkRef.current(base64Audio, AUDIO_MIME_TYPE);
-          }
-        } catch (error) {
-          setSessionError(
-            error instanceof Error ? error.message : 'Voice capture/stream failed. Try toggling mic.'
-          );
-          await sleep(AUDIO_LOOP_GAP_MS);
-        } finally {
-          if (recording) {
-            try {
-              await recording.stopAndUnloadAsync();
-            } catch {
-              // Ignore cleanup errors from already-stopped recordings.
-            }
-          }
-          recordingRef.current = null;
-        }
-      }
-    })();
-
-    return () => {
-      audioLoopActiveRef.current = false;
-      void recordingRef.current?.stopAndUnloadAsync().catch(() => {
-        // Ignore cleanup errors during unmount or mute toggles.
-      });
-      recordingRef.current = null;
-    };
-  }, [status, isMuted, aiState]);
-
-  useEffect(() => {
     const pulse = Animated.loop(
       Animated.sequence([
         Animated.timing(pulseAnim, {
@@ -426,6 +459,10 @@ export const VideoCallScreen: React.FC<VideoCallScreenProps> = ({ onEndCall }) =
 
   useEffect(() => {
     return () => {
+      void recordingRef.current?.stopAndUnloadAsync().catch(() => {
+        // Ignore cleanup errors on unmount.
+      });
+      recordingRef.current = null;
       void Speech.stop();
     };
   }, []);
@@ -442,8 +479,8 @@ export const VideoCallScreen: React.FC<VideoCallScreenProps> = ({ onEndCall }) =
         ? 'AI is thinking...'
         : aiState === 'speaking'
         ? 'AI is speaking...'
-        : isMuted
-        ? 'Connected (mic muted)'
+        : isHoldingMic
+        ? 'Listening to you...'
         : 'Connected to AI'
       : status === 'ended'
       ? 'Call ended'
@@ -530,6 +567,20 @@ export const VideoCallScreen: React.FC<VideoCallScreenProps> = ({ onEndCall }) =
           alignItems: 'center',
           justifyContent: 'center',
         },
+        holdMicButton: {
+          width: 82,
+          height: 82,
+          borderRadius: 41,
+          borderWidth: 2,
+          borderColor: 'rgba(255,255,255,0.32)',
+          backgroundColor: 'rgba(15,23,42,0.45)',
+          alignItems: 'center',
+          justifyContent: 'center',
+        },
+        holdMicButtonActive: {
+          backgroundColor: 'rgba(37,99,235,0.85)',
+          borderColor: 'rgba(191,219,254,0.95)',
+        },
         endCallButton: {
           width: 64,
           height: 64,
@@ -556,6 +607,14 @@ export const VideoCallScreen: React.FC<VideoCallScreenProps> = ({ onEndCall }) =
           color: 'rgba(255,255,255,0.75)',
           fontSize: fontSizes.xs,
           marginBottom: spacing.xs,
+        },
+        holdHintText: {
+          color: 'rgba(255,255,255,0.8)',
+          fontSize: fontSizes.xs,
+          marginBottom: spacing.xs,
+        },
+        holdHintActive: {
+          color: '#BFDBFE',
         },
         captionsLabel: {
           color: 'rgba(255,255,255,0.82)',
@@ -659,18 +718,15 @@ export const VideoCallScreen: React.FC<VideoCallScreenProps> = ({ onEndCall }) =
       <View style={styles.controls}>
         <TouchableOpacity
           style={[
-            styles.controlButton,
+            styles.holdMicButton,
             { marginRight: spacing.xl },
-            isMuted && { backgroundColor: 'rgba(220, 38, 38, 0.6)' },
+            isHoldingMic && styles.holdMicButtonActive,
           ]}
-          onPress={toggleMute}
+          onPressIn={handleMicPressIn}
+          onPressOut={handleMicPressOut}
           activeOpacity={0.7}
         >
-          <Icon
-            name={isMuted ? 'mic-off' : 'mic'}
-            size={24}
-            color="#FFFFFF"
-          />
+          <Icon name="mic" size={30} color="#FFFFFF" />
         </TouchableOpacity>
         <TouchableOpacity
           style={styles.endCallButton}
@@ -695,8 +751,14 @@ export const VideoCallScreen: React.FC<VideoCallScreenProps> = ({ onEndCall }) =
         style={styles.chatPanel}
       >
         {sessionError ? <Text style={styles.errorText}>{sessionError}</Text> : null}
+        <Text style={[styles.holdHintText, isHoldingMic && styles.holdHintActive]}>
+          {isHoldingMic ? 'Listening... release to send' : 'Hold mic button while speaking'}
+        </Text>
         <Text style={styles.uplinkText}>
-          Voice uplink: {audioSentCount > 0 ? `${audioSentCount} chunks (${lastAudioMeta})` : 'waiting...'}
+          Voice uplink:{' '}
+          {audioSentCount > 0
+            ? `sent ${audioSentCount}, ack ${audioAckCount} (${lastAudioMeta})`
+            : 'waiting...'}
         </Text>
         <Text style={styles.captionsLabel}>Live captions</Text>
         <FlatList

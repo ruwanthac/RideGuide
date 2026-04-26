@@ -7,7 +7,7 @@ const schema = z.object({
   JWT_SECRET: z.string().min(16),
   GEMINI_API_KEY: z.string().min(1).optional(),
   GEMINI_MODEL_CHEAP: z.string().default('gemini-2.5-flash'),
-  GEMINI_MODEL_LIVE: z.string().default('gemini-live-2.5-flash-preview'),
+  GEMINI_MODEL_LIVE: z.string().default('gemini-2.5-flash-native-audio-latest'),
   CORS_ORIGIN: z.string().default('*'),
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
 });
