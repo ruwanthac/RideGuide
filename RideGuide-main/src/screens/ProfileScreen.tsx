@@ -44,10 +44,15 @@ export const ProfileScreen: React.FC = () => {
   const [showProfiles, setShowProfiles] = useState(false);
 
   const currentVehicle = vehicles.find((v) => v._id === selectedVehicleId) ?? vehicles[0];
+  const currentVehicleIndex = currentVehicle
+    ? vehicles.findIndex((vehicle) => vehicle._id === currentVehicle._id)
+    : -1;
+  const currentVehicleChipLabel =
+    currentVehicleIndex >= 0 ? `Car ${currentVehicleIndex + 1}` : 'Car';
   const currentVehicleDisplay =
-    currentVehicle?.makeModel?.trim() ||
-    currentVehicle?.label ||
-    'No vehicle selected';
+    currentVehicle?.makeModel?.trim()
+      ? `${currentVehicleChipLabel} - ${currentVehicle.makeModel.trim()}`
+      : currentVehicle?.label || 'No vehicle selected';
 
   const startEditingVehicle = () => {
     if (!currentVehicle) {
@@ -106,6 +111,7 @@ export const ProfileScreen: React.FC = () => {
   const handleAddVehicle = () => {
     void addVehicle({ label: 'New Vehicle', makeModel: DEFAULT_MAKE_MODEL, vin: DEFAULT_VIN })
       .then((created) => {
+        void setSelectedVehicleId(created._id);
         setEditMakeModel(created.makeModel);
         setEditVin(created.vin);
         setIsEditingVehicle(true);
@@ -435,8 +441,9 @@ export const ProfileScreen: React.FC = () => {
                     >
                       <TouchableOpacity
                         onPress={() => {
-                          if (!isEditingVehicle) {
-                            setSelectedVehicleId(vehicle._id);
+                          void setSelectedVehicleId(vehicle._id);
+                          if (isEditingVehicle) {
+                            setIsEditingVehicle(false);
                           }
                         }}
                         activeOpacity={0.7}
