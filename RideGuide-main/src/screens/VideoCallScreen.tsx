@@ -11,13 +11,79 @@ import {
   Platform,
 } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
+import { Audio } from 'expo-av';
 import { useAudioPlayer, setAudioModeAsync } from 'expo-audio';
+import * as Speech from 'expo-speech';
 import { Icon } from '../components';
 import { colors } from '../constants/theme';
 import { useResponsive } from '../hooks';
 import { joinLiveAiCall } from '../backend/liveAiCallService';
+import { useVehicles } from '../context/VehiclesContext';
 
 const RINGTONE_SOURCE = require('../../assets/call.mp3');
+const AUDIO_CHUNK_MS = 1200;
+const AUDIO_LOOP_GAP_MS = 120;
+const AUDIO_MIME_TYPE = Platform.OS === 'web' ? 'audio/webm' : 'audio/m4a';
+const AGENT_AUDIO_PRIORITY_WINDOW_MS = 1200;
+
+const RECORDING_OPTIONS: Audio.RecordingOptions = {
+  android: {
+    extension: '.m4a',
+    outputFormat: Audio.AndroidOutputFormat.MPEG_4,
+    audioEncoder: Audio.AndroidAudioEncoder.AAC,
+    sampleRate: 16000,
+    numberOfChannels: 1,
+    bitRate: 64000,
+  },
+  ios: {
+    extension: '.m4a',
+    outputFormat: Audio.IOSOutputFormat.MPEG4AAC,
+    audioQuality: Audio.IOSAudioQuality.MEDIUM,
+    sampleRate: 16000,
+    numberOfChannels: 1,
+    bitRate: 64000,
+    linearPCMBitDepth: 16,
+    linearPCMIsBigEndian: false,
+    linearPCMIsFloat: false,
+  },
+  web: {
+    mimeType: 'audio/webm',
+    bitsPerSecond: 64000,
+  },
+};
+
+function sleep(ms: number) {
+  return new Promise<void>((resolve) => setTimeout(resolve, ms));
+}
+
+function normalizeAgentText(text: string): string {
+  return text
+    .replace(/\(No audio was provided, so I cannot generate audio output\.\)/gi, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+async function recordingUriToBase64(uri: string): Promise<string | null> {
+  try {
+    const response = await fetch(uri);
+    const blob = await response.blob();
+    const dataUrl = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        const value = reader.result;
+        if (typeof value === 'string') resolve(value);
+        else reject(new Error('Unexpected reader result type'));
+      };
+      reader.onerror = () => reject(new Error('Failed reading recording blob'));
+      reader.readAsDataURL(blob);
+    });
+    const raw = dataUrl.split(',')[1] || null;
+    if (!raw) return null;
+    return raw.replace(/^data:[^;]+;base64,/, '');
+  } catch {
+    return null;
+  }
+}
 
 interface VideoCallScreenProps {
   onEndCall: () => void;
@@ -40,11 +106,27 @@ export const VideoCallScreen: React.FC<VideoCallScreenProps> = ({ onEndCall }) =
   const [messages, setMessages] = useState<LiveMessage[]>([]);
   const [isSending, setIsSending] = useState(false);
   const [sessionError, setSessionError] = useState<string | null>(null);
+  const [aiState, setAiState] = useState<'idle' | 'listening' | 'thinking' | 'speaking'>('idle');
+  const [audioSentCount, setAudioSentCount] = useState(0);
+  const [lastAudioMeta, setLastAudioMeta] = useState<string>('');
   const pulseAnim = React.useRef(new Animated.Value(1)).current;
   const [permission, requestPermission] = useCameraPermissions();
+  const cameraRef = useRef<any>(null);
   const sessionIdRef = useRef<string>(`ai-call-${Date.now()}`);
   const sendRef = useRef<null | ((text: string) => Promise<void>)>(null);
+  const sendAudioChunkRef = useRef<null | ((audioBase64: string, mimeType?: string) => Promise<void>)>(
+    null
+  );
+  const sendVideoFrameRef = useRef<null | ((frameBase64: string, mimeType?: string) => Promise<void>)>(
+    null
+  );
   const stopRef = useRef<null | (() => Promise<void>)>(null);
+  const recordingRef = useRef<Audio.Recording | null>(null);
+  const audioLoopActiveRef = useRef(false);
+  const microphoneGrantedRef = useRef(false);
+  const lastAgentAudioAtRef = useRef(0);
+  const speechAvailableRef = useRef(false);
+  const { selectedVehicleId } = useVehicles();
 
   const toggleCamera = () => {
     setCameraFacing((prev) => (prev === 'back' ? 'front' : 'back'));
@@ -59,7 +141,10 @@ export const VideoCallScreen: React.FC<VideoCallScreenProps> = ({ onEndCall }) =
   useEffect(() => {
     const setupAudio = async () => {
       try {
-        await setAudioModeAsync({ playsInSilentMode: true });
+        await setAudioModeAsync({ playsInSilentMode: true, allowsRecording: true });
+        const micPermission = await Audio.requestPermissionsAsync();
+        microphoneGrantedRef.current = micPermission.granted;
+        speechAvailableRef.current = await Speech.isAvailableAsync();
       } catch {
         // Ignore
       }
@@ -96,6 +181,7 @@ export const VideoCallScreen: React.FC<VideoCallScreenProps> = ({ onEndCall }) =
           onReady: () => {
             if (!active) return;
             setStatus('connected');
+            setAiState('idle');
           },
           onUserText: (text) => {
             if (!active) return;
@@ -103,25 +189,92 @@ export const VideoCallScreen: React.FC<VideoCallScreenProps> = ({ onEndCall }) =
               ...prev,
               { id: `${Date.now()}-${Math.random()}`, role: 'user', content: text },
             ]);
+            setAiState('thinking');
           },
           onAgentText: (text) => {
             if (!active) return;
+            const cleanedText = normalizeAgentText(text);
+            if (!cleanedText) return;
             setMessages((prev) => [
               ...prev,
-              { id: `${Date.now()}-${Math.random()}`, role: 'model', content: text },
+              { id: `${Date.now()}-${Math.random()}`, role: 'model', content: cleanedText },
             ]);
+            const now = Date.now();
+            const gotRecentModelAudio =
+              now - lastAgentAudioAtRef.current < AGENT_AUDIO_PRIORITY_WINDOW_MS;
+            if (!gotRecentModelAudio && cleanedText.length > 0 && speechAvailableRef.current) {
+              setAiState('speaking');
+              void Speech.stop();
+              Speech.speak(cleanedText, {
+                rate: 0.95,
+                pitch: 1,
+                onDone: () => setAiState('idle'),
+                onStopped: () => setAiState('idle'),
+                onError: () => setAiState('idle'),
+              });
+            } else {
+              setAiState('idle');
+            }
+          },
+          onAgentAudioChunk: (audioBase64, mimeType) => {
+            if (!active || !audioBase64) return;
+            lastAgentAudioAtRef.current = Date.now();
+            void (async () => {
+              try {
+                await Speech.stop();
+                const { sound } = await Audio.Sound.createAsync({
+                  uri: `data:${mimeType};base64,${audioBase64}`,
+                });
+                setAiState('speaking');
+                await sound.playAsync();
+                sound.setOnPlaybackStatusUpdate((playbackStatus) => {
+                  if (!playbackStatus.isLoaded || !playbackStatus.didJustFinish) return;
+                  void sound.unloadAsync();
+                  setAiState('idle');
+                });
+              } catch {
+                // Audio playback support varies by platform and codec.
+              }
+            })();
+          },
+          onListening: () => {
+            if (!active) return;
+            setAiState('listening');
+          },
+          onSpeaking: () => {
+            if (!active) return;
+            setAiState('speaking');
+          },
+          onAudioReceived: ({ mimeType, size }) => {
+            if (!active) return;
+            setAudioSentCount((prev) => prev + 1);
+            setLastAudioMeta(`${mimeType} • ${Math.round(size / 1024)}KB`);
           },
           onError: (message) => {
             if (!active) return;
-            setStatus('error');
+            const lowered = message.toLowerCase();
+            const isLiveStreamIssue =
+              lowered.includes('live voice session') ||
+              lowered.includes('live audio stream') ||
+              lowered.includes('unable to stream audio') ||
+              lowered.includes('gemini live');
+            if (!isLiveStreamIssue) {
+              setStatus('error');
+            }
             setSessionError(message);
+            setAiState('idle');
           },
           onEnded: () => {
             if (!active) return;
             setStatus('ended');
+            setAiState('idle');
           },
+        }, {
+          vehicleId: selectedVehicleId ?? undefined,
         });
         sendRef.current = session.sendText;
+        sendAudioChunkRef.current = session.sendAudioChunk;
+        sendVideoFrameRef.current = session.sendVideoFrame;
         stopRef.current = session.stop;
       } catch (e) {
         if (!active) return;
@@ -138,9 +291,10 @@ export const VideoCallScreen: React.FC<VideoCallScreenProps> = ({ onEndCall }) =
       active = false;
       void stopRef.current?.();
     };
-  }, []);
+  }, [selectedVehicleId]);
 
   const handleEndCall = () => {
+    void Speech.stop();
     safePause();
     void stopRef.current?.();
     onEndCall();
@@ -152,6 +306,7 @@ export const VideoCallScreen: React.FC<VideoCallScreenProps> = ({ onEndCall }) =
     try {
       setIsSending(true);
       setSessionError(null);
+      setAiState('thinking');
       await sendRef.current(cleaned);
       setInputText('');
     } catch (e) {
@@ -164,6 +319,90 @@ export const VideoCallScreen: React.FC<VideoCallScreenProps> = ({ onEndCall }) =
   useEffect(() => {
     requestPermission();
   }, []);
+
+  useEffect(() => {
+    if (status !== 'connected' || !permission?.granted || !cameraRef.current) return;
+    const interval = setInterval(() => {
+      void (async () => {
+        try {
+          const capture = await cameraRef.current?.takePictureAsync({
+            quality: 0.25,
+            base64: true,
+            skipProcessing: true,
+          });
+          if (capture?.base64 && sendVideoFrameRef.current) {
+            await sendVideoFrameRef.current(capture.base64, 'image/jpeg');
+          }
+        } catch {
+          // Frame streaming is best-effort and should not crash calls.
+        }
+      })();
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [status, permission?.granted]);
+
+  useEffect(() => {
+    if (
+      status !== 'connected' ||
+      isMuted ||
+      aiState === 'speaking' ||
+      !sendAudioChunkRef.current ||
+      !microphoneGrantedRef.current
+    ) {
+      return;
+    }
+
+    audioLoopActiveRef.current = true;
+    void (async () => {
+      while (audioLoopActiveRef.current) {
+        let recording: Audio.Recording | null = null;
+        try {
+          const created = await Audio.Recording.createAsync(RECORDING_OPTIONS);
+          recording = created.recording;
+          recordingRef.current = recording;
+          await sleep(AUDIO_CHUNK_MS);
+          if (!audioLoopActiveRef.current) break;
+          await recording.stopAndUnloadAsync();
+          const uri = recording.getURI();
+          recordingRef.current = null;
+          recording = null;
+
+          if (!uri) {
+            await sleep(AUDIO_LOOP_GAP_MS);
+            continue;
+          }
+
+          const base64Audio = await recordingUriToBase64(uri);
+          if (base64Audio && sendAudioChunkRef.current && audioLoopActiveRef.current) {
+            await sendAudioChunkRef.current(base64Audio, AUDIO_MIME_TYPE);
+          }
+        } catch (error) {
+          setSessionError(
+            error instanceof Error ? error.message : 'Voice capture/stream failed. Try toggling mic.'
+          );
+          await sleep(AUDIO_LOOP_GAP_MS);
+        } finally {
+          if (recording) {
+            try {
+              await recording.stopAndUnloadAsync();
+            } catch {
+              // Ignore cleanup errors from already-stopped recordings.
+            }
+          }
+          recordingRef.current = null;
+        }
+      }
+    })();
+
+    return () => {
+      audioLoopActiveRef.current = false;
+      void recordingRef.current?.stopAndUnloadAsync().catch(() => {
+        // Ignore cleanup errors during unmount or mute toggles.
+      });
+      recordingRef.current = null;
+    };
+  }, [status, isMuted, aiState]);
 
   useEffect(() => {
     const pulse = Animated.loop(
@@ -185,13 +424,27 @@ export const VideoCallScreen: React.FC<VideoCallScreenProps> = ({ onEndCall }) =
     return () => pulse.stop();
   }, []);
 
+  useEffect(() => {
+    return () => {
+      void Speech.stop();
+    };
+  }, []);
+
   const statusText =
     status === 'calling'
       ? 'Calling...'
       : status === 'connecting'
       ? 'Connecting to AI...'
       : status === 'connected'
-      ? 'Connected to AI'
+      ? aiState === 'listening'
+        ? 'AI is listening...'
+        : aiState === 'thinking'
+        ? 'AI is thinking...'
+        : aiState === 'speaking'
+        ? 'AI is speaking...'
+        : isMuted
+        ? 'Connected (mic muted)'
+        : 'Connected to AI'
       : status === 'ended'
       ? 'Call ended'
       : 'Connection issue';
@@ -299,6 +552,16 @@ export const VideoCallScreen: React.FC<VideoCallScreenProps> = ({ onEndCall }) =
           maxHeight: scale(140),
           marginBottom: spacing.sm,
         },
+        uplinkText: {
+          color: 'rgba(255,255,255,0.75)',
+          fontSize: fontSizes.xs,
+          marginBottom: spacing.xs,
+        },
+        captionsLabel: {
+          color: 'rgba(255,255,255,0.82)',
+          fontSize: fontSizes.xs,
+          marginBottom: spacing.xs,
+        },
         chatRow: {
           marginBottom: spacing.xs,
           alignSelf: 'flex-start',
@@ -356,7 +619,7 @@ export const VideoCallScreen: React.FC<VideoCallScreenProps> = ({ onEndCall }) =
     <View style={styles.container}>
       <View style={styles.remoteVideo}>
         {showCamera ? (
-          <CameraView style={styles.camera} facing={cameraFacing} />
+          <CameraView ref={cameraRef} style={styles.camera} facing={cameraFacing} />
         ) : (
           <View style={styles.remotePlaceholder}>
             <Animated.View
@@ -432,6 +695,10 @@ export const VideoCallScreen: React.FC<VideoCallScreenProps> = ({ onEndCall }) =
         style={styles.chatPanel}
       >
         {sessionError ? <Text style={styles.errorText}>{sessionError}</Text> : null}
+        <Text style={styles.uplinkText}>
+          Voice uplink: {audioSentCount > 0 ? `${audioSentCount} chunks (${lastAudioMeta})` : 'waiting...'}
+        </Text>
+        <Text style={styles.captionsLabel}>Live captions</Text>
         <FlatList
           data={messages}
           keyExtractor={(item) => item.id}

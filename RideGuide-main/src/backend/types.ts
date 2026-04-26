@@ -21,6 +21,12 @@ export interface Vehicle {
   ownerId: string;
   label: string;
   makeModel: string;
+  make?: string | null;
+  model?: string | null;
+  year?: number | null;
+  trim?: string | null;
+  engine?: string | null;
+  canonicalVehicleKey?: string | null;
   vin: string;
   createdAt: string;
   updatedAt: string;

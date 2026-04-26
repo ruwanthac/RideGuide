@@ -44,6 +44,7 @@ function getClient() {
   if (!env.GEMINI_API_KEY) throw new Error('GEMINI_API_KEY not configured');
   return new GoogleGenerativeAI(env.GEMINI_API_KEY);
 }
+const CHEAP_MODEL = env.GEMINI_MODEL_CHEAP;
 
 const DIAGNOSIS_SYSTEM = `You are an automotive diagnostic assistant. Return strictly valid JSON with fields:
 likelyCauses: string[] (1-4), severity: 'minor'|'moderate'|'critical', steps: string[] (3-7 non-technical inspection/repair steps),
@@ -56,7 +57,7 @@ export async function analyzeDiagnosis(input: { symptoms: string; obdCode: strin
   try {
     const client = getClient();
     const model = client.getGenerativeModel({
-      model: 'gemini-2.0-flash',
+      model: CHEAP_MODEL,
       generationConfig: { responseMimeType: 'application/json' },
       systemInstruction: DIAGNOSIS_SYSTEM,
     });
@@ -85,7 +86,7 @@ export async function chatReply(messages: { role: 'user' | 'model'; content: str
   try {
     const client = getClient();
     const model = client.getGenerativeModel({
-      model: 'gemini-2.0-flash',
+      model: CHEAP_MODEL,
       systemInstruction: CHAT_SYSTEM,
     });
     const history = messages

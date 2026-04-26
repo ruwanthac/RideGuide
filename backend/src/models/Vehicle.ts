@@ -5,6 +5,12 @@ const VehicleSchema = new Schema(
     ownerId: { type: Schema.Types.ObjectId, ref: 'User', required: true, index: true },
     label: { type: String, required: true },
     makeModel: { type: String, required: true },
+    make: { type: String, default: null },
+    model: { type: String, default: null },
+    year: { type: Number, default: null },
+    trim: { type: String, default: null },
+    engine: { type: String, default: null },
+    canonicalVehicleKey: { type: String, default: null, index: true },
     vin: { type: String, required: true },
   },
   { timestamps: true }

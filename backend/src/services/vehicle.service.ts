@@ -1,6 +1,10 @@
 import { Types } from 'mongoose';
 import { VehicleModel } from '../models/Vehicle';
 import { HttpError } from './auth.service';
+import {
+  buildCanonicalVehicleKey,
+  getOrEnrichVehicleKnowledge,
+} from './vehicle-cache.service';
 
 function ownsOrThrow(vehicle: any, userId: string) {
   if (!vehicle) throw new HttpError(404, 'vehicle not found');
@@ -11,15 +15,68 @@ export async function listVehicles(userId: string) {
   return VehicleModel.find({ ownerId: userId }).sort({ createdAt: 1 }).lean();
 }
 
-export async function createVehicle(userId: string, input: { label: string; makeModel: string; vin: string }) {
-  return VehicleModel.create({ ownerId: new Types.ObjectId(userId), ...input });
+export async function createVehicle(
+  userId: string,
+  input: {
+    label: string;
+    makeModel: string;
+    vin: string;
+    make?: string;
+    model?: string;
+    year?: number;
+    trim?: string;
+    engine?: string;
+  }
+) {
+  const canonicalVehicleKey = buildCanonicalVehicleKey(input);
+  const created = await VehicleModel.create({
+    ownerId: new Types.ObjectId(userId),
+    ...input,
+    canonicalVehicleKey,
+  });
+  void getOrEnrichVehicleKnowledge(input).catch((error) => {
+    console.warn('[vehicle-service] enrichment failed after create:', error);
+  });
+  return created;
 }
 
-export async function updateVehicle(userId: string, id: string, patch: Partial<{ label: string; makeModel: string; vin: string }>) {
+export async function updateVehicle(
+  userId: string,
+  id: string,
+  patch: Partial<{
+    label: string;
+    makeModel: string;
+    vin: string;
+    make: string;
+    model: string;
+    year: number;
+    trim: string;
+    engine: string;
+  }>
+) {
   const v = await VehicleModel.findById(id);
   ownsOrThrow(v, userId);
   Object.assign(v!, patch);
+  const nextCanonicalVehicleKey = buildCanonicalVehicleKey({
+    make: v!.make,
+    model: v!.model,
+    year: v!.year,
+    trim: v!.trim,
+    engine: v!.engine,
+    makeModel: v!.makeModel,
+  });
+  v!.canonicalVehicleKey = nextCanonicalVehicleKey;
   await v!.save();
+  void getOrEnrichVehicleKnowledge({
+    make: v!.make,
+    model: v!.model,
+    year: v!.year,
+    trim: v!.trim,
+    engine: v!.engine,
+    makeModel: v!.makeModel,
+  }).catch((error) => {
+    console.warn('[vehicle-service] enrichment failed after update:', error);
+  });
   return v!.toObject();
 }
 

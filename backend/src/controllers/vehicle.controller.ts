@@ -6,6 +6,11 @@ const createSchema = z.object({
   label: z.string().min(1).max(120),
   makeModel: z.string().min(1).max(200),
   vin: z.string().min(1).max(50),
+  make: z.string().min(1).max(100).optional(),
+  model: z.string().min(1).max(100).optional(),
+  year: z.number().int().min(1900).max(2100).optional(),
+  trim: z.string().min(1).max(100).optional(),
+  engine: z.string().min(1).max(120).optional(),
 });
 const updateSchema = createSchema.partial();
 
