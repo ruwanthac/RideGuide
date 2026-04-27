@@ -1,5 +1,5 @@
 import { GoogleGenAI, Modality } from '@google/genai';
-import { GoogleGenerativeAI } from '@google/generative-ai';
+import https from 'https';
 import { env } from '../config/env';
 
 type Role = 'user' | 'model';
@@ -7,14 +7,26 @@ type Role = 'user' | 'model';
 export interface LiveSessionCallbacks {
   onUserText?: (text: string) => void;
   onAgentText?: (text: string) => void;
+  onCaptionPartial?: (text: string) => void;
+  onCaptionFinal?: (text: string) => void;
   onAgentAudioChunk?: (base64Audio: string, mimeType: string) => void;
   onListening?: () => void;
   onSpeaking?: () => void;
+  onTurnState?: (state: 'user_speaking' | 'ai_speaking' | 'idle') => void;
+  onBargeIn?: () => void;
+  onModeDowngrade?: () => void;
   onError?: (message: string) => void;
 }
 
 export interface GeminiLiveSession {
   addUserText: (text: string) => Promise<string>;
+  addAudioFrame: (
+    audioBase64: string,
+    sampleRate?: number,
+    channels?: number,
+    sequence?: number,
+    timestamp?: number
+  ) => Promise<void>;
   addAudioChunk: (audioBase64: string, mimeType: string) => Promise<void>;
   addVideoFrame: (frameBase64: string, mimeType: string) => Promise<void>;
   close: () => Promise<void>;
@@ -24,11 +36,16 @@ interface SessionState {
   history: { role: Role; content: string }[];
   liveSession: any | null;
   closedByClient: boolean;
-  fallbackModel: any | null;
   reconnecting: boolean;
   lastFallbackReplyAt: number;
   latestVideoFrame?: { frameBase64: string; mimeType: string };
   lastInputTranscript?: string;
+  aiSpeakingActive: boolean;
+  pendingCaptionFinal?: string;
+  pendingCaptionTimer: NodeJS.Timeout | null;
+  lastTransientErrorAt: number;
+  pcmDropStartedAt: number;
+  modeDowngradeFired: boolean;
 }
 
 const MAX_HISTORY_MESSAGES = 24;
@@ -66,14 +83,6 @@ function trimHistory(history: { role: Role; content: string }[]) {
   }
 }
 
-function safeResponseText(response: any): string {
-  try {
-    return typeof response?.text === 'function' ? response.text() : '';
-  } catch {
-    return '';
-  }
-}
-
 function safeJsonParse<T>(value: string): T | null {
   try {
     return JSON.parse(value) as T;
@@ -106,6 +115,63 @@ function parseTranscriptReplyPayload(raw: string): { transcript?: string; reply?
   return null;
 }
 
+function normalizeAudioMimeType(mimeType: string): string {
+  const lowered = (mimeType || '').toLowerCase();
+  if (lowered === 'audio/m4a') return 'audio/mp4';
+  return mimeType || 'audio/webm';
+}
+
+async function fallbackGenerateContent(parts: any[], systemInstruction: string): Promise<string> {
+  if (!env.GEMINI_API_KEY) {
+    throw new Error('GEMINI_API_KEY not configured');
+  }
+  const modelName = env.GEMINI_MODEL_CHEAP || 'gemini-2.5-flash';
+  const payload = JSON.stringify({
+    system_instruction: {
+      parts: [{ text: systemInstruction }],
+    },
+    contents: [
+      {
+        role: 'user',
+        parts,
+      },
+    ],
+  });
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${env.GEMINI_API_KEY}`;
+  const body = await new Promise<string>((resolve, reject) => {
+    const req = https.request(
+      url,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Content-Length': Buffer.byteLength(payload),
+        },
+      },
+      (res) => {
+        let data = '';
+        res.on('data', (chunk) => {
+          data += chunk;
+        });
+        res.on('end', () => {
+          if (!res.statusCode || res.statusCode >= 400) {
+            reject(new Error(`Fallback generateContent failed (${res.statusCode ?? 'n/a'}): ${data}`));
+            return;
+          }
+          resolve(data);
+        });
+      }
+    );
+    req.on('error', (error) => reject(error));
+    req.write(payload);
+    req.end();
+  });
+  const parsed = safeJsonParse<any>(body);
+  const text =
+    parsed?.candidates?.[0]?.content?.parts?.map((part: any) => part?.text || '').join('') || '';
+  return String(text).trim();
+}
+
 export async function createGeminiLiveSession(params: {
   vehicleContext: string;
   callbacks: LiveSessionCallbacks;
@@ -120,20 +186,20 @@ export async function createGeminiLiveSession(params: {
     ],
     liveSession: null,
     closedByClient: false,
-    fallbackModel: null,
     reconnecting: false,
     lastFallbackReplyAt: 0,
     latestVideoFrame: undefined,
     lastInputTranscript: undefined,
+    aiSpeakingActive: false,
+    pendingCaptionFinal: undefined,
+    pendingCaptionTimer: null,
+    lastTransientErrorAt: 0,
+    pcmDropStartedAt: 0,
+    modeDowngradeFired: false,
   };
 
   const client = getClient();
-  if (env.GEMINI_API_KEY) {
-    state.fallbackModel = new GoogleGenerativeAI(env.GEMINI_API_KEY).getGenerativeModel({
-      model: env.GEMINI_MODEL_CHEAP || 'gemini-2.5-flash',
-      systemInstruction: `${LIVE_SYSTEM_PROMPT}\n\nVehicle Context:\n${params.vehicleContext}`,
-    });
-  }
+  const fallbackSystemInstruction = `${LIVE_SYSTEM_PROMPT}\n\nVehicle Context:\n${params.vehicleContext}`;
   const pendingTextWaiters: Array<(text: string) => void> = [];
   const modelTextQueue: string[] = [];
 
@@ -176,6 +242,11 @@ export async function createGeminiLiveSession(params: {
             const inputTranscript = message?.serverContent?.inputTranscription?.text;
             if (typeof inputTranscript === 'string' && inputTranscript.trim().length > 0) {
               params.callbacks.onListening?.();
+              params.callbacks.onTurnState?.('user_speaking');
+              if (state.aiSpeakingActive) {
+                params.callbacks.onBargeIn?.();
+                state.aiSpeakingActive = false;
+              }
               const cleaned = inputTranscript.trim();
               if (cleaned !== state.lastInputTranscript) {
                 state.lastInputTranscript = cleaned;
@@ -189,6 +260,14 @@ export async function createGeminiLiveSession(params: {
               if (typeof part?.text === 'string' && part.text.trim().length > 0) {
                 queueModelText(part.text);
                 params.callbacks.onAgentText?.(part.text);
+                params.callbacks.onCaptionPartial?.(part.text.trim());
+                state.pendingCaptionFinal = part.text.trim();
+                if (state.pendingCaptionTimer) clearTimeout(state.pendingCaptionTimer);
+                state.pendingCaptionTimer = setTimeout(() => {
+                  if (!state.pendingCaptionFinal) return;
+                  params.callbacks.onCaptionFinal?.(state.pendingCaptionFinal);
+                  state.pendingCaptionFinal = undefined;
+                }, 300);
               }
               const inlineData = part?.inlineData;
               if (
@@ -198,6 +277,8 @@ export async function createGeminiLiveSession(params: {
                 inlineData.mimeType.startsWith('audio/')
               ) {
                 params.callbacks.onSpeaking?.();
+                params.callbacks.onTurnState?.('ai_speaking');
+                state.aiSpeakingActive = true;
                 params.callbacks.onAgentAudioChunk?.(inlineData.data, inlineData.mimeType);
               }
             }
@@ -289,33 +370,37 @@ export async function createGeminiLiveSession(params: {
             state.reconnecting = false;
           });
       }
-      if (state.fallbackModel) {
-        const parts: any[] = [{ text }];
-        if (state.latestVideoFrame?.frameBase64) {
-          parts.push({
-            inlineData: {
-              mimeType: state.latestVideoFrame.mimeType || 'image/jpeg',
-              data: state.latestVideoFrame.frameBase64,
-            },
-          });
-        }
-        const result = await state.fallbackModel.generateContent(parts as any);
-        const response = (result as any)?.response || result;
-        const raw = safeResponseText(response).trim();
-        const parsed = parseTranscriptReplyPayload(raw);
-        const transcript = parsed?.transcript?.trim() || '';
-        const reply = parsed?.reply?.trim() || raw;
-        if (transcript) {
-          params.callbacks.onUserText?.(transcript);
-        }
-        if (reply) {
-          params.callbacks.onAgentText?.(reply);
-          return reply;
-        }
+      const parts: any[] = [{ text }];
+      if (state.latestVideoFrame?.frameBase64) {
+        parts.push({
+          inlineData: {
+            mimeType: state.latestVideoFrame.mimeType || 'image/jpeg',
+            data: state.latestVideoFrame.frameBase64,
+          },
+        });
+      }
+      const raw = await fallbackGenerateContent(parts as any, fallbackSystemInstruction);
+      const parsed = parseTranscriptReplyPayload(raw);
+      const transcript = parsed?.transcript?.trim() || '';
+      const reply = parsed?.reply?.trim() || raw;
+      if (transcript) {
+        params.callbacks.onUserText?.(transcript);
+      }
+      if (reply) {
+        params.callbacks.onAgentText?.(reply);
+        params.callbacks.onCaptionFinal?.(reply);
+        params.callbacks.onTurnState?.('ai_speaking');
+        state.aiSpeakingActive = true;
+        return reply;
       }
       throw new Error('Live voice session unavailable.');
     }
     params.callbacks.onListening?.();
+    params.callbacks.onTurnState?.('user_speaking');
+    if (state.aiSpeakingActive) {
+      params.callbacks.onBargeIn?.();
+      state.aiSpeakingActive = false;
+    }
     state.history.push({ role: 'user', content: text });
     trimHistory(state.history);
     state.liveSession.sendClientContent({
@@ -338,8 +423,66 @@ export async function createGeminiLiveSession(params: {
       (mimeType || '').toLowerCase().includes('audio/pcm') ||
       (mimeType || '').toLowerCase().includes('audio/l16');
 
+    // For true PCM streaming mode, do not run generateContent fallback per frame.
+    // If live session is down, silently keep trying reconnect and drop frames.
+    if (looksLikePcm && !state.liveSession) {
+      if (!state.reconnecting) {
+        state.reconnecting = true;
+        void connectLiveSession()
+          .then(() => {
+            state.pcmDropStartedAt = 0;
+            state.modeDowngradeFired = false;
+          })
+          .catch(() => {
+            // keep degraded until reconnect succeeds
+          })
+          .finally(() => {
+            state.reconnecting = false;
+          });
+      }
+      const now = Date.now();
+      if (state.pcmDropStartedAt === 0) {
+        state.pcmDropStartedAt = now;
+      }
+      const PCM_DROP_DOWNGRADE_MS = 5000;
+      if (
+        !state.modeDowngradeFired &&
+        now - state.pcmDropStartedAt > PCM_DROP_DOWNGRADE_MS
+      ) {
+        state.modeDowngradeFired = true;
+        params.callbacks.onModeDowngrade?.();
+      }
+      if (now - state.lastTransientErrorAt > 4000) {
+        state.lastTransientErrorAt = now;
+        params.callbacks.onError?.('Live audio reconnecting... still listening for your voice.');
+      }
+      return;
+    }
+
+    if (!looksLikePcm && state.liveSession) {
+      if ((audioBase64 || '').length < MIN_AUDIO_CHUNK_BASE64_SIZE) {
+        return;
+      }
+      const resolvedMime = normalizeAudioMimeType(mimeType || 'audio/webm');
+      const liveCandidates = [
+        { audio: { data: audioBase64, mimeType: resolvedMime } },
+        { media: { data: audioBase64, mimeType: resolvedMime } },
+        { realtimeInput: { mediaChunks: [{ data: audioBase64, mimeType: resolvedMime }] } },
+      ];
+      let sentViaLive = false;
+      for (const payload of liveCandidates) {
+        try {
+          state.liveSession.sendRealtimeInput(payload);
+          sentViaLive = true;
+          break;
+        } catch {
+          // Try next shape
+        }
+      }
+      if (sentViaLive) return;
+    }
+
     if (!state.liveSession || !looksLikePcm) {
-      if (!state.fallbackModel) return;
       if ((audioBase64 || '').length < MIN_AUDIO_CHUNK_BASE64_SIZE) {
         return;
       }
@@ -368,9 +511,7 @@ export async function createGeminiLiveSession(params: {
             },
           });
         }
-        const result = await state.fallbackModel.generateContent(parts as any);
-        const response = (result as any)?.response || result;
-        const raw = safeResponseText(response).trim();
+        const raw = await fallbackGenerateContent(parts as any, fallbackSystemInstruction);
         const parsed = parseTranscriptReplyPayload(raw);
         const transcript = parsed?.transcript?.trim() || '';
         const replyText = (parsed?.reply?.trim() || raw).trim();
@@ -387,16 +528,35 @@ export async function createGeminiLiveSession(params: {
           trimHistory(state.history);
           params.callbacks.onSpeaking?.();
           params.callbacks.onAgentText?.(replyText);
+          params.callbacks.onCaptionFinal?.(replyText);
+          params.callbacks.onTurnState?.('ai_speaking');
+          state.aiSpeakingActive = true;
         }
       } catch (error) {
-        params.callbacks.onError?.(
-          error instanceof Error ? error.message : 'Voice fallback processing failed.'
-        );
+        const message = error instanceof Error ? error.message : 'Voice fallback processing failed.';
+        const lowered = message.toLowerCase();
+        const transientNetwork =
+          lowered.includes('epipe') ||
+          lowered.includes('tls') ||
+          lowered.includes('socket disconnected') ||
+          lowered.includes('fetch failed');
+        if (transientNetwork) {
+          const now = Date.now();
+          if (now - state.lastTransientErrorAt > 4000) {
+            state.lastTransientErrorAt = now;
+            params.callbacks.onError?.('Network is unstable. Reconnecting voice service...');
+          }
+        } else {
+          params.callbacks.onError?.(message);
+        }
       }
       return;
     }
 
-    const resolvedMimeType = mimeType || 'audio/pcm;rate=16000';
+    state.pcmDropStartedAt = 0;
+    state.modeDowngradeFired = false;
+
+    const resolvedMimeType = normalizeAudioMimeType(mimeType || 'audio/pcm;rate=16000');
     const candidates = [
       { audio: { data: audioBase64, mimeType: resolvedMimeType } },
       { media: { data: audioBase64, mimeType: resolvedMimeType } },
@@ -411,6 +571,16 @@ export async function createGeminiLiveSession(params: {
       }
     }
     throw new Error('Unable to stream audio to Gemini Live.');
+  };
+
+  const addAudioFrame = async (
+    audioBase64: string,
+    sampleRate = 16000,
+    channels = 1
+  ): Promise<void> => {
+    if (!audioBase64) return;
+    const pcmMimeType = `audio/pcm;rate=${sampleRate};channels=${channels}`;
+    await addAudioChunk(audioBase64, pcmMimeType);
   };
 
   const addVideoFrame = async (frameBase64: string, mimeType: string): Promise<void> => {
@@ -435,6 +605,12 @@ export async function createGeminiLiveSession(params: {
 
   const close = async () => {
     state.closedByClient = true;
+    params.callbacks.onTurnState?.('idle');
+    state.aiSpeakingActive = false;
+    if (state.pendingCaptionTimer) {
+      clearTimeout(state.pendingCaptionTimer);
+      state.pendingCaptionTimer = null;
+    }
     try {
       state.liveSession?.close?.();
     } catch {
@@ -445,6 +621,6 @@ export async function createGeminiLiveSession(params: {
     state.latestVideoFrame = undefined;
   };
 
-  return { addUserText, addAudioChunk, addVideoFrame, close };
+  return { addUserText, addAudioFrame, addAudioChunk, addVideoFrame, close };
 }
 

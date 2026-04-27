@@ -6,7 +6,12 @@ export interface LiveAiCallbacks {
   onReady?: () => void;
   onAgentText?: (text: string) => void;
   onUserText?: (text: string) => void;
+  onCaptionPartial?: (text: string) => void;
+  onCaptionFinal?: (text: string) => void;
   onAgentAudioChunk?: (audioBase64: string, mimeType: string) => void;
+  onTurnState?: (state: 'user_speaking' | 'ai_speaking' | 'idle') => void;
+  onBargeIn?: () => void;
+  onModeDowngrade?: () => void;
   onListening?: () => void;
   onSpeaking?: () => void;
   onAudioReceived?: (meta: { mimeType: string; size: number; at: number }) => void;
@@ -20,6 +25,13 @@ export async function joinLiveAiCall(
   options?: { vehicleId?: string }
 ): Promise<{
   sendText: (text: string) => Promise<void>;
+  sendAudioFrame: (
+    frameBase64: string,
+    sampleRate?: number,
+    channels?: number,
+    sequence?: number,
+    timestamp?: number
+  ) => Promise<void>;
   sendAudioChunk: (audioBase64: string, mimeType?: string) => Promise<void>;
   sendVideoFrame: (frameBase64: string, mimeType?: string) => Promise<void>;
   stop: () => Promise<void>;
@@ -70,6 +82,28 @@ export async function joinLiveAiCall(
     if (incoming !== sessionId) return;
     callbacks.onUserText?.(text);
   };
+  const onCaptionPartial = ({ sessionId: incoming, text }: { sessionId: string; text: string }) => {
+    if (incoming !== sessionId) return;
+    callbacks.onCaptionPartial?.(text);
+  };
+  const onCaptionFinal = ({ sessionId: incoming, text }: { sessionId: string; text: string }) => {
+    if (incoming !== sessionId) return;
+    callbacks.onCaptionFinal?.(text);
+  };
+  const onTurnState = ({
+    sessionId: incoming,
+    state,
+  }: {
+    sessionId: string;
+    state: 'user_speaking' | 'ai_speaking' | 'idle';
+  }) => {
+    if (incoming !== sessionId) return;
+    callbacks.onTurnState?.(state);
+  };
+  const onBargeIn = ({ sessionId: incoming }: { sessionId: string }) => {
+    if (incoming !== sessionId) return;
+    callbacks.onBargeIn?.();
+  };
   const onAgentAudioChunk = ({
     sessionId: incoming,
     audioBase64,
@@ -114,6 +148,10 @@ export async function joinLiveAiCall(
     if (incoming !== sessionId) return;
     callbacks.onAudioReceived?.({ mimeType, size, at });
   };
+  const onModeDowngrade = ({ sessionId: incoming }: { sessionId: string }) => {
+    if (incoming !== sessionId) return;
+    callbacks.onModeDowngrade?.();
+  };
   const onEnded = ({ sessionId: incoming }: { sessionId: string }) => {
     if (incoming !== sessionId) return;
     callbacks.onEnded?.();
@@ -122,11 +160,16 @@ export async function joinLiveAiCall(
   socket.on('call:ai:ready', onReady);
   socket.on('call:ai:agent_text', onAgentText);
   socket.on('call:ai:user_text', onUserText);
+  socket.on('call:ai:caption_partial', onCaptionPartial);
+  socket.on('call:ai:caption_final', onCaptionFinal);
+  socket.on('call:ai:turn_state', onTurnState);
+  socket.on('call:ai:barge_in', onBargeIn);
   socket.on('call:ai:agent_audio_chunk', onAgentAudioChunk);
   socket.on('call:ai:listening', onListening);
   socket.on('call:ai:speaking', onSpeaking);
   socket.on('call:ai:error', onError);
   socket.on('call:ai:audio_received', onAudioReceived);
+  socket.on('call:ai:mode_downgrade', onModeDowngrade);
   socket.on('call:ai:ended', onEnded);
 
   await ensureConnected();
@@ -158,6 +201,24 @@ export async function joinLiveAiCall(
       });
     });
 
+  const sendAudioFrame = (
+    frameBase64: string,
+    sampleRate = 16000,
+    channels = 1,
+    sequence = 0,
+    timestamp = Date.now()
+  ) =>
+    new Promise<void>((resolve, reject) => {
+      socket.emit(
+        'call:ai:audio_frame',
+        { sessionId, frameBase64, sampleRate, channels, sequence, timestamp },
+        (ack: any) => {
+          if (ack?.ok) resolve();
+          else reject(new Error(ack?.error ?? 'Unable to send audio frame'));
+        }
+      );
+    });
+
   const sendVideoFrame = (frameBase64: string, mimeType = 'image/jpeg') =>
     new Promise<void>((resolve, reject) => {
       socket.emit('call:ai:video_frame', { sessionId, frameBase64, mimeType }, (ack: any) => {
@@ -178,14 +239,19 @@ export async function joinLiveAiCall(
     socket.off('call:ai:ready', onReady);
     socket.off('call:ai:agent_text', onAgentText);
     socket.off('call:ai:user_text', onUserText);
+    socket.off('call:ai:caption_partial', onCaptionPartial);
+    socket.off('call:ai:caption_final', onCaptionFinal);
+    socket.off('call:ai:turn_state', onTurnState);
+    socket.off('call:ai:barge_in', onBargeIn);
     socket.off('call:ai:agent_audio_chunk', onAgentAudioChunk);
     socket.off('call:ai:listening', onListening);
     socket.off('call:ai:speaking', onSpeaking);
     socket.off('call:ai:error', onError);
     socket.off('call:ai:audio_received', onAudioReceived);
+    socket.off('call:ai:mode_downgrade', onModeDowngrade);
     socket.off('call:ai:ended', onEnded);
   };
 
-  return { sendText, sendAudioChunk, sendVideoFrame, stop };
+  return { sendText, sendAudioFrame, sendAudioChunk, sendVideoFrame, stop };
 }
 

@@ -9,6 +9,7 @@ import {
 const MAX_HISTORY_MESSAGES = 20;
 const MAX_TEXT_LENGTH = 1000;
 const MAX_BASE64_CHUNK_SIZE = 2_000_000;
+const MAX_PCM_FRAME_BASE64_SIZE = 120_000;
 
 function stripDataUriPrefix(value: string): string {
   return value.replace(/^data:[^;]+;base64,/, '').trim();
@@ -65,6 +66,7 @@ export function registerLiveAiHandlers(io: Server, socket: Socket) {
               state.messages.push({ role: 'user', content: cleaned });
               state.messages = state.messages.slice(-MAX_HISTORY_MESSAGES);
               io.to(room).emit('call:ai:user_text', { sessionId, text: cleaned });
+              io.to(room).emit('call:ai:turn_state', { sessionId, state: 'user_speaking' });
             },
             onAgentText: (text) => {
               const state = sessions.get(sessionId);
@@ -72,6 +74,16 @@ export function registerLiveAiHandlers(io: Server, socket: Socket) {
               state.messages.push({ role: 'model', content: text });
               state.messages = state.messages.slice(-MAX_HISTORY_MESSAGES);
               io.to(room).emit('call:ai:agent_text', { sessionId, text });
+            },
+            onCaptionPartial: (text) => {
+              const cleaned = text.trim();
+              if (!cleaned) return;
+              io.to(room).emit('call:ai:caption_partial', { sessionId, text: cleaned });
+            },
+            onCaptionFinal: (text) => {
+              const cleaned = text.trim();
+              if (!cleaned) return;
+              io.to(room).emit('call:ai:caption_final', { sessionId, text: cleaned });
             },
             onAgentAudioChunk: (base64Audio, mimeType) => {
               io.to(room).emit('call:ai:agent_audio_chunk', {
@@ -85,6 +97,16 @@ export function registerLiveAiHandlers(io: Server, socket: Socket) {
             },
             onSpeaking: () => {
               io.to(room).emit('call:ai:speaking', { sessionId });
+              io.to(room).emit('call:ai:turn_state', { sessionId, state: 'ai_speaking' });
+            },
+            onTurnState: (stateName) => {
+              io.to(room).emit('call:ai:turn_state', { sessionId, state: stateName });
+            },
+            onBargeIn: () => {
+              io.to(room).emit('call:ai:barge_in', { sessionId });
+            },
+            onModeDowngrade: () => {
+              io.to(room).emit('call:ai:mode_downgrade', { sessionId });
             },
             onError: (message) => {
               io.to(room).emit('call:ai:error', { sessionId, message });
@@ -110,6 +132,7 @@ export function registerLiveAiHandlers(io: Server, socket: Socket) {
           vehicleId: vehicleContext.vehicleId,
           canonicalVehicleKey: vehicleContext.canonicalVehicleKey,
         });
+        io.to(room).emit('call:ai:turn_state', { sessionId, state: 'idle' });
         ack?.({ ok: true });
       } catch (e) {
         ack?.({
@@ -154,6 +177,68 @@ export function registerLiveAiHandlers(io: Server, socket: Socket) {
         ack?.({
           ok: false,
           error: e instanceof Error ? e.message : 'AI call failed',
+        });
+      }
+    }
+  );
+
+  socket.on(
+    'call:ai:audio_frame',
+    async (
+      payload: {
+        sessionId: string;
+        frameBase64: string;
+        sampleRate?: number;
+        channels?: number;
+        sequence?: number;
+        timestamp?: number;
+      },
+      ack?: (ok: unknown) => void
+    ) => {
+      try {
+        const sessionId = payload.sessionId?.trim();
+        if (!sessionId) throw new Error('sessionId is required');
+        const cleanedFrame = stripDataUriPrefix(payload.frameBase64 || '');
+        if (!cleanedFrame) throw new Error('frameBase64 is required');
+        if (cleanedFrame.length > MAX_PCM_FRAME_BASE64_SIZE) {
+          throw new Error('pcm frame too large');
+        }
+        const sampleRate = Number(payload.sampleRate || 16000);
+        const channels = Number(payload.channels || 1);
+        if (!Number.isFinite(sampleRate) || sampleRate < 8000 || sampleRate > 48000) {
+          throw new Error('invalid sampleRate');
+        }
+        if (!Number.isFinite(channels) || channels < 1 || channels > 2) {
+          throw new Error('invalid channels');
+        }
+
+        const state = sessions.get(sessionId);
+        if (!state) throw new Error('session not started');
+        await state.relay.sendAudioFrame(
+          cleanedFrame,
+          sampleRate,
+          channels,
+          Number(payload.sequence || 0),
+          Number(payload.timestamp || Date.now())
+        );
+        io.to(`call-ai:${sessionId}`).emit('call:ai:audio_received', {
+          sessionId,
+          mimeType: `audio/pcm;rate=${sampleRate}`,
+          size: cleanedFrame.length,
+          at: Date.now(),
+        });
+        ack?.({ ok: true });
+      } catch (e) {
+        const sessionId = payload.sessionId?.trim?.();
+        if (sessionId) {
+          io.to(`call-ai:${sessionId}`).emit('call:ai:error', {
+            sessionId,
+            message: e instanceof Error ? e.message : 'AI PCM relay failed',
+          });
+        }
+        ack?.({
+          ok: false,
+          error: e instanceof Error ? e.message : 'AI PCM relay failed',
         });
       }
     }
@@ -247,6 +332,7 @@ export function registerLiveAiHandlers(io: Server, socket: Socket) {
         }
         sessions.delete(cleaned);
         socket.leave(`call-ai:${cleaned}`);
+        io.to(`call-ai:${cleaned}`).emit('call:ai:turn_state', { sessionId: cleaned, state: 'idle' });
         io.to(`call-ai:${cleaned}`).emit('call:ai:ended', { sessionId: cleaned });
         ack?.({ ok: true });
       } catch (e) {

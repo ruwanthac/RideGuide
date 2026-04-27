@@ -9,6 +9,13 @@ type Role = 'user' | 'model';
 
 export interface RelaySession {
   sendUserText: (text: string) => Promise<string>;
+  sendAudioFrame: (
+    audioBase64: string,
+    sampleRate?: number,
+    channels?: number,
+    sequence?: number,
+    timestamp?: number
+  ) => Promise<void>;
   sendAudioChunk: (audioBase64: string, mimeType: string) => Promise<void>;
   sendVideoFrame: (frameBase64: string, mimeType: string) => Promise<void>;
   stop: () => Promise<void>;
@@ -67,16 +74,22 @@ export async function createGeminiStreamRelaySession(params: {
 
   const sendAudioChunk = async (audioBase64: string, mimeType: string) => {
     if (!state.liveSession) {
-      params.callbacks.onError?.('Live voice session unavailable.');
-      return;
+      throw new Error('Live voice session unavailable.');
     }
-    try {
-      await state.liveSession.addAudioChunk(audioBase64, mimeType);
-    } catch (error) {
-      params.callbacks.onError?.(
-        error instanceof Error ? error.message : 'Live audio stream unavailable.'
-      );
+    await state.liveSession.addAudioChunk(audioBase64, mimeType);
+  };
+
+  const sendAudioFrame = async (
+    audioBase64: string,
+    sampleRate = 16000,
+    channels = 1,
+    sequence = 0,
+    timestamp = Date.now()
+  ) => {
+    if (!state.liveSession) {
+      throw new Error('Live PCM voice session unavailable.');
     }
+    await state.liveSession.addAudioFrame(audioBase64, sampleRate, channels, sequence, timestamp);
   };
 
   const sendVideoFrame = async (frameBase64: string, mimeType: string) => {
@@ -91,6 +104,6 @@ export async function createGeminiStreamRelaySession(params: {
     state.history = [];
   };
 
-  return { sendUserText, sendAudioChunk, sendVideoFrame, stop };
+  return { sendUserText, sendAudioFrame, sendAudioChunk, sendVideoFrame, stop };
 }
 

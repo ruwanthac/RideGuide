@@ -4,12 +4,12 @@ import {
   Text,
   StyleSheet,
   TouchableOpacity,
-  Pressable,
   Animated,
   TextInput,
   FlatList,
   KeyboardAvoidingView,
   Platform,
+  PanResponder,
 } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { Audio } from 'expo-av';
@@ -21,11 +21,15 @@ import { colors } from '../constants/theme';
 import { useResponsive } from '../hooks';
 import { joinLiveAiCall } from '../backend/liveAiCallService';
 import { useVehicles } from '../context/VehiclesContext';
+import { startPcmCapture, type PcmCaptureController } from '../native/pcmCapture';
 
 const RINGTONE_SOURCE = require('../../assets/call.mp3');
-const AUDIO_MIME_TYPE = Platform.OS === 'web' ? 'audio/webm' : 'audio/m4a';
+const AUDIO_MIME_TYPE = Platform.OS === 'web' ? 'audio/webm' : 'audio/mp4';
 const AGENT_AUDIO_PRIORITY_WINDOW_MS = 1200;
 const SNAPSHOT_MIN_INTERVAL_MS = 1500;
+const AUTO_CAPTURE_WINDOW_MS = 700;
+const AUTO_CAPTURE_GAP_MS = 60;
+const CAPTION_SMOOTHING_MS = 120;
 
 const RECORDING_OPTIONS: Audio.RecordingOptions = {
   android: {
@@ -136,6 +140,12 @@ export const VideoCallScreen: React.FC<VideoCallScreenProps> = ({ onEndCall }) =
   const [isSending, setIsSending] = useState(false);
   const [sessionError, setSessionError] = useState<string | null>(null);
   const [aiState, setAiState] = useState<'idle' | 'listening' | 'thinking' | 'speaking'>('idle');
+  const [turnState, setTurnState] = useState<'user_speaking' | 'ai_speaking' | 'idle'>('idle');
+  const [liveCaption, setLiveCaption] = useState('');
+  const [captureMode, setCaptureMode] = useState<'pcm_streaming' | 'chunk_fallback'>(
+    'chunk_fallback'
+  );
+  const [sessionReady, setSessionReady] = useState(false);
   const [audioSentCount, setAudioSentCount] = useState(0);
   const [audioAckCount, setAudioAckCount] = useState(0);
   const [lastAudioMeta, setLastAudioMeta] = useState<string>('');
@@ -147,6 +157,16 @@ export const VideoCallScreen: React.FC<VideoCallScreenProps> = ({ onEndCall }) =
   const sendAudioChunkRef = useRef<null | ((audioBase64: string, mimeType?: string) => Promise<void>)>(
     null
   );
+  const sendAudioFrameRef = useRef<
+    | null
+    | ((
+        frameBase64: string,
+        sampleRate?: number,
+        channels?: number,
+        sequence?: number,
+        timestamp?: number
+      ) => Promise<void>)
+  >(null);
   const sendVideoFrameRef = useRef<null | ((frameBase64: string, mimeType?: string) => Promise<void>)>(
     null
   );
@@ -155,11 +175,19 @@ export const VideoCallScreen: React.FC<VideoCallScreenProps> = ({ onEndCall }) =
   const recordingBusyRef = useRef(false);
   const pendingStopAfterStartRef = useRef(false);
   const isHoldingMicRef = useRef(false);
+  const autoCaptureRunningRef = useRef(false);
+  const autoCaptureCancelRef = useRef(false);
+  const recordingModeRef = useRef<'auto' | 'manual' | null>(null);
+  const captionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingCaptionRef = useRef('');
   const lastSnapshotAtRef = useRef(0);
   const microphoneGrantedRef = useRef(false);
   const lastAgentAudioAtRef = useRef(0);
   const speechAvailableRef = useRef(false);
   const isAiSpeakingRef = useRef(false);
+  const currentAiSoundRef = useRef<Audio.Sound | null>(null);
+  const pcmControllerRef = useRef<PcmCaptureController | null>(null);
+  const pcmConsecutiveFailsRef = useRef(0);
   const { selectedVehicleId } = useVehicles();
   const toggleCamera = () => {
     setCameraFacing((prev) => (prev === 'back' ? 'front' : 'back'));
@@ -184,17 +212,82 @@ export const VideoCallScreen: React.FC<VideoCallScreenProps> = ({ onEndCall }) =
     }
   };
 
-  const stopAndSendRecording = async () => {
+  const startRecording = async (mode: 'auto' | 'manual'): Promise<boolean> => {
+    if (
+      status !== 'connected' ||
+      !sendAudioChunkRef.current ||
+      recordingBusyRef.current ||
+      recordingRef.current
+    ) {
+      return false;
+    }
+    recordingBusyRef.current = true;
+    try {
+      if (!microphoneGrantedRef.current) {
+        const micPermission = await Audio.requestPermissionsAsync();
+        microphoneGrantedRef.current = micPermission.granted;
+      }
+      if (!microphoneGrantedRef.current) {
+        setSessionError('Microphone permission is required for voice uplink.');
+        return false;
+      }
+      await Audio.setAudioModeAsync({
+        allowsRecordingIOS: true,
+        playsInSilentModeIOS: true,
+        staysActiveInBackground: false,
+        interruptionModeIOS: 1,
+        shouldDuckAndroid: true,
+        interruptionModeAndroid: 1,
+        playThroughEarpieceAndroid: false,
+      });
+      try {
+        const created = await Audio.Recording.createAsync(RECORDING_OPTIONS);
+        recordingRef.current = created.recording;
+        recordingModeRef.current = mode;
+      } catch {
+        // Some physical devices intermittently fail prepare on first try.
+        await Audio.setAudioModeAsync({
+          allowsRecordingIOS: true,
+          playsInSilentModeIOS: true,
+          staysActiveInBackground: false,
+          interruptionModeIOS: 1,
+          shouldDuckAndroid: true,
+          interruptionModeAndroid: 1,
+          playThroughEarpieceAndroid: false,
+        });
+        await sleep(80);
+        const createdRetry = await Audio.Recording.createAsync(RECORDING_OPTIONS);
+        recordingRef.current = createdRetry.recording;
+        recordingModeRef.current = mode;
+      }
+      return true;
+    } catch (error) {
+      setSessionError(
+        error instanceof Error
+          ? error.message
+          : 'Unable to start microphone recording. Try holding mic again.'
+      );
+      return false;
+    } finally {
+      recordingBusyRef.current = false;
+    }
+  };
+
+  const stopAndSendRecording = async (options?: { includeSnapshot?: boolean }) => {
+    const includeSnapshot = options?.includeSnapshot ?? true;
     const recording = recordingRef.current;
     if (!recording || !sendAudioChunkRef.current) return;
     recordingRef.current = null;
+    recordingModeRef.current = null;
     try {
       await recording.stopAndUnloadAsync();
       const uri = recording.getURI();
       if (!uri) return;
       const base64Audio = await recordingUriToBase64(uri);
       if (!base64Audio || !sendAudioChunkRef.current) return;
-      await captureAndSendSnapshot();
+      if (includeSnapshot) {
+        await captureAndSendSnapshot();
+      }
       await sendAudioChunkRef.current(base64Audio, AUDIO_MIME_TYPE);
       setAudioSentCount((prev) => prev + 1);
       setLastAudioMeta(`${AUDIO_MIME_TYPE} • ${Math.round(base64Audio.length / 1024)}KB`);
@@ -206,77 +299,42 @@ export const VideoCallScreen: React.FC<VideoCallScreenProps> = ({ onEndCall }) =
   };
 
   const handleMicPressIn = () => {
+    if (captureMode === 'pcm_streaming') {
+      // Streaming mode is always-on; keep button harmless.
+      return;
+    }
     setIsHoldingMic(true);
     isHoldingMicRef.current = true;
     pendingStopAfterStartRef.current = false;
     setSessionError(null);
+    void Speech.stop();
+    if (currentAiSoundRef.current) {
+      void currentAiSoundRef.current.stopAsync().catch(() => {});
+      void currentAiSoundRef.current.unloadAsync().catch(() => {});
+      currentAiSoundRef.current = null;
+    }
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {
       // haptics unavailable on some devices
     });
     void (async () => {
-      if (
-        status !== 'connected' ||
-        !sendAudioChunkRef.current ||
-        recordingBusyRef.current ||
-        recordingRef.current
-      ) {
+      // If auto loop already started recording, let manual hold own it.
+      if (recordingRef.current && recordingModeRef.current === 'auto') {
+        recordingModeRef.current = 'manual';
         return;
       }
-      recordingBusyRef.current = true;
-      try {
-        if (!microphoneGrantedRef.current) {
-          const micPermission = await Audio.requestPermissionsAsync();
-          microphoneGrantedRef.current = micPermission.granted;
-        }
-        if (!microphoneGrantedRef.current) {
-          setSessionError('Microphone permission is required for voice uplink.');
-          return;
-        }
-        await Audio.setAudioModeAsync({
-          allowsRecordingIOS: true,
-          playsInSilentModeIOS: true,
-          staysActiveInBackground: false,
-          interruptionModeIOS: 1,
-          shouldDuckAndroid: true,
-          interruptionModeAndroid: 1,
-          playThroughEarpieceAndroid: false,
-        });
-        try {
-          const created = await Audio.Recording.createAsync(RECORDING_OPTIONS);
-          recordingRef.current = created.recording;
-        } catch (firstError) {
-          // Some physical devices intermittently fail prepare on first try.
-          await Audio.setAudioModeAsync({
-            allowsRecordingIOS: true,
-            playsInSilentModeIOS: true,
-            staysActiveInBackground: false,
-            interruptionModeIOS: 1,
-            shouldDuckAndroid: true,
-            interruptionModeAndroid: 1,
-            playThroughEarpieceAndroid: false,
-          });
-          await sleep(80);
-          const createdRetry = await Audio.Recording.createAsync(RECORDING_OPTIONS);
-          recordingRef.current = createdRetry.recording;
-        }
-      } catch (error) {
-        setSessionError(
-          error instanceof Error
-            ? error.message
-            : 'Unable to start microphone recording. Try holding mic again.'
-        );
+      const started = await startRecording('manual');
+      if (!started) {
         setIsHoldingMic(false);
-      } finally {
-        recordingBusyRef.current = false;
-        if (pendingStopAfterStartRef.current) {
-          pendingStopAfterStartRef.current = false;
-          void stopAndSendRecording();
-        }
+      }
+      if (pendingStopAfterStartRef.current) {
+        pendingStopAfterStartRef.current = false;
+        void stopAndSendRecording({ includeSnapshot: true });
       }
     })();
   };
 
   const handleMicPressOut = () => {
+    if (captureMode === 'pcm_streaming') return;
     if (!isHoldingMicRef.current && !recordingRef.current && !recordingBusyRef.current) {
       return;
     }
@@ -289,8 +347,25 @@ export const VideoCallScreen: React.FC<VideoCallScreenProps> = ({ onEndCall }) =
       pendingStopAfterStartRef.current = true;
       return;
     }
-    void stopAndSendRecording();
+    void stopAndSendRecording({ includeSnapshot: true });
   };
+
+  const micPanResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: () => isHoldingMicRef.current,
+      onPanResponderGrant: () => {
+        handleMicPressIn();
+      },
+      onPanResponderRelease: () => {
+        handleMicPressOut();
+      },
+      onPanResponderTerminate: () => {
+        handleMicPressOut();
+      },
+      onPanResponderTerminationRequest: () => !isHoldingMicRef.current,
+    })
+  ).current;
 
   const ringtonePlayer = useAudioPlayer(RINGTONE_SOURCE);
 
@@ -317,11 +392,7 @@ export const VideoCallScreen: React.FC<VideoCallScreenProps> = ({ onEndCall }) =
       } catch {
         microphoneGrantedRef.current = false;
       }
-      try {
-        speechAvailableRef.current = await Speech.isAvailableAsync();
-      } catch {
-        speechAvailableRef.current = false;
-      }
+      speechAvailableRef.current = true;
     };
     setupAudio();
   }, []);
@@ -332,6 +403,40 @@ export const VideoCallScreen: React.FC<VideoCallScreenProps> = ({ onEndCall }) =
     } catch {
       // Native object may already be released on unmount
     }
+  };
+
+  const stopAiPlaybackImmediately = async () => {
+    try {
+      Speech.stop();
+    } catch {
+      // noop
+    }
+    const sound = currentAiSoundRef.current;
+    currentAiSoundRef.current = null;
+    if (sound) {
+      await sound.stopAsync().catch(() => {});
+      await sound.unloadAsync().catch(() => {});
+    }
+    isAiSpeakingRef.current = false;
+    setAiState('listening');
+  };
+
+  const updateLiveCaptionSmooth = (text: string, final = false) => {
+    const cleaned = normalizeAgentText(text);
+    if (!cleaned) return;
+    if (final) {
+      if (captionTimerRef.current) clearTimeout(captionTimerRef.current);
+      captionTimerRef.current = null;
+      pendingCaptionRef.current = '';
+      setLiveCaption(cleaned);
+      return;
+    }
+    pendingCaptionRef.current = cleaned;
+    if (captionTimerRef.current) clearTimeout(captionTimerRef.current);
+    captionTimerRef.current = setTimeout(() => {
+      setLiveCaption(pendingCaptionRef.current);
+      captionTimerRef.current = null;
+    }, CAPTION_SMOOTHING_MS);
   };
 
   useEffect(() => {
@@ -407,10 +512,6 @@ export const VideoCallScreen: React.FC<VideoCallScreenProps> = ({ onEndCall }) =
             }
             const cleanedText = normalizeAgentText(replyFromPayload || text);
             if (!cleanedText || cleanedText.startsWith('{')) return;
-            setMessages((prev) => [
-              ...prev,
-              { id: `${Date.now()}-${Math.random()}`, role: 'model', content: cleanedText },
-            ]);
             const now = Date.now();
             const gotRecentModelAudio =
               now - lastAgentAudioAtRef.current < AGENT_AUDIO_PRIORITY_WINDOW_MS;
@@ -420,13 +521,37 @@ export const VideoCallScreen: React.FC<VideoCallScreenProps> = ({ onEndCall }) =
               Speech.speak(cleanedText, {
                 rate: 0.95,
                 pitch: 1,
-                onDone: () => setAiState('idle'),
-                onStopped: () => setAiState('idle'),
-                onError: () => setAiState('idle'),
+                onDone: () => {
+                  setAiState('idle');
+                  setTurnState('idle');
+                },
+                onStopped: () => {
+                  setAiState('idle');
+                  setTurnState('idle');
+                },
+                onError: () => {
+                  setAiState('idle');
+                  setTurnState('idle');
+                },
               });
             } else {
               setAiState('idle');
+              setTurnState('idle');
             }
+          },
+          onCaptionPartial: (text) => {
+            if (!active) return;
+            updateLiveCaptionSmooth(text, false);
+          },
+          onCaptionFinal: (text) => {
+            if (!active) return;
+            const cleaned = normalizeAgentText(text);
+            if (!cleaned) return;
+            updateLiveCaptionSmooth(cleaned, true);
+            setMessages((prev) => [
+              ...prev,
+              { id: `${Date.now()}-${Math.random()}`, role: 'model', content: cleaned },
+            ]);
           },
           onAgentAudioChunk: (audioBase64, mimeType) => {
             if (!active || !audioBase64) return;
@@ -434,15 +559,25 @@ export const VideoCallScreen: React.FC<VideoCallScreenProps> = ({ onEndCall }) =
             void (async () => {
               try {
                 await Speech.stop();
+                if (currentAiSoundRef.current) {
+                  await currentAiSoundRef.current.stopAsync().catch(() => {});
+                  await currentAiSoundRef.current.unloadAsync().catch(() => {});
+                  currentAiSoundRef.current = null;
+                }
                 const { sound } = await Audio.Sound.createAsync({
                   uri: `data:${mimeType};base64,${audioBase64}`,
                 });
+                currentAiSoundRef.current = sound;
                 setAiState('speaking');
                 await sound.playAsync();
                 sound.setOnPlaybackStatusUpdate((playbackStatus) => {
                   if (!playbackStatus.isLoaded || !playbackStatus.didJustFinish) return;
                   void sound.unloadAsync();
+                  if (currentAiSoundRef.current === sound) {
+                    currentAiSoundRef.current = null;
+                  }
                   setAiState('idle');
+                  setTurnState('idle');
                 });
               } catch {
                 // Audio playback support varies by platform and codec.
@@ -457,6 +592,32 @@ export const VideoCallScreen: React.FC<VideoCallScreenProps> = ({ onEndCall }) =
             if (!active) return;
             setAiState('speaking');
           },
+          onTurnState: (stateName) => {
+            if (!active) return;
+            setTurnState(stateName);
+            if (stateName === 'user_speaking') {
+              void stopAiPlaybackImmediately();
+              if (recordingRef.current && recordingModeRef.current === 'auto') {
+                recordingModeRef.current = 'manual';
+              }
+            }
+            if (stateName === 'idle') {
+              setAiState('idle');
+            }
+          },
+          onBargeIn: () => {
+            if (!active) return;
+            void stopAiPlaybackImmediately();
+          },
+          onModeDowngrade: () => {
+            if (!active) return;
+            if (pcmControllerRef.current) {
+              void pcmControllerRef.current.stop();
+              pcmControllerRef.current = null;
+            }
+            setCaptureMode('chunk_fallback');
+            setSessionError('Live voice session degraded. Switching to chunk fallback.');
+          },
           onAudioReceived: ({ mimeType, size }) => {
             if (!active) return;
             setAudioAckCount((prev) => prev + 1);
@@ -469,7 +630,13 @@ export const VideoCallScreen: React.FC<VideoCallScreenProps> = ({ onEndCall }) =
               lowered.includes('live voice session') ||
               lowered.includes('live audio stream') ||
               lowered.includes('unable to stream audio') ||
-              lowered.includes('gemini live');
+              lowered.includes('gemini live') ||
+              lowered.includes('reconnecting') ||
+              lowered.includes('socket disconnected') ||
+              lowered.includes('tls connection') ||
+              lowered.includes('epipe') ||
+              lowered.includes('fetch failed') ||
+              lowered.includes('network is unstable');
             if (!isLiveStreamIssue) {
               setStatus('error');
             }
@@ -485,9 +652,11 @@ export const VideoCallScreen: React.FC<VideoCallScreenProps> = ({ onEndCall }) =
           vehicleId: selectedVehicleId ?? undefined,
         });
         sendRef.current = session.sendText;
+        sendAudioFrameRef.current = session.sendAudioFrame;
         sendAudioChunkRef.current = session.sendAudioChunk;
         sendVideoFrameRef.current = session.sendVideoFrame;
         stopRef.current = session.stop;
+        setSessionReady(true);
       } catch (e) {
         if (!active) return;
         setStatus('error');
@@ -501,12 +670,17 @@ export const VideoCallScreen: React.FC<VideoCallScreenProps> = ({ onEndCall }) =
 
     return () => {
       active = false;
+      setSessionReady(false);
       void stopRef.current?.();
     };
   }, [selectedVehicleId]);
 
   const handleEndCall = () => {
     void Speech.stop();
+    if (pcmControllerRef.current) {
+      void pcmControllerRef.current.stop();
+      pcmControllerRef.current = null;
+    }
     safePause();
     void stopRef.current?.();
     onEndCall();
@@ -539,6 +713,89 @@ export const VideoCallScreen: React.FC<VideoCallScreenProps> = ({ onEndCall }) =
   }, [status, permission?.granted, cameraFacing]);
 
   useEffect(() => {
+    if (!sessionReady || status !== 'connected') return;
+    if (!sendAudioFrameRef.current) return;
+    let cancelled = false;
+    pcmConsecutiveFailsRef.current = 0;
+    const PCM_FAIL_THRESHOLD = 10;
+    const startStreaming = async () => {
+      try {
+        const controller = await startPcmCapture(async (frame) => {
+          if (cancelled || !sendAudioFrameRef.current) return;
+          try {
+            await sendAudioFrameRef.current(
+              frame.dataBase64,
+              frame.sampleRate,
+              frame.channels,
+              frame.sequence,
+              frame.timestamp
+            );
+            pcmConsecutiveFailsRef.current = 0;
+            setAudioSentCount((prev) => prev + 1);
+            setLastAudioMeta(`audio/pcm;rate=${frame.sampleRate} • frame`);
+          } catch {
+            pcmConsecutiveFailsRef.current += 1;
+            if (pcmConsecutiveFailsRef.current >= PCM_FAIL_THRESHOLD) {
+              cancelled = true;
+              if (pcmControllerRef.current) {
+                void pcmControllerRef.current.stop();
+                pcmControllerRef.current = null;
+              }
+              setCaptureMode('chunk_fallback');
+              setSessionError('PCM streaming failed repeatedly. Switching to chunk fallback.');
+            }
+          }
+        });
+        if (cancelled) {
+          await controller.stop();
+          return;
+        }
+        pcmControllerRef.current = controller;
+        setCaptureMode('pcm_streaming');
+        setSessionError(null);
+      } catch {
+        setCaptureMode('chunk_fallback');
+        setSessionError('PCM streaming unavailable on this build. Using chunk fallback mode.');
+      }
+    };
+    void startStreaming();
+    return () => {
+      cancelled = true;
+      if (pcmControllerRef.current) {
+        void pcmControllerRef.current.stop();
+        pcmControllerRef.current = null;
+      }
+    };
+  }, [sessionReady, status]);
+
+  useEffect(() => {
+    if (status !== 'connected') return;
+    if (captureMode !== 'chunk_fallback') return;
+    autoCaptureCancelRef.current = false;
+    if (autoCaptureRunningRef.current) return;
+    autoCaptureRunningRef.current = true;
+    const runAutoCapture = async () => {
+      while (!autoCaptureCancelRef.current) {
+        if (!isHoldingMicRef.current && !recordingRef.current && !isAiSpeakingRef.current) {
+          const started = await startRecording('auto');
+          if (started) {
+            await sleep(AUTO_CAPTURE_WINDOW_MS);
+            if (!isHoldingMicRef.current) {
+              await stopAndSendRecording({ includeSnapshot: false });
+              await sleep(AUTO_CAPTURE_GAP_MS);
+            }
+          }
+        }
+      }
+      autoCaptureRunningRef.current = false;
+    };
+    void runAutoCapture();
+    return () => {
+      autoCaptureCancelRef.current = true;
+    };
+  }, [status, captureMode]);
+
+  useEffect(() => {
     const pulse = Animated.loop(
       Animated.sequence([
         Animated.timing(pulseAnim, {
@@ -565,6 +822,19 @@ export const VideoCallScreen: React.FC<VideoCallScreenProps> = ({ onEndCall }) =
       });
       recordingRef.current = null;
       void Speech.stop();
+      if (pcmControllerRef.current) {
+        void pcmControllerRef.current.stop();
+        pcmControllerRef.current = null;
+      }
+      if (captionTimerRef.current) {
+        clearTimeout(captionTimerRef.current);
+        captionTimerRef.current = null;
+      }
+      if (currentAiSoundRef.current) {
+        void currentAiSoundRef.current.stopAsync().catch(() => {});
+        void currentAiSoundRef.current.unloadAsync().catch(() => {});
+        currentAiSoundRef.current = null;
+      }
     };
   }, []);
 
@@ -582,6 +852,10 @@ export const VideoCallScreen: React.FC<VideoCallScreenProps> = ({ onEndCall }) =
         ? 'AI is speaking...'
         : isHoldingMic
         ? 'Listening to you...'
+        : turnState === 'user_speaking'
+        ? 'You are speaking...'
+        : turnState === 'ai_speaking'
+        ? 'AI is responding...'
         : 'Connected to AI'
       : status === 'ended'
       ? 'Call ended'
@@ -817,23 +1091,16 @@ export const VideoCallScreen: React.FC<VideoCallScreenProps> = ({ onEndCall }) =
       </View>
 
       <View style={styles.controls}>
-        <Pressable
+        <View
           style={[
             styles.holdMicButton,
             { marginRight: spacing.xl },
             isHoldingMic && styles.holdMicButtonActive,
           ]}
-          onStartShouldSetResponder={() => true}
-          onPressIn={handleMicPressIn}
-          onPressOut={handleMicPressOut}
-          onTouchCancel={handleMicPressOut}
-          onTouchEnd={handleMicPressOut}
-          onResponderRelease={handleMicPressOut}
-          onResponderTerminate={handleMicPressOut}
-          hitSlop={12}
+          {...micPanResponder.panHandlers}
         >
           <Icon name="mic" size={30} color="#FFFFFF" />
-        </Pressable>
+        </View>
         <TouchableOpacity
           style={styles.endCallButton}
           onPress={handleEndCall}
@@ -858,15 +1125,22 @@ export const VideoCallScreen: React.FC<VideoCallScreenProps> = ({ onEndCall }) =
       >
         {sessionError ? <Text style={styles.errorText}>{sessionError}</Text> : null}
         <Text style={[styles.holdHintText, isHoldingMic && styles.holdHintActive]}>
-          {isHoldingMic ? 'Listening... release to send' : 'Hold mic button while speaking'}
+          {captureMode === 'pcm_streaming'
+            ? 'Realtime mic streaming enabled'
+            : isHoldingMic
+            ? 'Listening... release to send'
+            : 'Hold mic button while speaking'}
         </Text>
         <Text style={styles.uplinkText}>
-          Voice uplink:{' '}
+          Voice uplink ({captureMode === 'pcm_streaming' ? 'PCM stream' : 'chunk fallback'}):{' '}
           {audioSentCount > 0
             ? `sent ${audioSentCount}, ack ${audioAckCount} (${lastAudioMeta})`
             : 'waiting...'}
         </Text>
-        <Text style={styles.captionsLabel}>Live captions</Text>
+        <Text style={styles.captionsLabel}>AI live captions</Text>
+        <View style={styles.chatRow}>
+          <Text style={styles.chatText}>{liveCaption || 'Waiting for AI response...'}</Text>
+        </View>
         <FlatList
           data={messages}
           keyExtractor={(item) => item.id}
