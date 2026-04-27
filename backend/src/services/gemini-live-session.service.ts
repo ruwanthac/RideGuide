@@ -37,6 +37,8 @@ interface SessionState {
   liveSession: any | null;
   closedByClient: boolean;
   reconnecting: boolean;
+  reconnectAttempts: number;
+  liveDisabled: boolean;
   lastFallbackReplyAt: number;
   latestVideoFrame?: { frameBase64: string; mimeType: string };
   lastInputTranscript?: string;
@@ -47,6 +49,8 @@ interface SessionState {
   pcmDropStartedAt: number;
   modeDowngradeFired: boolean;
 }
+
+const MAX_LIVE_RECONNECT_ATTEMPTS = 3;
 
 const MAX_HISTORY_MESSAGES = 24;
 const WAIT_FOR_TEXT_REPLY_MS = 8000;
@@ -167,8 +171,11 @@ async function fallbackGenerateContent(parts: any[], systemInstruction: string):
     req.end();
   });
   const parsed = safeJsonParse<any>(body);
-  const text =
-    parsed?.candidates?.[0]?.content?.parts?.map((part: any) => part?.text || '').join('') || '';
+  const allParts: any[] = parsed?.candidates?.[0]?.content?.parts || [];
+  const text = allParts
+    .filter((part: any) => !part?.thought)
+    .map((part: any) => part?.text || '')
+    .join('');
   return String(text).trim();
 }
 
@@ -187,6 +194,8 @@ export async function createGeminiLiveSession(params: {
     liveSession: null,
     closedByClient: false,
     reconnecting: false,
+    reconnectAttempts: 0,
+    liveDisabled: false,
     lastFallbackReplyAt: 0,
     latestVideoFrame: undefined,
     lastInputTranscript: undefined,
@@ -293,28 +302,40 @@ export async function createGeminiLiveSession(params: {
             state.liveSession = null;
             const closeCode = event?.code;
             const closeReason = event?.reason || 'unknown';
-            console.warn('[gemini-live] onclose', { model: modelName, closeCode, closeReason });
+            const isMimeTypeError = String(closeReason).includes('Mime type');
+            if (!isMimeTypeError || state.reconnectAttempts === 0) {
+              console.warn('[gemini-live] onclose', { model: modelName, closeCode, closeReason });
+            }
             if (!state.closedByClient) {
+              if (isMimeTypeError) {
+                state.liveDisabled = true;
+                console.log('[gemini-live] Live WS disabled due to mime type rejection, using REST fallback only');
+                return;
+              }
               if (!(closeCode === 1006 && closeReason === 'unknown')) {
                 params.callbacks.onError?.(
                   `Live voice session disconnected (${closeCode ?? 'n/a'}: ${closeReason}).`
                 );
               }
+              state.reconnectAttempts++;
+              if (state.reconnectAttempts > MAX_LIVE_RECONNECT_ATTEMPTS) {
+                state.liveDisabled = true;
+                console.log('[gemini-live] Max reconnect attempts reached, using REST fallback only');
+                return;
+              }
               if (!state.reconnecting) {
                 state.reconnecting = true;
                 setTimeout(() => {
-                  if (state.closedByClient) {
+                  if (state.closedByClient || state.liveDisabled) {
                     state.reconnecting = false;
                     return;
                   }
                   void connectLiveSession()
-                    .catch(() => {
-                      // Stay on fallback mode if reconnect keeps failing.
-                    })
+                    .catch(() => {})
                     .finally(() => {
                       state.reconnecting = false;
                     });
-                }, 1200);
+                }, 2000);
               }
             }
           },
@@ -417,6 +438,7 @@ export async function createGeminiLiveSession(params: {
 
   const addAudioChunk = async (audioBase64: string, mimeType: string): Promise<void> => {
     if (!audioBase64) return;
+    console.log('[gemini-live] addAudioChunk called:', { mimeType, size: audioBase64.length, liveDisabled: state.liveDisabled, hasLiveSession: !!state.liveSession });
     params.callbacks.onListening?.();
 
     const looksLikePcm =
@@ -426,16 +448,14 @@ export async function createGeminiLiveSession(params: {
     // For true PCM streaming mode, do not run generateContent fallback per frame.
     // If live session is down, silently keep trying reconnect and drop frames.
     if (looksLikePcm && !state.liveSession) {
-      if (!state.reconnecting) {
+      if (!state.reconnecting && !state.liveDisabled) {
         state.reconnecting = true;
         void connectLiveSession()
           .then(() => {
             state.pcmDropStartedAt = 0;
             state.modeDowngradeFired = false;
           })
-          .catch(() => {
-            // keep degraded until reconnect succeeds
-          })
+          .catch(() => {})
           .finally(() => {
             state.reconnecting = false;
           });
@@ -461,12 +481,15 @@ export async function createGeminiLiveSession(params: {
 
     if (!looksLikePcm) {
       if ((audioBase64 || '').length < MIN_AUDIO_CHUNK_BASE64_SIZE) {
+        console.log('[gemini-live] audio chunk too small, skipping:', audioBase64.length);
         return;
       }
       const now = Date.now();
       if (now - state.lastFallbackReplyAt < MIN_FALLBACK_REPLY_INTERVAL_MS) {
+        console.log('[gemini-live] rate limited, skipping fallback');
         return;
       }
+      console.log('[gemini-live] sending audio via REST fallback:', { mimeType, size: audioBase64.length });
       try {
         const parts: any[] = [
           {
@@ -489,6 +512,7 @@ export async function createGeminiLiveSession(params: {
           });
         }
         const raw = await fallbackGenerateContent(parts as any, fallbackSystemInstruction);
+        console.log('[gemini-live] REST fallback response:', raw.substring(0, 200));
         const parsed = parseTranscriptReplyPayload(raw);
         const transcript = parsed?.transcript?.trim() || '';
         const replyText = (parsed?.reply?.trim() || raw).trim();
