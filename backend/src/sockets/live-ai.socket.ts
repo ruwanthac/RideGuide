@@ -149,34 +149,43 @@ export function registerLiveAiHandlers(io: Server, socket: Socket) {
       payload: { sessionId: string; text: string },
       ack?: (ok: unknown) => void
     ) => {
+      const sessionId = payload.sessionId?.trim();
+      const text = payload.text?.trim();
+      if (!sessionId || !text) {
+        ack?.({ ok: false, error: 'sessionId and text are required' });
+        return;
+      }
+      if (text.length > MAX_TEXT_LENGTH) {
+        ack?.({ ok: false, error: 'text is too long' });
+        return;
+      }
+      const state = sessions.get(sessionId);
+      if (!state) {
+        ack?.({ ok: false, error: 'session not started' });
+        return;
+      }
+
+      state.messages.push({ role: 'user', content: text });
+      state.messages = state.messages.slice(-MAX_HISTORY_MESSAGES);
+
+      const room = `call-ai:${sessionId}`;
+      io.to(room).emit('call:ai:user_text', { sessionId, text });
+
+      ack?.({ ok: true });
+
+      console.log('[live-ai] user_text received:', { sessionId, text: text.substring(0, 80) });
       try {
-        const sessionId = payload.sessionId?.trim();
-        const text = payload.text?.trim();
-        if (!sessionId) throw new Error('sessionId is required');
-        if (!text) throw new Error('text is required');
-        if (text.length > MAX_TEXT_LENGTH) throw new Error('text is too long');
-
-        const room = `call-ai:${sessionId}`;
-        const state = sessions.get(sessionId);
-        if (!state) throw new Error('session not started');
-
-        state.messages.push({ role: 'user', content: text });
-        state.messages = state.messages.slice(-MAX_HISTORY_MESSAGES);
-
-        io.to(room).emit('call:ai:user_text', { sessionId, text });
-        await state.relay.sendUserText(text);
-        ack?.({ ok: true });
-      } catch (e) {
-        const sessionId = payload.sessionId?.trim?.();
-        if (sessionId) {
-          io.to(`call-ai:${sessionId}`).emit('call:ai:error', {
-            sessionId,
-            message: e instanceof Error ? e.message : 'AI call failed',
-          });
+        const reply = await state.relay.sendUserText(text);
+        console.log('[live-ai] user_text reply:', reply?.substring(0, 120));
+        if (reply) {
+          state.messages.push({ role: 'model', content: reply });
+          state.messages = state.messages.slice(-MAX_HISTORY_MESSAGES);
         }
-        ack?.({
-          ok: false,
-          error: e instanceof Error ? e.message : 'AI call failed',
+      } catch (e) {
+        console.error('[live-ai] user_text error:', e);
+        io.to(room).emit('call:ai:error', {
+          sessionId,
+          message: e instanceof Error ? e.message : 'AI call failed',
         });
       }
     }

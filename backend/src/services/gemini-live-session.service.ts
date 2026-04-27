@@ -67,7 +67,10 @@ Important behavior:
 - If camera/audio/user text indicates a different vehicle than profile context, prioritize the currently observed/mentioned vehicle.
 - If there is a mismatch, briefly confirm it and continue helping for the currently observed/mentioned vehicle.
 - Never refuse help just because the vehicle is not the profile/default vehicle.
-- If exact trim/year is unknown, provide best-effort generic guidance and ask for missing details.`;
+- If exact trim/year is unknown, provide best-effort generic guidance and ask for missing details.
+- Strict domain limit: only discuss vehicles, vehicle faults, vehicle components, and roadside/mechanic guidance.
+- If an image is not vehicle-related (for example room, flower, person, pet, landscape, or random object), do NOT analyze or describe it.
+- For non-vehicle images, silently ignore the image and continue answering the user's voice/chat request without mentioning the image.`;
 const LIVE_MODEL_FALLBACKS = [
   'gemini-2.5-flash-native-audio-latest',
   'gemini-2.5-flash-native-audio-preview-12-2025',
@@ -125,21 +128,30 @@ function normalizeAudioMimeType(mimeType: string): string {
   return mimeType || 'audio/webm';
 }
 
-async function fallbackGenerateContent(parts: any[], systemInstruction: string): Promise<string> {
+async function fallbackGenerateContent(
+  parts: any[],
+  systemInstruction: string,
+  history?: { role: string; content: string }[],
+): Promise<string> {
   if (!env.GEMINI_API_KEY) {
     throw new Error('GEMINI_API_KEY not configured');
   }
   const modelName = env.GEMINI_MODEL_CHEAP || 'gemini-2.5-flash';
+  const contents: any[] = [];
+  if (history && history.length > 0) {
+    for (const msg of history) {
+      contents.push({
+        role: msg.role === 'model' ? 'model' : 'user',
+        parts: [{ text: msg.content }],
+      });
+    }
+  }
+  contents.push({ role: 'user', parts });
   const payload = JSON.stringify({
     system_instruction: {
       parts: [{ text: systemInstruction }],
     },
-    contents: [
-      {
-        role: 'user',
-        parts,
-      },
-    ],
+    contents,
   });
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${env.GEMINI_API_KEY}`;
   const body = await new Promise<string>((resolve, reject) => {
@@ -379,61 +391,37 @@ export async function createGeminiLiveSession(params: {
       pendingTextWaiters.push(waiter);
     });
 
-  const addUserText = async (text: string): Promise<string> => {
-    if (!state.liveSession) {
-      if (!state.reconnecting) {
-        state.reconnecting = true;
-        void connectLiveSession()
-          .catch(() => {
-            // fallback remains available
-          })
-          .finally(() => {
-            state.reconnecting = false;
-          });
-      }
-      const parts: any[] = [{ text }];
-      if (state.latestVideoFrame?.frameBase64) {
-        parts.push({
-          inlineData: {
-            mimeType: state.latestVideoFrame.mimeType || 'image/jpeg',
-            data: state.latestVideoFrame.frameBase64,
-          },
-        });
-      }
-      const raw = await fallbackGenerateContent(parts as any, fallbackSystemInstruction);
-      const parsed = parseTranscriptReplyPayload(raw);
-      const transcript = parsed?.transcript?.trim() || '';
-      const reply = parsed?.reply?.trim() || raw;
-      if (transcript) {
-        params.callbacks.onUserText?.(transcript);
-      }
-      if (reply) {
-        params.callbacks.onAgentText?.(reply);
-        params.callbacks.onCaptionFinal?.(reply);
-        params.callbacks.onTurnState?.('ai_speaking');
-        state.aiSpeakingActive = true;
-        return reply;
-      }
-      throw new Error('Live voice session unavailable.');
+  const textViaRestFallback = async (text: string): Promise<string> => {
+    console.log('[gemini-live] textViaRestFallback called:', text.substring(0, 80));
+    const parts: any[] = [{ text }];
+    if (state.latestVideoFrame?.frameBase64) {
+      parts.push({
+        inlineData: {
+          mimeType: state.latestVideoFrame.mimeType || 'image/jpeg',
+          data: state.latestVideoFrame.frameBase64,
+        },
+      });
     }
-    params.callbacks.onListening?.();
-    params.callbacks.onTurnState?.('user_speaking');
-    if (state.aiSpeakingActive) {
-      params.callbacks.onBargeIn?.();
-      state.aiSpeakingActive = false;
-    }
+    const raw = await fallbackGenerateContent(
+      parts as any,
+      fallbackSystemInstruction,
+      state.history,
+    );
+    const cleaned = raw.replace(/\*\*[A-Z][^*]*\*\*/g, '').trim();
+    const reply = cleaned || raw;
     state.history.push({ role: 'user', content: text });
+    state.history.push({ role: 'model', content: reply });
     trimHistory(state.history);
-    state.liveSession.sendClientContent({
-      turns: [{ role: 'user', parts: [{ text }] }],
-      turnComplete: true,
-    });
-    const replyText = await waitForNextModelText();
-    if (replyText) {
-      state.history.push({ role: 'model', content: replyText });
-      trimHistory(state.history);
-    }
-    return replyText;
+    params.callbacks.onSpeaking?.();
+    params.callbacks.onAgentText?.(reply);
+    params.callbacks.onCaptionFinal?.(reply);
+    params.callbacks.onTurnState?.('ai_speaking');
+    state.aiSpeakingActive = true;
+    return reply;
+  };
+
+  const addUserText = async (text: string): Promise<string> => {
+    return textViaRestFallback(text);
   };
 
   const addAudioChunk = async (audioBase64: string, mimeType: string): Promise<void> => {
@@ -494,7 +482,7 @@ export async function createGeminiLiveSession(params: {
         const parts: any[] = [
           {
             text:
-              'Transcribe the user voice and answer as a concise vehicle mechanic. Return strict JSON: {"transcript":"...","reply":"..."}. If speech is unclear/silent/noise-only, return {"transcript":"","reply":"[NO_SPEECH]"}.',
+              'Transcribe the user voice and answer as a concise vehicle mechanic. Only discuss vehicle-related topics. If the attached image/context is not vehicle-related, ignore it silently and continue answering the user request without mentioning the image. If it is vehicle-related, use it for better diagnosis (for example identify likely make/model cues such as Audi A4 when clearly visible). Return strict JSON: {"transcript":"...","reply":"..."}. If speech is unclear/silent/noise-only, return {"transcript":"","reply":"[NO_SPEECH]"}.',
           },
           {
             inlineData: {

@@ -52,11 +52,15 @@ export async function createGeminiStreamRelaySession(params: {
 
   const sendUserText = async (text: string): Promise<string> => {
     state.history.push({ role: 'user', content: text });
+    console.log('[relay] sendUserText:', { text: text.substring(0, 80), hasLiveSession: !!state.liveSession });
     if (state.liveSession) {
       try {
         const reply = await state.liveSession.addUserText(text);
-        state.history.push({ role: 'model', content: reply });
-        return reply;
+        console.log('[relay] liveSession.addUserText reply:', reply?.substring(0, 120));
+        if (reply) {
+          state.history.push({ role: 'model', content: reply });
+          return reply;
+        }
       } catch (error) {
         params.callbacks.onError?.(
           error instanceof Error
@@ -67,9 +71,13 @@ export async function createGeminiStreamRelaySession(params: {
     }
 
     const reply = await chatReply(state.history);
-    state.history.push({ role: 'model', content: reply });
-    params.callbacks.onAgentText?.(reply);
-    return reply;
+    const cleaned = reply.replace(/\*\*[A-Z][^*]*\*\*/g, '').trim() || reply;
+    state.history.push({ role: 'model', content: cleaned });
+    params.callbacks.onSpeaking?.();
+    params.callbacks.onAgentText?.(cleaned);
+    params.callbacks.onCaptionFinal?.(cleaned);
+    params.callbacks.onTurnState?.('ai_speaking');
+    return cleaned;
   };
 
   const sendAudioChunk = async (audioBase64: string, mimeType: string) => {

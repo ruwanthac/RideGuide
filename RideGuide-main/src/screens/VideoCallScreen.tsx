@@ -768,19 +768,20 @@ export const VideoCallScreen: React.FC<VideoCallScreenProps> = ({ onEndCall }) =
       ...prev,
       { id: `${Date.now()}-${Math.random()}`, role: 'user', content: cleaned },
     ]);
+    setInputText('');
+    setIsSending(true);
+    setSessionError(null);
+    setAiState('thinking');
+    setWaitingForReply(true);
+    waitingForReplyRef.current = true;
     try {
-      setIsSending(true);
-      setSessionError(null);
-      setAiState('thinking');
-      setWaitingForReply(true);
-      waitingForReplyRef.current = true;
       await captureAndSendSnapshot();
       await sendRef.current(cleaned);
-      setInputText('');
     } catch (e) {
       setSessionError(e instanceof Error ? e.message : 'Failed to send question.');
       setWaitingForReply(false);
       waitingForReplyRef.current = false;
+      setAiState('idle');
     } finally {
       setIsSending(false);
     }

@@ -51,7 +51,9 @@ likelyCauses: string[] (1-4), severity: 'minor'|'moderate'|'critical', steps: st
 diagnosis: one-paragraph plain-English summary, disclaimer: short safety note. Do not invent part numbers.`;
 
 const CHAT_SYSTEM = `You are a vehicle-support assistant. Keep replies concise, practical, non-technical.
-Only discuss vehicle diagnosis, maintenance, and roadside advice. If off-topic, politely redirect.`;
+Only discuss vehicle diagnosis, maintenance, and roadside advice. If off-topic, politely redirect.
+If a captured image is not vehicle-related, ignore that image silently and continue answering the user's conversation.
+If a captured image is vehicle-related, use visible vehicle cues to improve diagnosis and identify likely model details when clear.`;
 
 export async function analyzeDiagnosis(input: { symptoms: string; obdCode: string; vehicleMakeModel: string }): Promise<DiagnosisResult> {
   try {
