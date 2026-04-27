@@ -5,6 +5,7 @@ import { env } from '../config/env';
 type Role = 'user' | 'model';
 
 export interface LiveSessionCallbacks {
+  onUserText?: (text: string) => void;
   onAgentText?: (text: string) => void;
   onAgentAudioChunk?: (base64Audio: string, mimeType: string) => void;
   onListening?: () => void;
@@ -27,6 +28,7 @@ interface SessionState {
   reconnecting: boolean;
   lastFallbackReplyAt: number;
   latestVideoFrame?: { frameBase64: string; mimeType: string };
+  lastInputTranscript?: string;
 }
 
 const MAX_HISTORY_MESSAGES = 24;
@@ -72,6 +74,38 @@ function safeResponseText(response: any): string {
   }
 }
 
+function safeJsonParse<T>(value: string): T | null {
+  try {
+    return JSON.parse(value) as T;
+  } catch {
+    return null;
+  }
+}
+
+function parseTranscriptReplyPayload(raw: string): { transcript?: string; reply?: string } | null {
+  const direct = safeJsonParse<{ transcript?: string; reply?: string }>(raw);
+  if (direct && (typeof direct.transcript === 'string' || typeof direct.reply === 'string')) {
+    return direct;
+  }
+
+  const withoutFence = raw
+    .replace(/^```(?:json)?\s*/i, '')
+    .replace(/\s*```$/i, '')
+    .trim();
+  const fenced = safeJsonParse<{ transcript?: string; reply?: string }>(withoutFence);
+  if (fenced && (typeof fenced.transcript === 'string' || typeof fenced.reply === 'string')) {
+    return fenced;
+  }
+
+  const match = withoutFence.match(/\{[\s\S]*\}/);
+  if (!match) return null;
+  const extracted = safeJsonParse<{ transcript?: string; reply?: string }>(match[0]);
+  if (extracted && (typeof extracted.transcript === 'string' || typeof extracted.reply === 'string')) {
+    return extracted;
+  }
+  return null;
+}
+
 export async function createGeminiLiveSession(params: {
   vehicleContext: string;
   callbacks: LiveSessionCallbacks;
@@ -90,6 +124,7 @@ export async function createGeminiLiveSession(params: {
     reconnecting: false,
     lastFallbackReplyAt: 0,
     latestVideoFrame: undefined,
+    lastInputTranscript: undefined,
   };
 
   const client = getClient();
@@ -141,6 +176,11 @@ export async function createGeminiLiveSession(params: {
             const inputTranscript = message?.serverContent?.inputTranscription?.text;
             if (typeof inputTranscript === 'string' && inputTranscript.trim().length > 0) {
               params.callbacks.onListening?.();
+              const cleaned = inputTranscript.trim();
+              if (cleaned !== state.lastInputTranscript) {
+                state.lastInputTranscript = cleaned;
+                params.callbacks.onUserText?.(cleaned);
+              }
             }
 
             const parts = message?.serverContent?.modelTurn?.parts;
@@ -261,7 +301,13 @@ export async function createGeminiLiveSession(params: {
         }
         const result = await state.fallbackModel.generateContent(parts as any);
         const response = (result as any)?.response || result;
-        const reply = safeResponseText(response).trim();
+        const raw = safeResponseText(response).trim();
+        const parsed = parseTranscriptReplyPayload(raw);
+        const transcript = parsed?.transcript?.trim() || '';
+        const reply = parsed?.reply?.trim() || raw;
+        if (transcript) {
+          params.callbacks.onUserText?.(transcript);
+        }
         if (reply) {
           params.callbacks.onAgentText?.(reply);
           return reply;
@@ -305,7 +351,7 @@ export async function createGeminiLiveSession(params: {
         const parts: any[] = [
           {
             text:
-              'Transcribe the user voice and answer as a concise vehicle mechanic. If speech is unclear/silent/noise-only, return exactly [NO_SPEECH]. Return plain response text only.',
+              'Transcribe the user voice and answer as a concise vehicle mechanic. Return strict JSON: {"transcript":"...","reply":"..."}. If speech is unclear/silent/noise-only, return {"transcript":"","reply":"[NO_SPEECH]"}.',
           },
           {
             inlineData: {
@@ -324,7 +370,13 @@ export async function createGeminiLiveSession(params: {
         }
         const result = await state.fallbackModel.generateContent(parts as any);
         const response = (result as any)?.response || result;
-        const replyText = safeResponseText(response).trim();
+        const raw = safeResponseText(response).trim();
+        const parsed = parseTranscriptReplyPayload(raw);
+        const transcript = parsed?.transcript?.trim() || '';
+        const replyText = (parsed?.reply?.trim() || raw).trim();
+        if (transcript) {
+          params.callbacks.onUserText?.(transcript);
+        }
         if (!replyText || replyText === '[NO_SPEECH]' || /\[No speech detected\]/i.test(replyText)) {
           return;
         }

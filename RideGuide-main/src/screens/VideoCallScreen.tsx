@@ -93,6 +93,33 @@ interface LiveMessage {
   content: string;
 }
 
+function extractTranscriptReplyJson(
+  text: string
+): { transcript?: string; reply?: string } | null {
+  const trimmed = text.trim();
+  const candidates = [
+    trimmed,
+    trimmed.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim(),
+  ];
+  for (const candidate of candidates) {
+    try {
+      const parsed = JSON.parse(candidate) as { transcript?: string; reply?: string };
+      if (typeof parsed.transcript === 'string' || typeof parsed.reply === 'string') return parsed;
+    } catch {
+      // ignore
+    }
+    const match = candidate.match(/\{[\s\S]*\}/);
+    if (!match) continue;
+    try {
+      const parsed = JSON.parse(match[0]) as { transcript?: string; reply?: string };
+      if (typeof parsed.transcript === 'string' || typeof parsed.reply === 'string') return parsed;
+    } catch {
+      // ignore
+    }
+  }
+  return null;
+}
+
 function sleep(ms: number) {
   return new Promise<void>((resolve) => setTimeout(resolve, ms));
 }
@@ -336,16 +363,50 @@ export const VideoCallScreen: React.FC<VideoCallScreenProps> = ({ onEndCall }) =
           },
           onUserText: (text) => {
             if (!active) return;
-            setMessages((prev) => [
-              ...prev,
-              { id: `${Date.now()}-${Math.random()}`, role: 'user', content: text },
-            ]);
+            const cleaned = text.trim();
+            if (!cleaned) return;
+            setMessages((prev) => {
+              const last = prev[prev.length - 1];
+              if (last?.role === 'user') {
+                const updateLikelySameUtterance =
+                  cleaned.startsWith(last.content) || last.content.startsWith(cleaned);
+                if (updateLikelySameUtterance) {
+                  return [...prev.slice(0, -1), { ...last, content: cleaned }];
+                }
+              }
+              return [
+                ...prev,
+                { id: `${Date.now()}-${Math.random()}`, role: 'user', content: cleaned },
+              ];
+            });
             setAiState('thinking');
           },
           onAgentText: (text) => {
             if (!active) return;
-            const cleanedText = normalizeAgentText(text);
-            if (!cleanedText) return;
+            const maybeStructured = extractTranscriptReplyJson(text);
+            const transcriptFromPayload = maybeStructured?.transcript?.trim() || '';
+            const replyFromPayload = maybeStructured?.reply?.trim() || '';
+            if (transcriptFromPayload) {
+              setMessages((prev) => {
+                const last = prev[prev.length - 1];
+                if (last?.role === 'user') {
+                  const likelySame = transcriptFromPayload.startsWith(last.content);
+                  if (likelySame) {
+                    return [...prev.slice(0, -1), { ...last, content: transcriptFromPayload }];
+                  }
+                }
+                return [
+                  ...prev,
+                  {
+                    id: `${Date.now()}-${Math.random()}`,
+                    role: 'user',
+                    content: transcriptFromPayload,
+                  },
+                ];
+              });
+            }
+            const cleanedText = normalizeAgentText(replyFromPayload || text);
+            if (!cleanedText || cleanedText.startsWith('{')) return;
             setMessages((prev) => [
               ...prev,
               { id: `${Date.now()}-${Math.random()}`, role: 'model', content: cleanedText },

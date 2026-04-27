@@ -57,6 +57,15 @@ export function registerLiveAiHandlers(io: Server, socket: Socket) {
         const relay = await createGeminiStreamRelaySession({
           vehicleContext: vehicleContext.profileSummary,
           callbacks: {
+            onUserText: (text) => {
+              const state = sessions.get(sessionId);
+              if (!state) return;
+              const cleaned = text.trim();
+              if (!cleaned) return;
+              state.messages.push({ role: 'user', content: cleaned });
+              state.messages = state.messages.slice(-MAX_HISTORY_MESSAGES);
+              io.to(room).emit('call:ai:user_text', { sessionId, text: cleaned });
+            },
             onAgentText: (text) => {
               const state = sessions.get(sessionId);
               if (!state) return;
