@@ -32,6 +32,7 @@ import { joinLiveAiCall } from '../backend/liveAiCallService';
 import { useVehicles } from '../context/VehiclesContext';
 
 const RINGTONE_SOURCE = require('../../assets/call.mp3');
+const SEND_TONE_SOURCE = require('../../assets/send_tone.wav');
 const AUDIO_MIME_TYPE = Platform.OS === 'web' ? 'audio/webm' : 'audio/mp4';
 const AGENT_AUDIO_PRIORITY_WINDOW_MS = 1200;
 const SNAPSHOT_MIN_INTERVAL_MS = 1500;
@@ -206,6 +207,7 @@ export const VideoCallScreen: React.FC<VideoCallScreenProps> = ({ onEndCall }) =
         quality: 0.25,
         base64: true,
         skipProcessing: true,
+        shutterSound: false,
       });
       if (capture?.base64 && sendVideoFrameRef.current) {
         await sendVideoFrameRef.current(capture.base64, 'image/jpeg');
@@ -317,6 +319,11 @@ export const VideoCallScreen: React.FC<VideoCallScreenProps> = ({ onEndCall }) =
       try {
         const stopResult = await (recorder.stop() as Promise<unknown>);
         if (typeof stopResult === 'string' && stopResult.length > 0) uri = stopResult;
+      } catch {}
+      try {
+        await setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true });
+        sendTonePlayer.seekTo(0);
+        sendTonePlayer.play();
       } catch {}
       if (!uri) uri = recorder.uri || recordingUriRef.current;
       if (!uri) {
@@ -442,6 +449,7 @@ export const VideoCallScreen: React.FC<VideoCallScreenProps> = ({ onEndCall }) =
   };
 
   const ringtonePlayer = useAudioPlayer(RINGTONE_SOURCE);
+  const sendTonePlayer = useAudioPlayer(SEND_TONE_SOURCE);
 
   useEffect(() => {
     const setupAudio = async () => {
