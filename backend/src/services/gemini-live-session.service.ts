@@ -459,30 +459,7 @@ export async function createGeminiLiveSession(params: {
       return;
     }
 
-    if (!looksLikePcm && state.liveSession) {
-      if ((audioBase64 || '').length < MIN_AUDIO_CHUNK_BASE64_SIZE) {
-        return;
-      }
-      const resolvedMime = normalizeAudioMimeType(mimeType || 'audio/webm');
-      const liveCandidates = [
-        { audio: { data: audioBase64, mimeType: resolvedMime } },
-        { media: { data: audioBase64, mimeType: resolvedMime } },
-        { realtimeInput: { mediaChunks: [{ data: audioBase64, mimeType: resolvedMime }] } },
-      ];
-      let sentViaLive = false;
-      for (const payload of liveCandidates) {
-        try {
-          state.liveSession.sendRealtimeInput(payload);
-          sentViaLive = true;
-          break;
-        } catch {
-          // Try next shape
-        }
-      }
-      if (sentViaLive) return;
-    }
-
-    if (!state.liveSession || !looksLikePcm) {
+    if (!looksLikePcm) {
       if ((audioBase64 || '').length < MIN_AUDIO_CHUNK_BASE64_SIZE) {
         return;
       }
@@ -579,7 +556,7 @@ export async function createGeminiLiveSession(params: {
     channels = 1
   ): Promise<void> => {
     if (!audioBase64) return;
-    const pcmMimeType = `audio/pcm;rate=${sampleRate};channels=${channels}`;
+    const pcmMimeType = `audio/pcm;rate=${sampleRate}`;
     await addAudioChunk(audioBase64, pcmMimeType);
   };
 
