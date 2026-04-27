@@ -25,7 +25,7 @@ import { useVehicles } from '../context/VehiclesContext';
 const RINGTONE_SOURCE = require('../../assets/call.mp3');
 const AUDIO_MIME_TYPE = Platform.OS === 'web' ? 'audio/webm' : 'audio/m4a';
 const AGENT_AUDIO_PRIORITY_WINDOW_MS = 1200;
-const HOLD_TO_TALK_START_DELAY_MS = 140;
+const SNAPSHOT_MIN_INTERVAL_MS = 1500;
 
 const RECORDING_OPTIONS: Audio.RecordingOptions = {
   android: {
@@ -57,7 +57,6 @@ function normalizeAgentText(text: string): string {
   return text
     .replace(/\(No audio was provided, so I cannot generate audio output\.\)/gi, '')
     .replace(/\[No speech detected\]/gi, '')
-    .replace(/I didn't (hear|detect) any speech\.[^\n]*/gi, '')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
 }
@@ -129,6 +128,7 @@ export const VideoCallScreen: React.FC<VideoCallScreenProps> = ({ onEndCall }) =
   const recordingBusyRef = useRef(false);
   const pendingStopAfterStartRef = useRef(false);
   const isHoldingMicRef = useRef(false);
+  const lastSnapshotAtRef = useRef(0);
   const microphoneGrantedRef = useRef(false);
   const lastAgentAudioAtRef = useRef(0);
   const speechAvailableRef = useRef(false);
@@ -136,6 +136,25 @@ export const VideoCallScreen: React.FC<VideoCallScreenProps> = ({ onEndCall }) =
   const { selectedVehicleId } = useVehicles();
   const toggleCamera = () => {
     setCameraFacing((prev) => (prev === 'back' ? 'front' : 'back'));
+  };
+
+  const captureAndSendSnapshot = async (force = false) => {
+    if (!sendVideoFrameRef.current || !cameraRef.current || !permission?.granted) return;
+    const now = Date.now();
+    if (!force && now - lastSnapshotAtRef.current < SNAPSHOT_MIN_INTERVAL_MS) return;
+    try {
+      const capture = await cameraRef.current?.takePictureAsync({
+        quality: 0.25,
+        base64: true,
+        skipProcessing: true,
+      });
+      if (capture?.base64 && sendVideoFrameRef.current) {
+        await sendVideoFrameRef.current(capture.base64, 'image/jpeg');
+        lastSnapshotAtRef.current = now;
+      }
+    } catch {
+      // Visual context is best-effort.
+    }
   };
 
   const stopAndSendRecording = async () => {
@@ -148,6 +167,7 @@ export const VideoCallScreen: React.FC<VideoCallScreenProps> = ({ onEndCall }) =
       if (!uri) return;
       const base64Audio = await recordingUriToBase64(uri);
       if (!base64Audio || !sendAudioChunkRef.current) return;
+      await captureAndSendSnapshot();
       await sendAudioChunkRef.current(base64Audio, AUDIO_MIME_TYPE);
       setAudioSentCount((prev) => prev + 1);
       setLastAudioMeta(`${AUDIO_MIME_TYPE} • ${Math.round(base64Audio.length / 1024)}KB`);
@@ -173,11 +193,6 @@ export const VideoCallScreen: React.FC<VideoCallScreenProps> = ({ onEndCall }) =
         recordingBusyRef.current ||
         recordingRef.current
       ) {
-        return;
-      }
-      await sleep(HOLD_TO_TALK_START_DELAY_MS);
-      if (!isHoldingMicRef.current) {
-        // Treat quick tap as no-op to avoid recorder prepare races.
         return;
       }
       recordingBusyRef.current = true;
@@ -235,6 +250,9 @@ export const VideoCallScreen: React.FC<VideoCallScreenProps> = ({ onEndCall }) =
   };
 
   const handleMicPressOut = () => {
+    if (!isHoldingMicRef.current && !recordingRef.current && !recordingBusyRef.current) {
+      return;
+    }
     setIsHoldingMic(false);
     isHoldingMicRef.current = false;
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {
@@ -440,6 +458,7 @@ export const VideoCallScreen: React.FC<VideoCallScreenProps> = ({ onEndCall }) =
       setIsSending(true);
       setSessionError(null);
       setAiState('thinking');
+      await captureAndSendSnapshot();
       await sendRef.current(cleaned);
       setInputText('');
     } catch (e) {
@@ -454,26 +473,9 @@ export const VideoCallScreen: React.FC<VideoCallScreenProps> = ({ onEndCall }) =
   }, []);
 
   useEffect(() => {
-    if (status !== 'connected' || !permission?.granted || !cameraRef.current) return;
-    const interval = setInterval(() => {
-      void (async () => {
-        try {
-          const capture = await cameraRef.current?.takePictureAsync({
-            quality: 0.25,
-            base64: true,
-            skipProcessing: true,
-          });
-          if (capture?.base64 && sendVideoFrameRef.current) {
-            await sendVideoFrameRef.current(capture.base64, 'image/jpeg');
-          }
-        } catch {
-          // Frame streaming is best-effort and should not crash calls.
-        }
-      })();
-    }, 1000);
-
-    return () => clearInterval(interval);
-  }, [status, permission?.granted]);
+    if (status !== 'connected') return;
+    void captureAndSendSnapshot(true);
+  }, [status, permission?.granted, cameraFacing]);
 
   useEffect(() => {
     const pulse = Animated.loop(
@@ -760,9 +762,13 @@ export const VideoCallScreen: React.FC<VideoCallScreenProps> = ({ onEndCall }) =
             { marginRight: spacing.xl },
             isHoldingMic && styles.holdMicButtonActive,
           ]}
+          onStartShouldSetResponder={() => true}
           onPressIn={handleMicPressIn}
           onPressOut={handleMicPressOut}
           onTouchCancel={handleMicPressOut}
+          onTouchEnd={handleMicPressOut}
+          onResponderRelease={handleMicPressOut}
+          onResponderTerminate={handleMicPressOut}
           hitSlop={12}
         >
           <Icon name="mic" size={30} color="#FFFFFF" />

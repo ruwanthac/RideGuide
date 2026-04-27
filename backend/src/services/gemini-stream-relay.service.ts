@@ -66,7 +66,10 @@ export async function createGeminiStreamRelaySession(params: {
   };
 
   const sendAudioChunk = async (audioBase64: string, mimeType: string) => {
-    if (!state.liveSession) return;
+    if (!state.liveSession) {
+      params.callbacks.onError?.('Live voice session unavailable.');
+      return;
+    }
     try {
       await state.liveSession.addAudioChunk(audioBase64, mimeType);
     } catch (error) {

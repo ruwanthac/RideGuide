@@ -26,17 +26,25 @@ interface SessionState {
   fallbackModel: any | null;
   reconnecting: boolean;
   lastFallbackReplyAt: number;
+  latestVideoFrame?: { frameBase64: string; mimeType: string };
 }
 
 const MAX_HISTORY_MESSAGES = 24;
 const WAIT_FOR_TEXT_REPLY_MS = 8000;
-const MIN_FALLBACK_REPLY_INTERVAL_MS = 4500;
-const MIN_AUDIO_CHUNK_BASE64_SIZE = 9000;
+const MIN_FALLBACK_REPLY_INTERVAL_MS = 1200;
+const MIN_AUDIO_CHUNK_BASE64_SIZE = 500;
 
-const LIVE_SYSTEM_PROMPT = `You are a live AI mechanic assistant.
+const LIVE_SYSTEM_PROMPT = `You are a live AI mechanic assistant for ANY vehicle make/model.
 You can receive text, audio transcripts, and vehicle camera context.
 Give practical and safety-first vehicle troubleshooting guidance.
-When uncertain, ask concise clarifying questions.`;
+When uncertain, ask concise clarifying questions.
+
+Important behavior:
+- Treat stored profile vehicle context as a default hint only, NOT a hard restriction.
+- If camera/audio/user text indicates a different vehicle than profile context, prioritize the currently observed/mentioned vehicle.
+- If there is a mismatch, briefly confirm it and continue helping for the currently observed/mentioned vehicle.
+- Never refuse help just because the vehicle is not the profile/default vehicle.
+- If exact trim/year is unknown, provide best-effort generic guidance and ask for missing details.`;
 const LIVE_MODEL_FALLBACKS = [
   'gemini-2.5-flash-native-audio-latest',
   'gemini-2.5-flash-native-audio-preview-12-2025',
@@ -81,6 +89,7 @@ export async function createGeminiLiveSession(params: {
     fallbackModel: null,
     reconnecting: false,
     lastFallbackReplyAt: 0,
+    latestVideoFrame: undefined,
   };
 
   const client = getClient();
@@ -202,7 +211,13 @@ export async function createGeminiLiveSession(params: {
       : new Error('Unable to establish Gemini Live session with configured models.'));
   };
 
-  await connectLiveSession();
+  try {
+    await connectLiveSession();
+  } catch (error) {
+    // Keep degraded mode available even when Live websocket is unavailable.
+    state.liveSession = null;
+    params.callbacks.onError?.('Live voice session unavailable. Using fallback voice processing.');
+  }
 
   const waitForNextModelText = () =>
     new Promise<string>((resolve) => {
@@ -233,6 +248,24 @@ export async function createGeminiLiveSession(params: {
           .finally(() => {
             state.reconnecting = false;
           });
+      }
+      if (state.fallbackModel) {
+        const parts: any[] = [{ text }];
+        if (state.latestVideoFrame?.frameBase64) {
+          parts.push({
+            inlineData: {
+              mimeType: state.latestVideoFrame.mimeType || 'image/jpeg',
+              data: state.latestVideoFrame.frameBase64,
+            },
+          });
+        }
+        const result = await state.fallbackModel.generateContent(parts as any);
+        const response = (result as any)?.response || result;
+        const reply = safeResponseText(response).trim();
+        if (reply) {
+          params.callbacks.onAgentText?.(reply);
+          return reply;
+        }
       }
       throw new Error('Live voice session unavailable.');
     }
@@ -269,7 +302,7 @@ export async function createGeminiLiveSession(params: {
         return;
       }
       try {
-        const result = await state.fallbackModel.generateContent([
+        const parts: any[] = [
           {
             text:
               'Transcribe the user voice and answer as a concise vehicle mechanic. If speech is unclear/silent/noise-only, return exactly [NO_SPEECH]. Return plain response text only.',
@@ -280,7 +313,16 @@ export async function createGeminiLiveSession(params: {
               data: audioBase64,
             },
           },
-        ] as any);
+        ];
+        if (state.latestVideoFrame?.frameBase64) {
+          parts.push({
+            inlineData: {
+              mimeType: state.latestVideoFrame.mimeType || 'image/jpeg',
+              data: state.latestVideoFrame.frameBase64,
+            },
+          });
+        }
+        const result = await state.fallbackModel.generateContent(parts as any);
         const response = (result as any)?.response || result;
         const replyText = safeResponseText(response).trim();
         if (!replyText || replyText === '[NO_SPEECH]' || /\[No speech detected\]/i.test(replyText)) {
@@ -320,7 +362,9 @@ export async function createGeminiLiveSession(params: {
   };
 
   const addVideoFrame = async (frameBase64: string, mimeType: string): Promise<void> => {
-    if (!state.liveSession || !frameBase64) return;
+    if (!frameBase64) return;
+    state.latestVideoFrame = { frameBase64, mimeType: mimeType || 'image/jpeg' };
+    if (!state.liveSession) return;
     const resolvedMimeType = mimeType || 'image/jpeg';
     const candidates = [
       { video: { data: frameBase64, mimeType: resolvedMimeType } },
@@ -346,6 +390,7 @@ export async function createGeminiLiveSession(params: {
     }
     state.liveSession = null;
     state.history = [];
+    state.latestVideoFrame = undefined;
   };
 
   return { addUserText, addAudioChunk, addVideoFrame, close };

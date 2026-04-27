@@ -70,7 +70,7 @@ export async function buildVehicleContextForCall(params: {
   const commonIssuesSummary = enriched.enrichedData.commonIssues.slice(0, 5).join('; ') || 'None';
 
   const profileSummary = [
-    `Vehicle: ${displayName}`,
+    `Default profile vehicle (not mandatory if live context differs): ${displayName}`,
     `Fuse box: ${enriched.enrichedData.fuseBoxLocation}`,
     `Battery: ${enriched.enrichedData.batteryLocation}`,
     `OBD Port: ${enriched.enrichedData.obdPortLocation}`,
