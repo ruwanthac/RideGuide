@@ -221,6 +221,16 @@ export const VideoCallScreen: React.FC<VideoCallScreenProps> = ({ onEndCall }) =
   const preparingRef = useRef(false);
   const prepareFailCountRef = useRef(0);
 
+  const setSpeakerOutputMode = async () => {
+    await setAudioModeAsync({
+      allowsRecording: false,
+      playsInSilentMode: true,
+      shouldPlayInBackground: false,
+      interruptionMode: 'duckOthers',
+      shouldRouteThroughEarpiece: false,
+    });
+  };
+
   const prepareRecorder = async () => {
     if (preparingRef.current || recorderReadyRef.current) return;
     if (prepareFailCountRef.current >= 5) return;
@@ -234,16 +244,11 @@ export const VideoCallScreen: React.FC<VideoCallScreenProps> = ({ onEndCall }) =
         preparingRef.current = false;
         return;
       }
-      await setAudioModeAsync({
-        allowsRecording: true,
-        playsInSilentMode: true,
-        shouldPlayInBackground: false,
-        interruptionMode: 'duckOthers',
-        shouldRouteThroughEarpiece: false,
-      });
       try { await recorder.stop().catch(() => {}); } catch {}
       await sleep(100);
       await recorder.prepareToRecordAsync(RECORDING_OPTIONS);
+      // Keep playback route active while idle; switch to recording mode only when user actually starts recording.
+      await setSpeakerOutputMode();
       recorderReadyRef.current = true;
       prepareFailCountRef.current = 0;
     } catch (e) {
@@ -286,6 +291,13 @@ export const VideoCallScreen: React.FC<VideoCallScreenProps> = ({ onEndCall }) =
         setSessionError('Microphone recorder could not start. Please restart the call.');
         return false;
       }
+      await setAudioModeAsync({
+        allowsRecording: true,
+        playsInSilentMode: true,
+        shouldPlayInBackground: false,
+        interruptionMode: 'duckOthers',
+        shouldRouteThroughEarpiece: false,
+      });
       recordingUriRef.current = null;
       recorder.record();
       recordingStartedAtRef.current = Date.now();
@@ -321,7 +333,7 @@ export const VideoCallScreen: React.FC<VideoCallScreenProps> = ({ onEndCall }) =
         if (typeof stopResult === 'string' && stopResult.length > 0) uri = stopResult;
       } catch {}
       try {
-        await setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true });
+        await setSpeakerOutputMode();
         sendTonePlayer.seekTo(0);
         sendTonePlayer.play();
       } catch {}
@@ -362,7 +374,8 @@ export const VideoCallScreen: React.FC<VideoCallScreenProps> = ({ onEndCall }) =
       await sendAudioChunkRef.current(base64Audio, AUDIO_MIME_TYPE);
       setAudioSentCount((prev) => prev + 1);
       setLastAudioMeta(`${AUDIO_MIME_TYPE} • ${Math.round(base64Audio.length / 1024)}KB`);
-      void prepareRecorder();
+      // Do not prepare recorder immediately after send; it can force call-style routing.
+      // Recorder is prepared again after AI playback completes.
     } catch (error) {
       setWaitingForReply(false);
       waitingForReplyRef.current = false;
@@ -596,25 +609,29 @@ export const VideoCallScreen: React.FC<VideoCallScreenProps> = ({ onEndCall }) =
             if (!gotRecentModelAudio && cleanedText.length > 0 && speechAvailableRef.current) {
               setAiState('speaking');
               void Speech.stop();
-              Speech.speak(cleanedText, {
+              void (async () => {
+                try {
+                  await setSpeakerOutputMode();
+                } catch (e) {
+                  console.warn('[audio] failed to switch to speaker mode before TTS:', e);
+                }
+                Speech.speak(cleanedText, {
                 rate: 0.95,
                 pitch: 1,
                 onDone: () => {
                   setAiState('idle');
                   setTurnState('idle');
-                  void prepareRecorder();
                 },
                 onStopped: () => {
                   setAiState('idle');
                   setTurnState('idle');
-                  void prepareRecorder();
                 },
                 onError: () => {
                   setAiState('idle');
                   setTurnState('idle');
-                  void prepareRecorder();
                 },
-              });
+                });
+              })();
             } else if (!gotRecentModelAudio) {
               setAiState('idle');
               setTurnState('idle');
@@ -648,6 +665,7 @@ export const VideoCallScreen: React.FC<VideoCallScreenProps> = ({ onEndCall }) =
             void (async () => {
               try {
                 await Speech.stop();
+                await setSpeakerOutputMode();
                 if (currentAiSoundRef.current) {
                   currentAiSoundRef.current.remove();
                   currentAiSoundRef.current = null;
@@ -669,12 +687,11 @@ export const VideoCallScreen: React.FC<VideoCallScreenProps> = ({ onEndCall }) =
                     }
                     setAiState('idle');
                     setTurnState('idle');
-                    void prepareRecorder();
                     try { tmpFile.delete(); } catch {}
                   }
                 });
-              } catch {
-                // Audio playback support varies by platform and codec.
+              } catch (e) {
+                console.warn('[audio] streamed AI audio playback failed:', e);
               }
             })();
           },
