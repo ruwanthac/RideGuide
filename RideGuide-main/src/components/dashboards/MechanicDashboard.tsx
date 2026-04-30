@@ -491,7 +491,7 @@ export const MechanicDashboard: React.FC<MechanicDashboardProps> = ({
             </Text>
             <View style={styles.statusPill}>
               <Text style={styles.statusPillText}>
-                {isOnline ? 'Online · visible to owners' : 'Offline · hidden from owners'}
+                {isOnline ? 'Online · visible to drivers' : 'Offline · hidden from owners'}
               </Text>
             </View>
           </View>
@@ -515,7 +515,7 @@ export const MechanicDashboard: React.FC<MechanicDashboardProps> = ({
           <View style={styles.metricCard}>
             <Text style={styles.metricLabel}>Jobs this month</Text>
             <Text style={styles.metricValue}>{DUMMY_MONTHLY_JOBS}</Text>
-            <Text style={styles.metricCaption}>Completed bookings</Text>
+            <Text style={styles.metricCaption}>Completed jobs</Text>
           </View>
         </View>
       </Card>
