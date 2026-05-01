@@ -391,11 +391,7 @@ export const ProfileScreen: React.FC = () => {
         return <TowDashboard driverName={userName} />;
       case 'owner':
       default:
-        return (
-          <OwnerDashboard
-            vehicleName={currentVehicle?.makeModel || currentVehicle?.label || 'No vehicle'}
-          />
-        );
+        return <OwnerDashboard />;
     }
   };
 

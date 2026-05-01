@@ -8,11 +8,7 @@ import {
 import { colors } from '../../constants/theme';
 import { useResponsive } from '../../hooks';
 
-interface OwnerDashboardProps {
-  vehicleName?: string;
-}
-
-export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({ vehicleName }) => {
+export const OwnerDashboard: React.FC = () => {
   const { spacing, fontSizes } = useResponsive();
   const fadeAnim = useRef(new Animated.Value(0)).current;
 
@@ -27,11 +23,6 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({ vehicleName }) =
           fontWeight: '600',
           color: colors.text,
           marginBottom: spacing.xs,
-        },
-        sectionSubtitle: {
-          fontSize: fontSizes.sm,
-          color: colors.textSecondary,
-          marginBottom: spacing.md,
         },
       }),
     [fontSizes, spacing]
@@ -64,9 +55,6 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({ vehicleName }) =
       ]}
     >
       <Text style={styles.sectionTitle}>Owner Dashboard</Text>
-      <Text style={styles.sectionSubtitle}>
-        {vehicleName || 'Your vehicle'}
-      </Text>
     </Animated.View>
   );
 };
