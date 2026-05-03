@@ -5,6 +5,7 @@ import { colors } from '../constants/theme';
 import { useResponsive } from '../hooks';
 import { useVehicles } from '../context/VehiclesContext';
 import { runDiagnosis } from '../backend/diagnosisService';
+import { extractApiError } from '../backend/apiClient';
 import type { DiagnosisEntry } from '../backend/types';
 
 interface DiagnoseScreenProps {
@@ -12,7 +13,15 @@ interface DiagnoseScreenProps {
 }
 
 export const DiagnoseScreen: React.FC<DiagnoseScreenProps> = ({ onBack }) => {
-  const { selectedVehicle } = useVehicles();
+  const { selectedVehicle, vehicles, selectedVehicleId } = useVehicles();
+  const effectiveVehicle = useMemo(
+    () =>
+      selectedVehicle ??
+      vehicles.find((v) => v._id === selectedVehicleId) ??
+      vehicles[0] ??
+      null,
+    [selectedVehicle, vehicles, selectedVehicleId],
+  );
   const [symptoms, setSymptoms] = useState('');
   const [obdCode, setObdCode] = useState('');
   const [result, setResult] = useState<DiagnosisEntry | null>(null);
@@ -93,21 +102,27 @@ export const DiagnoseScreen: React.FC<DiagnoseScreenProps> = ({ onBack }) => {
   };
 
   const handleSubmit = async () => {
-    if (!selectedVehicle) {
-      Alert.alert('No Vehicle Selected', 'Please select a vehicle before running a diagnosis.');
+    if (!effectiveVehicle) {
+      Alert.alert('No vehicle', 'Add a vehicle in Profile first, then try again.');
+      return;
+    }
+    const symptomsTrim = symptoms.trim();
+    const obdTrim = obdCode.trim().toUpperCase();
+    if (!symptomsTrim && !obdTrim) {
+      Alert.alert('Input needed', 'Enter your symptoms and/or an OBD code, then tap Get Diagnosis.');
       return;
     }
     setLoading(true);
+    setResult(null);
     try {
       const entry = await runDiagnosis({
-        symptoms: symptoms.trim(),
-        obdCode: obdCode.trim(),
-        vehicleId: selectedVehicle._id,
+        symptoms: symptomsTrim,
+        obdCode: obdTrim,
+        vehicleId: effectiveVehicle._id,
       });
       setResult(entry);
     } catch (e) {
-      const msg = e instanceof Error ? e.message : 'Diagnosis failed. Please try again.';
-      Alert.alert('Diagnosis Error', msg);
+      Alert.alert('Diagnosis failed', extractApiError(e, 'Please try again.'));
     } finally {
       setLoading(false);
     }
@@ -127,6 +142,13 @@ export const DiagnoseScreen: React.FC<DiagnoseScreenProps> = ({ onBack }) => {
         contentContainerStyle={styles.content}
         keyboardShouldPersistTaps="handled"
       >
+        {effectiveVehicle ? (
+          <Text style={[styles.resultText, { marginBottom: spacing.sm }]}>
+            Vehicle: {effectiveVehicle.makeModel}
+            {effectiveVehicle.vin ? ` · VIN ${effectiveVehicle.vin}` : ''}
+          </Text>
+        ) : null}
+
         <InputField
           label="Describe your symptoms"
           placeholder="e.g., Engine makes knocking sound when accelerating"
@@ -137,16 +159,18 @@ export const DiagnoseScreen: React.FC<DiagnoseScreenProps> = ({ onBack }) => {
           style={styles.textArea}
         />
         <InputField
-          label="OBD Code (if available)"
+          label="OBD code"
           placeholder="e.g., P0420"
           value={obdCode}
-          onChangeText={setObdCode}
+          onChangeText={(t) => setObdCode(t.toUpperCase())}
+          autoCapitalize="characters"
         />
 
         <PrimaryButton
           title="Get Diagnosis"
           onPress={handleSubmit}
           loading={loading}
+          disabled={!effectiveVehicle || (!symptoms.trim() && !obdCode.trim())}
           style={styles.button}
         />
 

@@ -6,9 +6,6 @@ import {
   Image,
   ScrollView,
   TouchableOpacity,
-  TextInput,
-  KeyboardAvoidingView,
-  Platform,
   NativeSyntheticEvent,
   NativeScrollEvent,
   RefreshControl,
@@ -88,7 +85,6 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   const { role } = useUserRole();
   const { selectedVehicleId } = useVehicles();
   const greeting = getTimeBasedGreeting();
-  const [quickInput, setQuickInput] = useState('');
   const [bannerIndex, setBannerIndex] = useState(0);
   const [refreshing, setRefreshing] = useState(false);
   const [requests, setRequests] = useState<ServiceRequest[]>([]);
@@ -314,40 +310,6 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
           alignItems: 'center',
           justifyContent: 'center',
           zIndex: 10,
-        },
-        quickInputBar: {
-          flexDirection: 'row',
-          alignItems: 'center',
-          backgroundColor: colors.card,
-          borderRadius: scale(24),
-          paddingVertical: spacing.sm,
-          paddingHorizontal: spacing.md,
-          marginHorizontal: spacing.lg,
-          marginBottom: spacing.lg,
-          borderWidth: 1,
-          borderColor: colors.border,
-        },
-        quickInput: {
-          flex: 1,
-          fontSize: fontSizes.md,
-          color: colors.text,
-          paddingVertical: spacing.sm,
-          paddingHorizontal: spacing.sm,
-          maxHeight: scale(80),
-        },
-        quickActionButton: {
-          width: scale(40),
-          height: scale(40),
-          borderRadius: scale(20),
-          alignItems: 'center',
-          justifyContent: 'center',
-          marginLeft: spacing.xs,
-        },
-        quickSendButton: {
-          backgroundColor: colors.primary,
-        },
-        quickSendDisabled: {
-          opacity: 0.5,
         },
         activitiesSection: {
           marginTop: spacing.xl,
@@ -669,43 +631,6 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
             <Icon name="videocam" size={22} color="#FFFFFF" />
           </TouchableOpacity>
         </View>
-
-        <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        style={{ width: '100%' }}
-      >
-        <View style={styles.quickInputBar}>
-          <TextInput
-            style={styles.quickInput}
-            placeholder="Ask about your vehicle..."
-            placeholderTextColor={colors.textSecondary}
-            value={quickInput}
-            onChangeText={setQuickInput}
-            multiline
-            maxLength={300}
-          />
-          <TouchableOpacity
-            style={styles.quickActionButton}
-            onPress={() => {}}
-            activeOpacity={0.7}
-          >
-            <Icon name="mic" size={20} color={colors.primary} />
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[
-              styles.quickActionButton,
-              styles.quickSendButton,
-              !quickInput.trim() && styles.quickSendDisabled,
-            ]}
-            onPress={() => {
-              if (quickInput.trim()) onChatAssistant();
-            }}
-            activeOpacity={0.7}
-          >
-            <Icon name="send" size={18} color="#FFFFFF" />
-          </TouchableOpacity>
-        </View>
-      </KeyboardAvoidingView>
 
       <View style={[styles.contentPadded, styles.grid]}>
         {items.map((item) => (

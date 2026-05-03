@@ -67,10 +67,19 @@ export async function buildVehicleContextForCall(params: {
   });
 
   const displayName = buildVehicleDisplayName(vehicleDoc);
+  const vinLine =
+    vehicleDoc.vin && String(vehicleDoc.vin).trim()
+      ? `Registered VIN (authoritative unless the user explicitly corrects it): ${String(vehicleDoc.vin).trim()}`
+      : 'Registered VIN: not on file — ask the user for the VIN if you need it for recalls or parts lookup.';
+  const labelLine = vehicleDoc.label?.trim()
+    ? `Owner vehicle label: ${vehicleDoc.label.trim()}`
+    : null;
   const commonIssuesSummary = enriched.enrichedData.commonIssues.slice(0, 5).join('; ') || 'None';
 
   const profileSummary = [
     `Default profile vehicle (not mandatory if live context differs): ${displayName}`,
+    vinLine,
+    ...(labelLine ? [labelLine] : []),
     `Fuse box: ${enriched.enrichedData.fuseBoxLocation}`,
     `Battery: ${enriched.enrichedData.batteryLocation}`,
     `OBD Port: ${enriched.enrichedData.obdPortLocation}`,

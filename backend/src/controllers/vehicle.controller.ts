@@ -12,14 +12,30 @@ const createSchema = z.object({
   trim: z.string().min(1).max(100).optional(),
   engine: z.string().min(1).max(120).optional(),
 });
-const updateSchema = createSchema.partial();
+
+/** Trim string fields; drop empty strings so partial PATCH does not fail Zod min(1) on "". */
+function trimVehicleBody(raw: unknown): unknown {
+  if (!raw || typeof raw !== 'object') return raw;
+  const o = { ...(raw as Record<string, unknown>) };
+  for (const key of Object.keys(o)) {
+    const v = o[key];
+    if (typeof v === 'string') {
+      const t = v.trim();
+      o[key] = t === '' ? undefined : t;
+    }
+  }
+  return o;
+}
+
+const updateSchema = z.preprocess(trimVehicleBody, createSchema.partial());
+const createSchemaTrimmed = z.preprocess(trimVehicleBody, createSchema);
 
 export async function list(req: Request, res: Response, next: NextFunction) {
   try { res.json(await svc.listVehicles(req.user!.userId)); } catch (e) { next(e); }
 }
 export async function create(req: Request, res: Response, next: NextFunction) {
   try {
-    const body = createSchema.parse(req.body);
+    const body = createSchemaTrimmed.parse(req.body);
     const v = await svc.createVehicle(req.user!.userId, body);
     res.status(201).json(v);
   } catch (e) { next(e); }

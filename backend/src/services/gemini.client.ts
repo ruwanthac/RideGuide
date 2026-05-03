@@ -55,7 +55,12 @@ Only discuss vehicle diagnosis, maintenance, and roadside advice. If off-topic, 
 If a captured image is not vehicle-related, ignore that image silently and continue answering the user's conversation.
 If a captured image is vehicle-related, use visible vehicle cues to improve diagnosis and identify likely model details when clear.`;
 
-export async function analyzeDiagnosis(input: { symptoms: string; obdCode: string; vehicleMakeModel: string }): Promise<DiagnosisResult> {
+export async function analyzeDiagnosis(input: {
+  symptoms: string;
+  obdCode: string;
+  vehicleMakeModel: string;
+  vehicleVin?: string | null;
+}): Promise<DiagnosisResult> {
   try {
     const client = getClient();
     const model = client.getGenerativeModel({
@@ -64,7 +69,12 @@ export async function analyzeDiagnosis(input: { symptoms: string; obdCode: strin
       systemInstruction: DIAGNOSIS_SYSTEM,
     });
 
-    const prompt = JSON.stringify(input);
+    const prompt = JSON.stringify({
+      symptoms: input.symptoms || '(none provided)',
+      obdCode: input.obdCode || '(none provided)',
+      vehicleMakeModel: input.vehicleMakeModel,
+      vehicleVin: input.vehicleVin?.trim() || null,
+    });
 
     for (let attempt = 0; attempt < 2; attempt++) {
       const r = await model.generateContent(prompt);

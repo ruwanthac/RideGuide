@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -19,6 +19,7 @@ import type { UserRole } from '../backend/types';
 import { useVehicles } from '../context/VehiclesContext';
 import { useAuth } from '../context/AuthContext';
 import { useNavigation } from '@react-navigation/native';
+import { extractApiError } from '../backend/apiClient';
 
 const DEFAULT_MAKE_MODEL = 'Toyota Camry 2020';
 const DEFAULT_VIN = '1HGBH41JXMN109186';
@@ -43,7 +44,24 @@ export const ProfileScreen: React.FC = () => {
   const [isEditingVehicle, setIsEditingVehicle] = useState(false);
   const [showProfiles, setShowProfiles] = useState(false);
 
-  const currentVehicle = vehicles.find((v) => v._id === selectedVehicleId) ?? vehicles[0];
+  /** Profile may point at a deleted/missing vehicle; UI falls back to first car — save must use the same id. */
+  const resolvedSelectedVehicleId = useMemo(() => {
+    if (vehicles.length === 0) return null;
+    if (selectedVehicleId && vehicles.some((v) => v._id === selectedVehicleId)) return selectedVehicleId;
+    return vehicles[0]._id;
+  }, [vehicles, selectedVehicleId]);
+
+  const currentVehicle = useMemo(() => {
+    if (!resolvedSelectedVehicleId) return vehicles[0] ?? null;
+    return vehicles.find((v) => v._id === resolvedSelectedVehicleId) ?? vehicles[0] ?? null;
+  }, [vehicles, resolvedSelectedVehicleId]);
+
+  useEffect(() => {
+    if (!resolvedSelectedVehicleId) return;
+    if (selectedVehicleId !== resolvedSelectedVehicleId) {
+      void setSelectedVehicleId(resolvedSelectedVehicleId);
+    }
+  }, [resolvedSelectedVehicleId, selectedVehicleId, setSelectedVehicleId]);
   const currentVehicleIndex = currentVehicle
     ? vehicles.findIndex((vehicle) => vehicle._id === currentVehicle._id)
     : -1;
@@ -96,21 +114,27 @@ export const ProfileScreen: React.FC = () => {
   };
 
   const handleSaveVehicle = () => {
-    if (!currentVehicle || !selectedVehicleId) {
+    if (!currentVehicle) {
       Alert.alert('No vehicle', 'No vehicle found to save right now.');
       return;
     }
-    if (!editMakeModel.trim()) {
+    const makeModel = editMakeModel.trim();
+    const vin = editVin.trim();
+    if (!makeModel) {
       Alert.alert('Invalid input', 'Make & Model is required.');
       return;
     }
-    void saveVehicle(selectedVehicleId, { makeModel: editMakeModel, vin: editVin })
+    if (!vin) {
+      Alert.alert('Invalid input', 'VIN is required.');
+      return;
+    }
+    void saveVehicle(currentVehicle._id, { makeModel, vin })
       .then(() => {
         setIsEditingVehicle(false);
         Alert.alert('Saved', 'Vehicle information has been updated.');
       })
-      .catch(() => {
-        Alert.alert('Error', 'Could not save. Check your connection and try again.');
+      .catch((error) => {
+        Alert.alert('Could not save', extractApiError(error, 'Please try again.'));
       });
   };
 
@@ -430,7 +454,7 @@ export const ProfileScreen: React.FC = () => {
             <View style={styles.vehicleSwitcherRow}>
               <View style={styles.vehicleChipsContainer}>
                 {vehicles.map((vehicle, index) => {
-                  const isActive = vehicle._id === selectedVehicleId;
+                  const isActive = vehicle._id === resolvedSelectedVehicleId;
                   const canDelete = vehicles.length > 1;
                   const displayLabel = `Car ${index + 1}`;
                   return (
@@ -557,10 +581,12 @@ export const ProfileScreen: React.FC = () => {
           <Text style={styles.menuText}>Privacy</Text>
           <Text style={styles.menuArrow}>›</Text>
         </TouchableOpacity>
-        {userRole === 'owner' && selectedVehicleId && (
+        {userRole === 'owner' && resolvedSelectedVehicleId && (
           <TouchableOpacity
             style={[styles.menuItem, styles.menuItemLast]}
-            onPress={() => navigation.navigate('VehicleRecords' as never, { vehicleId: selectedVehicleId } as never)}
+            onPress={() =>
+              navigation.navigate('VehicleRecords' as never, { vehicleId: resolvedSelectedVehicleId } as never)
+            }
             activeOpacity={0.7}
           >
             <Text style={styles.menuText}>Vehicle Records</Text>

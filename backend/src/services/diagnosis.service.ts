@@ -11,6 +11,7 @@ export async function runDiagnosis(userId: string, input: { symptoms: string; ob
     symptoms: input.symptoms,
     obdCode: input.obdCode,
     vehicleMakeModel: vehicle.makeModel,
+    vehicleVin: vehicle.vin,
   });
   const doc = await DiagnosisHistoryModel.create({
     userId: new Types.ObjectId(userId),

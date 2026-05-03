@@ -193,7 +193,11 @@ export const VideoCallScreen: React.FC<VideoCallScreenProps> = ({ onEndCall }) =
   const isAiSpeakingRef = useRef(false);
   const currentAiSoundRef = useRef<AudioPlayer | null>(null);
   const waitingForReplyRef = useRef(false);
-  const { selectedVehicleId } = useVehicles();
+  const { selectedVehicleId, vehicles, selectedVehicle } = useVehicles();
+  const effectiveVehicleId =
+    selectedVehicle?._id ??
+    vehicles.find((v) => v._id === selectedVehicleId)?._id ??
+    vehicles[0]?._id;
   const toggleCamera = () => {
     setCameraFacing((prev) => (prev === 'back' ? 'front' : 'back'));
   };
@@ -748,7 +752,7 @@ export const VideoCallScreen: React.FC<VideoCallScreenProps> = ({ onEndCall }) =
             setAiState('idle');
           },
         }, {
-          vehicleId: selectedVehicleId ?? undefined,
+          vehicleId: effectiveVehicleId,
         });
         sendRef.current = session.sendText;
         sendAudioChunkRef.current = session.sendAudioChunk;
@@ -769,7 +773,7 @@ export const VideoCallScreen: React.FC<VideoCallScreenProps> = ({ onEndCall }) =
       active = false;
       void stopRef.current?.();
     };
-  }, [selectedVehicleId]);
+  }, [effectiveVehicleId]);
 
   const handleEndCall = () => {
     void Speech.stop();

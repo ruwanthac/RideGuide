@@ -11,17 +11,24 @@ declare global {
   }
 }
 
-export async function authRequired(req: Request, _res: Response, next: NextFunction) {
+export function authRequired(req: Request, _res: Response, next: NextFunction) {
   const header = req.header('authorization') ?? '';
   const [scheme, token] = header.split(' ');
   if (scheme !== 'Bearer' || !token) return next(new HttpError(401, 'missing bearer token'));
+  let payload: TokenPayload;
   try {
-    const payload = verifyToken(token);
-    const user = await UserModel.findById(payload.userId).select('_id role').lean();
-    if (!user) return next(new HttpError(401, 'user not found'));
-    req.user = { ...payload, role: user.role };
-    next();
+    payload = verifyToken(token);
   } catch {
-    next(new HttpError(401, 'invalid or expired token'));
+    return next(new HttpError(401, 'invalid or expired token'));
   }
+  void (async () => {
+    try {
+      const user = await UserModel.findById(payload.userId).select('_id role').lean();
+      if (!user) return next(new HttpError(401, 'user not found'));
+      req.user = { ...payload, role: user.role };
+      next();
+    } catch (e) {
+      next(e);
+    }
+  })();
 }
