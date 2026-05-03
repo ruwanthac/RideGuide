@@ -1,25 +1,19 @@
-import React, { createContext, useCallback, useContext, useMemo } from 'react';
+import React, { createContext, useContext, useMemo } from 'react';
 import { useAuth } from './AuthContext';
-import { updateUserProfile } from '../backend/userProfileService';
 import type { UserRole } from '../backend/types';
 
+/** Role comes from the signed-in user only; each account is owner, mechanic, or tow — no in-app switching. */
 interface UserRoleContextValue {
   role: UserRole;
-  setRole: (role: UserRole) => Promise<void>;
 }
 
 const UserRoleContext = createContext<UserRoleContextValue | undefined>(undefined);
 
 export const UserRoleProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { user, refreshProfile } = useAuth();
+  const { user } = useAuth();
   const role: UserRole = (user?.role as UserRole) ?? 'owner';
 
-  const setRole = useCallback(async (next: UserRole) => {
-    await updateUserProfile({ role: next });
-    await refreshProfile();
-  }, [refreshProfile]);
-
-  const value = useMemo(() => ({ role, setRole }), [role, setRole]);
+  const value = useMemo(() => ({ role }), [role]);
   return <UserRoleContext.Provider value={value}>{children}</UserRoleContext.Provider>;
 };
 

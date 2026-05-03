@@ -34,7 +34,6 @@ type WorkshopDocField = 'brCopy' | 'nicCopy';
 
 const DUMMY_REQUESTS = 5;
 const DUMMY_MONTHLY_JOBS = 32;
-const DUMMY_REVENUE = 'LKR 184,000';
 
 export const MechanicDashboard: React.FC<MechanicDashboardProps> = ({
   shopName,
@@ -129,41 +128,6 @@ export const MechanicDashboard: React.FC<MechanicDashboardProps> = ({
           fontSize: fontSizes.xs,
           color: colors.textSecondary,
           marginTop: 4,
-        },
-        revenueRow: {
-          flexDirection: 'row',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-        },
-        revenueLabel: {
-          fontSize: fontSizes.sm,
-          color: colors.textSecondary,
-        },
-        revenueValue: {
-          fontSize: fontSizes.xxl,
-          fontWeight: '700',
-          color: colors.text,
-        },
-        revenueTag: {
-          paddingHorizontal: spacing.sm,
-          paddingVertical: spacing.xs,
-          borderRadius: borderRadius.full,
-          backgroundColor: 'rgba(37,99,235,0.06)',
-        },
-        revenueTagText: {
-          fontSize: fontSizes.xs,
-          color: colors.primary,
-          fontWeight: '500',
-        },
-        subtleDivider: {
-          height: StyleSheet.hairlineWidth,
-          backgroundColor: colors.border,
-          marginVertical: spacing.md,
-        },
-        hintText: {
-          fontSize: fontSizes.xs,
-          color: colors.textSecondary,
-          marginTop: spacing.sm,
         },
         switchTrackColor: {
           false: 'rgba(156,163,175,0.32)',
@@ -518,23 +482,6 @@ export const MechanicDashboard: React.FC<MechanicDashboardProps> = ({
             <Text style={styles.metricCaption}>Completed jobs</Text>
           </View>
         </View>
-      </Card>
-
-      <Card padded>
-        <View style={styles.revenueRow}>
-          <View>
-            <Text style={styles.revenueLabel}>Revenue (this month)</Text>
-            <Text style={styles.revenueValue}>{DUMMY_REVENUE}</Text>
-          </View>
-          <View style={styles.revenueTag}>
-            <Text style={styles.revenueTagText}>+18% vs last month</Text>
-          </View>
-        </View>
-        <View style={styles.subtleDivider} />
-        <Text style={styles.hintText}>
-          Track completed jobs and payouts in one place. Connect your billing
-          to automate settlements.
-        </Text>
       </Card>
 
       <Card style={{ marginTop: spacing.md }} padded>

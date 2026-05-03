@@ -94,6 +94,36 @@ export async function analyzeDiagnosis(input: {
   }
 }
 
+const SUMMARIZE_CALL_SYSTEM = `You summarize a short vehicle-related AI video/voice chat for the car owner.
+Output plain text only: 2–6 short sentences or bullet lines. Focus on what the user asked, symptoms, and advice given. No markdown headings.`;
+
+export async function summarizeAiCallMessages(
+  turns: { role: 'user' | 'model'; content: string }[]
+): Promise<string> {
+  if (!turns.length) return '';
+  if (!env.GEMINI_API_KEY) return '';
+  try {
+    const client = getClient();
+    const model = client.getGenerativeModel({
+      model: CHEAP_MODEL,
+      systemInstruction: SUMMARIZE_CALL_SYSTEM,
+    });
+    const transcript = turns
+      .map((t) => `${t.role}: ${t.content}`)
+      .join('\n')
+      .slice(0, 14000);
+    const r = await model.generateContent(
+      `Summarize this conversation transcript for the owner's history:\n\n${transcript}`
+    );
+    return r.response.text().trim();
+  } catch (err) {
+    if (isQuotaExceededError(err)) {
+      return 'Video AI call (summary unavailable: AI quota exceeded).';
+    }
+    throw err;
+  }
+}
+
 export async function chatReply(messages: { role: 'user' | 'model'; content: string }[]): Promise<string> {
   try {
     const client = getClient();

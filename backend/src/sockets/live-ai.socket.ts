@@ -5,6 +5,7 @@ import {
   RelaySession,
   createGeminiStreamRelaySession,
 } from '../services/gemini-stream-relay.service';
+import { recordEndedAiCall } from '../services/ai-call-transcript.service';
 
 const MAX_HISTORY_MESSAGES = 20;
 const MAX_TEXT_LENGTH = 1000;
@@ -18,6 +19,7 @@ function stripDataUriPrefix(value: string): string {
 interface SessionState {
   relay: RelaySession;
   userId: string;
+  vehicleId: string | null;
   startedAt: number;
   messages: { role: 'user' | 'model'; content: string }[];
 }
@@ -28,7 +30,7 @@ export function registerLiveAiHandlers(io: Server, socket: Socket) {
   socket.on(
     'call:ai:start',
     async (
-      payload: { sessionId: string; vehicleId?: string },
+      payload: { sessionId: string; vehicleId?: string; priorConversationSummary?: string },
       ack?: (ok: unknown) => void
     ) => {
       try {
@@ -50,13 +52,18 @@ export function registerLiveAiHandlers(io: Server, socket: Socket) {
           vehicleId: resolvedVehicleId || null,
         });
 
+        const prior = (payload.priorConversationSummary || '').trim().slice(0, 8000);
+        const profileWithResume = prior
+          ? `${vehicleContext.profileSummary}\n\nPrevious video AI conversation summary (user is continuing):\n${prior}`
+          : vehicleContext.profileSummary;
+
         if (sessions.has(sessionId)) {
           const existing = sessions.get(sessionId)!;
           await existing.relay.stop();
         }
 
         const relay = await createGeminiStreamRelaySession({
-          vehicleContext: vehicleContext.profileSummary,
+          vehicleContext: profileWithResume,
           callbacks: {
             onUserText: (text) => {
               const state = sessions.get(sessionId);
@@ -117,6 +124,7 @@ export function registerLiveAiHandlers(io: Server, socket: Socket) {
         sessions.set(sessionId, {
           relay,
           userId,
+          vehicleId: resolvedVehicleId ? String(resolvedVehicleId) : null,
           startedAt: Date.now(),
           messages: [
             {
@@ -338,6 +346,16 @@ export function registerLiveAiHandlers(io: Server, socket: Socket) {
         const state = sessions.get(cleaned);
         if (state) {
           await state.relay.stop();
+          const hasUserTurn = state.messages.some((m) => m.role === 'user');
+          if (hasUserTurn) {
+            void recordEndedAiCall({
+              userId: state.userId,
+              vehicleId: state.vehicleId,
+              sessionId: cleaned,
+              messages: [...state.messages],
+              startedAt: state.startedAt,
+            }).catch((err) => console.warn('[live-ai] persist transcript failed:', err));
+          }
         }
         sessions.delete(cleaned);
         socket.leave(`call-ai:${cleaned}`);
@@ -362,6 +380,16 @@ export function registerLiveAiHandlers(io: Server, socket: Socket) {
         await state.relay.stop();
       } catch {
         // ignore
+      }
+      const hasUserTurn = state.messages.some((m) => m.role === 'user');
+      if (hasUserTurn) {
+        void recordEndedAiCall({
+          userId: state.userId,
+          vehicleId: state.vehicleId,
+          sessionId,
+          messages: [...state.messages],
+          startedAt: state.startedAt,
+        }).catch((err) => console.warn('[live-ai] persist transcript failed:', err));
       }
       sessions.delete(sessionId);
       io.to(`call-ai:${sessionId}`).emit('call:ai:ended', { sessionId });

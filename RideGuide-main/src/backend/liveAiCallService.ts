@@ -22,7 +22,7 @@ export interface LiveAiCallbacks {
 export async function joinLiveAiCall(
   sessionId: string,
   callbacks: LiveAiCallbacks,
-  options?: { vehicleId?: string }
+  options?: { vehicleId?: string; priorConversationSummary?: string }
 ): Promise<{
   sendText: (text: string) => Promise<void>;
   sendAudioFrame: (
@@ -178,11 +178,19 @@ export async function joinLiveAiCall(
     const timeout = setTimeout(() => {
       reject(new Error('AI call start timed out. Check backend socket handlers.'));
     }, START_TIMEOUT_MS);
-    socket.emit('call:ai:start', { sessionId, vehicleId: options?.vehicleId }, (ack: any) => {
-      clearTimeout(timeout);
-      if (ack?.ok) resolve();
-      else reject(new Error(ack?.error ?? 'Unable to start AI call'));
-    });
+    socket.emit(
+      'call:ai:start',
+      {
+        sessionId,
+        vehicleId: options?.vehicleId,
+        priorConversationSummary: options?.priorConversationSummary,
+      },
+      (ack: any) => {
+        clearTimeout(timeout);
+        if (ack?.ok) resolve();
+        else reject(new Error(ack?.error ?? 'Unable to start AI call'));
+      }
+    );
   });
 
   const sendText = (text: string) =>

@@ -1,13 +1,17 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { View, Text, StyleSheet, FlatList, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, FlatList, ScrollView } from 'react-native';
+import { useNavigation } from '@react-navigation/native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Card } from '../components';
 import { colors } from '../constants/theme';
 import { useResponsive } from '../hooks';
 import { useUserRole } from '../context/UserRoleContext';
 import { useVehicles } from '../context/VehiclesContext';
-import { listDiagnosisHistory } from '../backend/diagnosisHistoryService';
 import { listServiceRequests } from '../backend/serviceRequestsService';
-import type { DiagnosisEntry, ServiceRequest } from '../backend/types';
+import type { ServiceRequest } from '../backend/types';
+import type { HistoryStackParamList } from '../types/navigation';
+
+type HistoryNav = NativeStackNavigationProp<HistoryStackParamList, 'History'>;
 
 interface HistoryItem {
   id: string;
@@ -16,48 +20,19 @@ interface HistoryItem {
   diagnosis: string;
 }
 
-
-function entriesToOwnerHistory(entries: DiagnosisEntry[]): HistoryItem[] {
-  return entries.map((e) => ({
-    id: e._id,
-    date: new Date(e.createdAt).toLocaleString(),
-    symptoms: e.symptoms + (e.obdCode ? ` · OBD ${e.obdCode}` : ''),
-    diagnosis: e.diagnosis,
-  }));
-}
-
 interface HistoryScreenProps {
   onBack?: () => void;
 }
 
 export const HistoryScreen: React.FC<HistoryScreenProps> = () => {
+  const navigation = useNavigation<HistoryNav>();
   const { spacing, fontSizes } = useResponsive();
   const { role } = useUserRole();
   const { vehicles, selectedVehicleId } = useVehicles();
-  const [entries, setEntries] = useState<DiagnosisEntry[]>([]);
-  const [ownerLoading, setOwnerLoading] = useState(true);
   const [jobs, setJobs] = useState<ServiceRequest[]>([]);
 
   useEffect(() => {
-    if (role !== 'owner') {
-      setEntries([]);
-      setOwnerLoading(false);
-      return;
-    }
-    setOwnerLoading(true);
-    (async () => {
-      try {
-        setEntries(await listDiagnosisHistory(selectedVehicleId ?? undefined));
-      } catch {
-        // silent fail
-      } finally {
-        setOwnerLoading(false);
-      }
-    })();
-  }, [role, selectedVehicleId]);
-
-  useEffect(() => {
-    if (role === 'owner') return;
+    if (role === 'owner' || role === 'tow') return;
     (async () => {
       try {
         const all = await listServiceRequests();
@@ -92,6 +67,9 @@ export const HistoryScreen: React.FC<HistoryScreenProps> = () => {
           paddingBottom: spacing.xl * 2,
         },
         card: { marginBottom: spacing.md },
+        hubCard: { marginBottom: spacing.lg },
+        hubTitle: { fontSize: fontSizes.lg, fontWeight: '700', color: colors.text, marginBottom: spacing.xs },
+        hubDesc: { fontSize: fontSizes.sm, color: colors.textSecondary, lineHeight: fontSizes.sm * 1.4 },
         date: {
           fontSize: fontSizes.xs,
           color: colors.textSecondary,
@@ -114,7 +92,7 @@ export const HistoryScreen: React.FC<HistoryScreenProps> = () => {
           textAlign: 'center',
           marginTop: spacing.xl,
         },
-        loading: { marginTop: spacing.xl },
+        hubScroll: { paddingHorizontal: spacing.lg, paddingBottom: spacing.xl * 2 },
       }),
     [spacing, fontSizes]
   );
@@ -122,24 +100,19 @@ export const HistoryScreen: React.FC<HistoryScreenProps> = () => {
   const selectedVehicleIndex = vehicles.findIndex((v) => v._id === selectedVehicleId);
   const carLabel = selectedVehicleIndex >= 0 ? `Car ${selectedVehicleIndex + 1}` : 'Vehicle';
 
-  const title =
-    role === 'mechanic'
-      ? 'Workshop History'
-      : role === 'tow'
-      ? 'Tow Job History'
-      : 'Diagnosis History';
+  const title = role === 'mechanic' ? 'Workshop History' : 'History';
 
   const subtitle =
     role === 'mechanic'
       ? 'Completed and in-progress workshop jobs'
       : role === 'tow'
-      ? 'Recent tow requests and completions'
+      ? 'Saved diagnoses and completed tow jobs'
       : role === 'owner'
-      ? `${carLabel} · Your previous vehicle diagnoses`
+      ? `${carLabel} · Tow, roadside, and saved diagnoses`
       : 'Your previous vehicle diagnoses';
 
   const data: HistoryItem[] = useMemo(() => {
-    if (role === 'mechanic' || role === 'tow') {
+    if (role === 'mechanic') {
       return jobs.map((r) => ({
         id: r._id,
         date: new Date(r.createdAt).toLocaleString(),
@@ -147,11 +120,74 @@ export const HistoryScreen: React.FC<HistoryScreenProps> = () => {
         diagnosis: `${r.location} · ${r.type === 'tow' ? 'Tow job' : 'Roadside job'} · ${r.userName}`,
       }));
     }
-    return entriesToOwnerHistory(entries);
-  }, [role, entries, jobs]);
+    return [];
+  }, [role, jobs]);
 
-  const showOwnerEmpty =
-    role === 'owner' && !ownerLoading && data.length === 0;
+  if (role === 'owner') {
+    return (
+      <View style={styles.container}>
+        <View style={styles.header}>
+          <Text style={styles.title}>{title}</Text>
+          <Text style={styles.subtitle}>{subtitle}</Text>
+        </View>
+        <ScrollView contentContainerStyle={styles.hubScroll} showsVerticalScrollIndicator={false}>
+          <Card
+            style={styles.hubCard}
+            padded
+            onPress={() => navigation.navigate('VehicleRecordsHistory')}
+          >
+            <Text style={styles.hubTitle}>Vehicle records history</Text>
+            <Text style={styles.hubDesc}>
+              Tow truck bookings and roadside help requests for your account.
+            </Text>
+          </Card>
+          <Card
+            style={styles.hubCard}
+            padded
+            onPress={() => navigation.navigate('ObdDiagnoseHistory')}
+          >
+            <Text style={styles.hubTitle}>OBD diagnose history</Text>
+            <Text style={styles.hubDesc}>
+              Saved diagnoses including symptoms and OBD codes from Home.
+            </Text>
+          </Card>
+        </ScrollView>
+      </View>
+    );
+  }
+
+  if (role === 'tow') {
+    return (
+      <View style={styles.container}>
+        <View style={styles.header}>
+          <Text style={styles.title}>{title}</Text>
+          <Text style={styles.subtitle}>{subtitle}</Text>
+        </View>
+        <ScrollView contentContainerStyle={styles.hubScroll} showsVerticalScrollIndicator={false}>
+          <Card
+            style={styles.hubCard}
+            padded
+            onPress={() => navigation.navigate('ObdDiagnoseHistory')}
+          >
+            <Text style={styles.hubTitle}>OBD diagnose history</Text>
+            <Text style={styles.hubDesc}>
+              Saved diagnoses for this account — same as vehicle owners, including manual vehicle entries.
+            </Text>
+          </Card>
+          <Card
+            style={styles.hubCard}
+            padded
+            onPress={() => navigation.navigate('TowJobHistory')}
+          >
+            <Text style={styles.hubTitle}>Completed tow jobs</Text>
+            <Text style={styles.hubDesc}>
+              Tow requests you accepted and completed. Pull the list on the next screen to refresh.
+            </Text>
+          </Card>
+        </ScrollView>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>
@@ -160,33 +196,21 @@ export const HistoryScreen: React.FC<HistoryScreenProps> = () => {
         <Text style={styles.subtitle}>{subtitle}</Text>
       </View>
 
-      {role === 'owner' && ownerLoading ? (
-        <ActivityIndicator
-          style={styles.loading}
-          color={colors.primary}
-        />
-      ) : (
-        <FlatList
-          data={data}
-          keyExtractor={(item) => item.id}
-          contentContainerStyle={styles.list}
-          ListEmptyComponent={
-            showOwnerEmpty ? (
-              <Text style={styles.empty}>
-                No saved diagnoses for this vehicle yet. Run a diagnosis from Home
-                to build your history.
-              </Text>
-            ) : null
-          }
-          renderItem={({ item }) => (
-            <Card style={styles.card} padded>
-              <Text style={styles.date}>{item.date}</Text>
-              <Text style={styles.symptoms}>{item.symptoms}</Text>
-              <Text style={styles.diagnosis}>{item.diagnosis}</Text>
-            </Card>
-          )}
-        />
-      )}
+      <FlatList
+        data={data}
+        keyExtractor={(item) => item.id}
+        contentContainerStyle={styles.list}
+        ListEmptyComponent={
+          <Text style={styles.empty}>No completed jobs to show yet.</Text>
+        }
+        renderItem={({ item }) => (
+          <Card style={styles.card} padded>
+            <Text style={styles.date}>{item.date}</Text>
+            <Text style={styles.symptoms}>{item.symptoms}</Text>
+            <Text style={styles.diagnosis}>{item.diagnosis}</Text>
+          </Card>
+        )}
+      />
     </View>
   );
 };

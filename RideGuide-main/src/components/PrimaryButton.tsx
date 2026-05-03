@@ -6,6 +6,7 @@ import {
   ActivityIndicator,
   ViewStyle,
   TextStyle,
+  Platform,
 } from 'react-native';
 import { colors, shadows } from '../constants/theme';
 import { useResponsive } from '../hooks';
@@ -41,6 +42,7 @@ export const PrimaryButton: React.FC<PrimaryButtonProps> = ({
           justifyContent: 'center',
           minHeight: buttonHeight,
           ...shadows.md,
+          ...(Platform.OS === 'web' ? ({ cursor: 'pointer' } as ViewStyle) : {}),
         },
         buttonDisabled: {
           opacity: 0.6,

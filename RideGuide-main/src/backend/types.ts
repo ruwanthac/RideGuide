@@ -35,7 +35,8 @@ export interface Vehicle {
 export interface DiagnosisEntry {
   _id: string;
   userId: string;
-  vehicleId: string;
+  /** Present when diagnosis was tied to a saved garage vehicle. */
+  vehicleId?: string | null;
   vehicleLabel: string;
   symptoms: string;
   obdCode: string;

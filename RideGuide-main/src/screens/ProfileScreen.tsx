@@ -15,7 +15,6 @@ import { OwnerDashboard } from '../components/dashboards/OwnerDashboard';
 import { MechanicDashboard } from '../components/dashboards/MechanicDashboard';
 import { TowDashboard } from '../components/dashboards/TowDashboard';
 import { useUserRole } from '../context/UserRoleContext';
-import type { UserRole } from '../backend/types';
 import { useVehicles } from '../context/VehiclesContext';
 import { useAuth } from '../context/AuthContext';
 import { useNavigation } from '@react-navigation/native';
@@ -29,7 +28,7 @@ export const ProfileScreen: React.FC = () => {
   const userName = user?.displayName ?? '';
   const { spacing, fontSizes, borderRadius, buttonHeight, iconSizes, scale } =
     useResponsive();
-  const { role: userRole, setRole: setUserRole } = useUserRole();
+  const { role: userRole } = useUserRole();
   const {
     vehicles,
     selectedVehicleId,
@@ -42,7 +41,6 @@ export const ProfileScreen: React.FC = () => {
   const [editMakeModel, setEditMakeModel] = useState(DEFAULT_MAKE_MODEL);
   const [editVin, setEditVin] = useState(DEFAULT_VIN);
   const [isEditingVehicle, setIsEditingVehicle] = useState(false);
-  const [showProfiles, setShowProfiles] = useState(false);
 
   /** Profile may point at a deleted/missing vehicle; UI falls back to first car — save must use the same id. */
   const resolvedSelectedVehicleId = useMemo(() => {
@@ -80,33 +78,6 @@ export const ProfileScreen: React.FC = () => {
     setEditMakeModel(currentVehicle.makeModel);
     setEditVin(currentVehicle.vin);
     setIsEditingVehicle(true);
-  };
-
-  const handleManageProfiles = () => {
-    setShowProfiles(!showProfiles);
-  };
-
-  const handleSelectProfile = (role: UserRole) => {
-    const label =
-      role === 'mechanic' ? 'Mechanic' : role === 'tow' ? 'Tow Truck Driver' : 'Owner';
-    void setUserRole(role)
-      .then(() => {
-        setShowProfiles(false);
-        Alert.alert('Profile Selected', `Switched to ${label} profile`, [
-          {
-            text: 'OK',
-            onPress: () => {
-              if (role === 'owner' || role === 'mechanic' || role === 'tow') {
-                // Force-enter the Home stack at root so old role-specific pages do not leak across profiles.
-                navigation.getParent()?.navigate('HomeTab', { screen: 'Home' });
-              }
-            },
-          },
-        ]);
-      })
-      .catch((error) => {
-        Alert.alert('Profile switch failed', error instanceof Error ? error.message : 'Please try again.');
-      });
   };
 
   const cancelEditingVehicle = () => {
@@ -574,25 +545,13 @@ export const ProfileScreen: React.FC = () => {
           <Text style={styles.menuArrow}>›</Text>
         </TouchableOpacity>
         <TouchableOpacity
-          style={styles.menuItem}
+          style={[styles.menuItem, userRole !== 'admin' && styles.menuItemLast]}
           onPress={() => navigation.navigate('Privacy' as never)}
           activeOpacity={0.7}
         >
           <Text style={styles.menuText}>Privacy</Text>
           <Text style={styles.menuArrow}>›</Text>
         </TouchableOpacity>
-        {userRole === 'owner' && resolvedSelectedVehicleId && (
-          <TouchableOpacity
-            style={[styles.menuItem, styles.menuItemLast]}
-            onPress={() =>
-              navigation.navigate('VehicleRecords' as never, { vehicleId: resolvedSelectedVehicleId } as never)
-            }
-            activeOpacity={0.7}
-          >
-            <Text style={styles.menuText}>Vehicle Records</Text>
-            <Text style={styles.menuArrow}>›</Text>
-          </TouchableOpacity>
-        )}
         {userRole === 'admin' && (
           <TouchableOpacity style={[styles.menuItem, styles.menuItemLast]} onPress={() => navigation.navigate('Admin' as never)} activeOpacity={0.7}>
             <Text style={styles.menuText}>Admin Dashboard</Text>
@@ -602,98 +561,19 @@ export const ProfileScreen: React.FC = () => {
         </Card>
 
         <Card style={styles.section} padded>
-        <Text style={styles.sectionTitle}>Switch Profiles</Text>
-        <TouchableOpacity
-          style={[styles.menuItem, showProfiles && styles.menuItemLast]}
-          onPress={handleManageProfiles}
-          activeOpacity={0.7}
-        >
-          <View>
-            <Text style={styles.menuText}>Manage Profiles</Text>
-            <Text style={styles.currentProfileText}>
-              {userRole === 'mechanic'
-                ? 'Current: Mechanic'
-                : userRole === 'tow'
-                ? 'Current: Tow Truck Driver'
-                : 'Current: Vehicle Owner'}
-            </Text>
-          </View>
-          <Text style={styles.menuArrow}>{showProfiles ? '▼' : '›'}</Text>
-        </TouchableOpacity>
-        {showProfiles && (
-          <>
-            <TouchableOpacity
-              style={[
-                styles.profileItem,
-                userRole === 'owner' && styles.profileItemActive,
-              ]}
-              onPress={() => handleSelectProfile('owner')}
-              activeOpacity={0.7}
-            >
-              <View style={styles.profileIcon}>
-                <Icon name="person" size={20} color="#FFFFFF" />
-              </View>
-              <View style={styles.profileInfo}>
-                <Text style={styles.profileName}>Vehicle Owner</Text>
-                <Text style={styles.profileRole}>Primary driver profile</Text>
-                {userRole === 'owner' && (
-                  <View style={styles.activeProfilePill}>
-                    <Text style={styles.activeProfilePillText}>
-                      Active owner profile
-                    </Text>
-                  </View>
-                )}
-              </View>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[
-                styles.profileItem,
-                userRole === 'mechanic' && styles.profileItemActive,
-              ]}
-              onPress={() => handleSelectProfile('mechanic')}
-              activeOpacity={0.7}
-            >
-              <View style={styles.profileIcon}>
-                <Icon name="construct" size={20} color="#FFFFFF" />
-              </View>
-              <View style={styles.profileInfo}>
-                <Text style={styles.profileName}>Mechanic</Text>
-                <Text style={styles.profileRole}>Vehicle repair specialist</Text>
-                {userRole === 'mechanic' && (
-                  <View style={styles.activeProfilePill}>
-                    <Text style={styles.activeProfilePillText}>
-                      Active mechanic profile
-                    </Text>
-                  </View>
-                )}
-              </View>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[
-                styles.profileItem,
-                styles.profileItemLast,
-                userRole === 'tow' && styles.profileItemActive,
-              ]}
-              onPress={() => handleSelectProfile('tow')}
-              activeOpacity={0.7}
-            >
-              <View style={styles.profileIcon}>
-                <Icon name="car" size={20} color="#FFFFFF" />
-              </View>
-              <View style={styles.profileInfo}>
-                <Text style={styles.profileName}>Tow Truck Driver</Text>
-                <Text style={styles.profileRole}>Vehicle towing specialist</Text>
-                {userRole === 'tow' && (
-                  <View style={styles.activeProfilePill}>
-                    <Text style={styles.activeProfilePillText}>
-                      Active tow profile
-                    </Text>
-                  </View>
-                )}
-              </View>
-            </TouchableOpacity>
-          </>
-        )}
+          <Text style={styles.sectionTitle}>Account type</Text>
+          <Text style={styles.currentProfileText}>
+            {userRole === 'mechanic'
+              ? 'You are signed in as a mechanic. Vehicle owner and tow features use separate accounts.'
+              : userRole === 'tow'
+              ? 'You are signed in as a tow truck driver. Owner and mechanic features use separate accounts.'
+              : userRole === 'admin'
+              ? 'Administrator account.'
+              : 'You are signed in as a vehicle owner. Mechanic and tow driver features use separate accounts.'}
+          </Text>
+          <Text style={[styles.currentProfileText, { marginTop: spacing.sm, opacity: 0.85 }]}>
+            To use another role, log out and create a new account with a different email (or sign in to that account).
+          </Text>
         </Card>
 
         <TouchableOpacity

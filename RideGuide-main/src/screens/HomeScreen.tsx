@@ -19,6 +19,7 @@ import { useResponsive } from '../hooks';
 import { useUserRole } from '../context/UserRoleContext';
 import { useNavigation } from '@react-navigation/native';
 import { useVehicles } from '../context/VehiclesContext';
+import { useAuth } from '../context/AuthContext';
 import { subscribeServiceRequests, updateServiceRequest } from '../backend/serviceRequestsService';
 import type { ServiceRequest } from '../backend/types';
 import { extractApiError } from '../backend/apiClient';
@@ -83,11 +84,14 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
 }) => {
   const { spacing, fontSizes, iconSizes, isSmallScreen, scale, width, verticalScale } = useResponsive();
   const { role } = useUserRole();
-  const { selectedVehicleId } = useVehicles();
+  const { selectedVehicleId, refresh: refreshVehicles } = useVehicles();
+  const { refreshProfile } = useAuth();
   const greeting = getTimeBasedGreeting();
   const [bannerIndex, setBannerIndex] = useState(0);
   const [refreshing, setRefreshing] = useState(false);
   const [requests, setRequests] = useState<ServiceRequest[]>([]);
+  /** Bumped on pull-to-refresh so the service-request subscription reloads from the API (resets socket listener state). */
+  const [requestReloadToken, setRequestReloadToken] = useState(0);
 
   useEffect(() => {
     let unsub: (() => void) | null = null;
@@ -104,7 +108,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
       }
     })();
     return () => { alive = false; unsub?.(); };
-  }, [role, selectedVehicleId]);
+  }, [role, selectedVehicleId, requestReloadToken]);
 
   const roadsideRequests = useMemo(
     () => requests.filter((r) => r.type === 'roadside'),
@@ -162,8 +166,14 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   const onRefresh = async () => {
     setRefreshing(true);
     setBannerIndex(0);
-    await new Promise((r) => setTimeout(r, 800));
-    setRefreshing(false);
+    try {
+      await Promise.all([refreshProfile(), refreshVehicles()]);
+      setRequestReloadToken((t) => t + 1);
+    } catch {
+      // non-fatal — individual contexts keep last good state
+    } finally {
+      setRefreshing(false);
+    }
   };
 
   const bannerSlideWidth = width - spacing.lg * 2;
@@ -414,7 +424,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
           backgroundColor: colors.primary,
         },
         requestsCard: {
-          padding: spacing.lg,
+          padding: isSmallScreen ? spacing.sm : spacing.lg,
         },
         requestHeaderRow: {
           flexDirection: 'row',
@@ -459,93 +469,122 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
           marginBottom: spacing.xs,
         },
         requestRow: {
-          paddingVertical: spacing.md,
-          paddingHorizontal: spacing.md,
+          paddingVertical: isSmallScreen ? spacing.sm : spacing.md,
+          paddingHorizontal: isSmallScreen ? spacing.sm : spacing.md,
           borderRadius: 12,
           borderWidth: 1,
           borderColor: colors.border,
           marginBottom: spacing.sm,
           backgroundColor: colors.card,
+          overflow: 'hidden',
         },
         requestRowLast: {
           marginBottom: 0,
         },
         requestRowMain: {
           flexDirection: 'row',
-          alignItems: 'center',
-          justifyContent: 'space-between',
+          alignItems: 'flex-start',
         },
         requestAvatar: {
-          width: 32,
-          height: 32,
-          borderRadius: 16,
+          width: isSmallScreen ? 36 : 40,
+          height: isSmallScreen ? 36 : 40,
+          borderRadius: isSmallScreen ? 18 : 20,
           backgroundColor: colors.primary + '18',
           alignItems: 'center',
           justifyContent: 'center',
-          marginRight: spacing.sm,
+          marginRight: isSmallScreen ? spacing.sm : spacing.md,
+          marginTop: 2,
+          flexShrink: 0,
         },
         requestAvatarText: {
-          fontSize: fontSizes.sm,
+          fontSize: isSmallScreen ? fontSizes.sm : fontSizes.md,
           fontWeight: '600',
           color: colors.primary,
         },
-        requestInfo: {
+        /** Lets long names/locations wrap correctly inside row flex (esp. web). */
+        requestBody: {
           flex: 1,
-          marginRight: spacing.sm,
+          minWidth: 0,
         },
-        requestTitle: {
-          fontSize: fontSizes.md,
+        requestCustomerName: {
+          fontSize: isSmallScreen ? fontSizes.sm : fontSizes.md,
+          fontWeight: '700',
+          color: colors.text,
+        },
+        requestVehicleLine: {
+          fontSize: isSmallScreen ? fontSizes.xs : fontSizes.sm,
+          fontWeight: '600',
+          color: colors.text,
+          marginTop: spacing.xs / 2,
+        },
+        requestTimeMuted: {
+          fontSize: fontSizes.xs,
+          color: colors.textSecondary,
+          marginTop: spacing.xs,
+        },
+        requestMeta: {
+          fontSize: isSmallScreen ? fontSizes.xs : fontSizes.sm,
+          color: colors.textSecondary,
+          marginTop: spacing.xs,
+          lineHeight: (isSmallScreen ? fontSizes.xs : fontSizes.sm) * 1.4,
+        },
+        requestBadgeRow: {
+          flexDirection: 'row',
+          flexWrap: 'wrap',
+          alignItems: 'center',
+          marginTop: spacing.sm,
+        },
+        requestTag: {
+          paddingHorizontal: isSmallScreen ? spacing.xs : spacing.sm,
+          paddingVertical: spacing.xs / 2,
+          borderRadius: 8,
+          backgroundColor: colors.background,
+          borderWidth: 1,
+          borderColor: colors.border,
+          marginRight: spacing.xs,
+          marginBottom: spacing.xs,
+        },
+        requestTagText: {
+          fontSize: fontSizes.xs,
           fontWeight: '600',
           color: colors.text,
         },
-        requestMeta: {
-          fontSize: fontSizes.sm,
-          color: colors.textSecondary,
-          marginTop: 2,
+        requestFooterColumn: {
+          marginTop: spacing.md,
+          paddingTop: spacing.sm,
+          borderTopWidth: StyleSheet.hairlineWidth,
+          borderTopColor: colors.border,
         },
-        requestChip: {
-          paddingHorizontal: spacing.sm,
-          paddingVertical: spacing.xs / 2,
-          borderRadius: 999,
-          backgroundColor: colors.primary + '12',
-        },
-        requestChipText: {
-          fontSize: fontSizes.xs,
-          fontWeight: '600',
-          color: colors.primary,
-        },
-        requestFooterRow: {
+        requestPhoneRow: {
           flexDirection: 'row',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          marginTop: spacing.sm,
-        },
-        requestPhoneInline: {
-          flexDirection: 'row',
-          alignItems: 'center',
+          alignItems: 'flex-start',
+          minWidth: 0,
         },
         requestPhoneText: {
-          fontSize: fontSizes.sm,
+          flex: 1,
+          fontSize: isSmallScreen ? fontSizes.xs : fontSizes.sm,
           color: colors.textSecondary,
           marginLeft: spacing.xs,
+          minWidth: 0,
         },
         requestFooterActions: {
           flexDirection: 'row',
           alignItems: 'center',
+          justifyContent: 'flex-end',
+          marginTop: spacing.sm,
         },
         iconActionBtn: {
-          width: 32,
-          height: 32,
-          borderRadius: 16,
+          width: isSmallScreen ? 40 : 36,
+          height: isSmallScreen ? 40 : 36,
+          borderRadius: isSmallScreen ? 20 : 18,
           alignItems: 'center',
           justifyContent: 'center',
           backgroundColor: colors.primary + '08',
-          marginLeft: spacing.xs,
+          marginLeft: spacing.sm,
         },
         requestActions: {
-          flexDirection: 'row',
-          justifyContent: 'flex-start',
-          marginTop: spacing.sm,
+          marginTop: spacing.md,
+          alignSelf: 'stretch',
         },
         acceptBtn: {
           paddingVertical: spacing.sm,
@@ -554,6 +593,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
           backgroundColor: colors.success,
           minWidth: 80,
           alignItems: 'center',
+          alignSelf: isSmallScreen ? 'stretch' : 'flex-start',
         },
         acceptBtnText: {
           fontSize: fontSizes.sm,
@@ -685,22 +725,45 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                                 {req.userName.charAt(0).toUpperCase()}
                               </Text>
                             </View>
-                            <View style={styles.requestInfo}>
-                              <Text style={styles.requestTitle}>
-                                {req.userName} · {req.vehicle}
+                            <View style={styles.requestBody}>
+                              <Text style={styles.requestCustomerName} numberOfLines={2}>
+                                {req.userName}
                               </Text>
-                              <Text style={styles.requestMeta}>{req.location}</Text>
-                              <Text style={styles.requestMeta}>{req.issue}</Text>
-                              {isTow && (
-                                <Text style={styles.requestMeta}>
-                                  {req.bookingType === 'scheduled' ? 'Scheduled' : 'On-demand'} · {req.currency ?? 'LKR'} {Math.round(req.estimatedAmount ?? 0)}
-                                </Text>
-                              )}
-                            </View>
-                            <View style={styles.requestChip}>
-                              <Text style={styles.requestChipText}>
+                              <Text style={styles.requestVehicleLine} numberOfLines={2}>
+                                {req.vehicle}
+                              </Text>
+                              <Text style={styles.requestTimeMuted}>
                                 {new Date(req.createdAt).toLocaleString()}
                               </Text>
+                              <Text style={styles.requestMeta} numberOfLines={3}>
+                                {req.location}
+                              </Text>
+                              <Text style={styles.requestMeta} numberOfLines={3}>
+                                {req.issue}
+                              </Text>
+                              {isTow ? (
+                                <View style={styles.requestBadgeRow}>
+                                  <View style={styles.requestTag}>
+                                    <Text style={styles.requestTagText}>Tow</Text>
+                                  </View>
+                                  <View style={styles.requestTag}>
+                                    <Text style={styles.requestTagText}>
+                                      {req.bookingType === 'scheduled' ? 'Scheduled' : 'On-demand'}
+                                    </Text>
+                                  </View>
+                                  <View style={styles.requestTag}>
+                                    <Text style={styles.requestTagText}>
+                                      {req.currency ?? 'LKR'} {Math.round(req.estimatedAmount ?? 0)}
+                                    </Text>
+                                  </View>
+                                </View>
+                              ) : (
+                                <View style={styles.requestBadgeRow}>
+                                  <View style={styles.requestTag}>
+                                    <Text style={styles.requestTagText}>Roadside</Text>
+                                  </View>
+                                </View>
+                              )}
                             </View>
                           </View>
                           <View style={styles.requestFooterRow}>

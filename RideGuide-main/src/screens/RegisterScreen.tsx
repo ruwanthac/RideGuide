@@ -28,6 +28,7 @@ export const RegisterScreen: React.FC<RegisterScreenProps> = ({ onNavigateToLogi
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [accountType, setAccountType] = useState<'owner' | 'mechanic' | 'tow'>('owner');
   const [imageError, setImageError] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -125,6 +126,38 @@ export const RegisterScreen: React.FC<RegisterScreenProps> = ({ onNavigateToLogi
           marginBottom: spacing.sm,
           textAlign: 'center',
         },
+        accountTypeLabel: {
+          fontSize: fontSizes.sm,
+          fontWeight: '600',
+          color: colors.text,
+          marginBottom: spacing.sm,
+        },
+        roleRow: {
+          flexDirection: 'row',
+          flexWrap: 'wrap',
+          gap: spacing.sm,
+          marginBottom: spacing.md,
+        },
+        roleChip: {
+          paddingVertical: spacing.sm,
+          paddingHorizontal: spacing.md,
+          borderRadius: scale(20),
+          borderWidth: 1,
+          borderColor: colors.border,
+          backgroundColor: colors.background,
+        },
+        roleChipActive: {
+          borderColor: colors.primary,
+          backgroundColor: 'rgba(37, 99, 235, 0.12)',
+        },
+        roleChipText: {
+          fontSize: fontSizes.sm,
+          color: colors.textSecondary,
+          fontWeight: '600',
+        },
+        roleChipTextActive: {
+          color: colors.primary,
+        },
       }),
     [spacing, fontSizes, width, scale]
   );
@@ -136,7 +169,7 @@ export const RegisterScreen: React.FC<RegisterScreenProps> = ({ onNavigateToLogi
       return;
     }
     setSubmitting(true);
-    void registerWithEmail(name, email, password)
+    void registerWithEmail(name, email, password, accountType)
       .catch((e) => setError(formatAuthError(e)))
       .finally(() => setSubmitting(false));
   };
@@ -183,11 +216,41 @@ export const RegisterScreen: React.FC<RegisterScreenProps> = ({ onNavigateToLogi
               <View style={styles.headerRow}>
                 <Text style={styles.title}>Create Account</Text>
                 <Text style={styles.subtitle}>
-                  Sign up to start diagnosing your vehicle
+                  {accountType === 'owner'
+                    ? 'Sign up as a vehicle owner — diagnostics, history, and roadside help.'
+                    : accountType === 'mechanic'
+                    ? 'Sign up as a mechanic — accept jobs and help drivers on the road.'
+                    : 'Sign up as a tow driver — accept towing and roadside jobs.'}
                 </Text>
               </View>
 
               <View style={styles.form}>
+                <Text style={styles.accountTypeLabel}>I am signing up as</Text>
+                <View style={styles.roleRow}>
+                  {(
+                    [
+                      { id: 'owner' as const, label: 'Vehicle owner' },
+                      { id: 'mechanic' as const, label: 'Mechanic' },
+                      { id: 'tow' as const, label: 'Tow driver' },
+                    ] as const
+                  ).map(({ id, label }) => (
+                    <TouchableOpacity
+                      key={id}
+                      style={[styles.roleChip, accountType === id && styles.roleChipActive]}
+                      onPress={() => setAccountType(id)}
+                      activeOpacity={0.7}
+                    >
+                      <Text
+                        style={[
+                          styles.roleChipText,
+                          accountType === id && styles.roleChipTextActive,
+                        ]}
+                      >
+                        {label}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
                 <InputField
                   label="Full Name"
                   placeholder="John Doe"

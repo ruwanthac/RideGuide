@@ -18,6 +18,10 @@ const schema = z.object({
 export async function patchMe(req: Request, res: Response, next: NextFunction) {
   try {
     const body = schema.parse(req.body);
-    res.json(await svc.updateProfile(req.user!.userId, body as any));
+    const payload = { ...body } as Record<string, unknown>;
+    if (req.user!.role !== 'admin') {
+      delete payload.role;
+    }
+    res.json(await svc.updateProfile(req.user!.userId, payload as any));
   } catch (e) { next(e); }
 }

@@ -19,6 +19,13 @@ import {
   TowOwnerTrackingScreen,
   TowDriverActiveJobScreen,
   HistoryScreen,
+  TowJobHistoryScreen,
+  VehicleRecordsHistoryScreen,
+  ObdDiagnoseHistoryScreen,
+  AiChatHistoryScreen,
+  DiagnosisHistoryDetailScreen,
+  AiVideoHistoryDetailScreen,
+  AssistantHistoryDetailScreen,
   AssistanceScreen,
   ProfileScreen,
   PrivacyScreen,
@@ -30,7 +37,13 @@ import {
   VehicleRecordsScreen,
 } from '../screens';
 
-import type { RootStackParamList, AuthStackParamList, MainTabParamList, HomeStackParamList } from '../types/navigation';
+import type {
+  RootStackParamList,
+  AuthStackParamList,
+  MainTabParamList,
+  HomeStackParamList,
+  HistoryStackParamList,
+} from '../types/navigation';
 
 const RootStack = createNativeStackNavigator<RootStackParamList>();
 const AuthStack = createNativeStackNavigator<AuthStackParamList>();
@@ -86,10 +99,11 @@ const TowDriverActiveJobScreenWrapper = ({ navigation, route }: { navigation: an
   />
 );
 
-const ChatAssistantScreenWrapper = ({ navigation }: { navigation: any }) => (
+const ChatAssistantScreenWrapper = ({ navigation, route }: { navigation: any; route: any }) => (
   <ChatAssistantScreen
     onBack={() => navigation.goBack()}
     onVideoCallPress={() => navigation.navigate('VideoCall')}
+    initialSessionId={route.params?.sessionId}
   />
 );
 
@@ -97,8 +111,12 @@ const AssistanceScreenWrapper = ({ navigation }: { navigation: any }) => (
   <AssistanceScreen onBack={() => navigation.goBack()} />
 );
 
-const VideoCallScreenWrapper = ({ navigation }: { navigation: any }) => (
-  <VideoCallScreen onEndCall={() => navigation.goBack()} />
+const VideoCallScreenWrapper = ({ navigation, route }: { navigation: any; route: any }) => (
+  <VideoCallScreen
+    onEndCall={() => navigation.goBack()}
+    priorConversationSummary={route.params?.priorConversationSummary}
+    vehicleIdOverride={route.params?.vehicleId}
+  />
 );
 
 const RequestMapScreenWrapper = ({ navigation }: { navigation: any }) => (
@@ -201,10 +219,17 @@ const MainTabNavigator = () => (
   </MainTab.Navigator>
 );
 
-const HistoryStack = createNativeStackNavigator();
+const HistoryStack = createNativeStackNavigator<HistoryStackParamList>();
 const HistoryStackScreen = () => (
   <HistoryStack.Navigator screenOptions={{ headerShown: false }}>
     <HistoryStack.Screen name="History" component={HistoryScreen} />
+    <HistoryStack.Screen name="TowJobHistory" component={TowJobHistoryScreen} />
+    <HistoryStack.Screen name="VehicleRecordsHistory" component={VehicleRecordsHistoryScreen} />
+    <HistoryStack.Screen name="ObdDiagnoseHistory" component={ObdDiagnoseHistoryScreen} />
+    <HistoryStack.Screen name="AiChatHistory" component={AiChatHistoryScreen} />
+    <HistoryStack.Screen name="DiagnosisHistoryDetail" component={DiagnosisHistoryDetailScreen} />
+    <HistoryStack.Screen name="AiVideoHistoryDetail" component={AiVideoHistoryDetailScreen} />
+    <HistoryStack.Screen name="AssistantHistoryDetail" component={AssistantHistoryDetailScreen} />
   </HistoryStack.Navigator>
 );
 

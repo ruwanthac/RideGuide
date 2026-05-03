@@ -93,6 +93,10 @@ async function recordingUriToBase64(uri: string): Promise<string | null> {
 
 interface VideoCallScreenProps {
   onEndCall: () => void;
+  /** Seed context when continuing from a saved video call summary */
+  priorConversationSummary?: string;
+  /** Prefer vehicle from saved history when continuing */
+  vehicleIdOverride?: string;
 }
 
 interface LiveMessage {
@@ -132,7 +136,11 @@ function sleep(ms: number) {
   return new Promise<void>((resolve) => setTimeout(resolve, ms));
 }
 
-export const VideoCallScreen: React.FC<VideoCallScreenProps> = ({ onEndCall }) => {
+export const VideoCallScreen: React.FC<VideoCallScreenProps> = ({
+  onEndCall,
+  priorConversationSummary,
+  vehicleIdOverride,
+}) => {
   const { spacing, fontSizes, scale } = useResponsive();
   const [status, setStatus] = useState<
     'calling' | 'connecting' | 'connected' | 'error' | 'ended'
@@ -198,6 +206,7 @@ export const VideoCallScreen: React.FC<VideoCallScreenProps> = ({ onEndCall }) =
     selectedVehicle?._id ??
     vehicles.find((v) => v._id === selectedVehicleId)?._id ??
     vehicles[0]?._id;
+  const joinVehicleId = vehicleIdOverride ?? effectiveVehicleId;
   const toggleCamera = () => {
     setCameraFacing((prev) => (prev === 'back' ? 'front' : 'back'));
   };
@@ -539,6 +548,7 @@ export const VideoCallScreen: React.FC<VideoCallScreenProps> = ({ onEndCall }) =
     let active = true;
     setStatus('connecting');
     setSessionError(null);
+    sessionIdRef.current = `ai-call-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
     (async () => {
       try {
         const sessionId = sessionIdRef.current;
@@ -752,7 +762,8 @@ export const VideoCallScreen: React.FC<VideoCallScreenProps> = ({ onEndCall }) =
             setAiState('idle');
           },
         }, {
-          vehicleId: effectiveVehicleId,
+          vehicleId: joinVehicleId,
+          priorConversationSummary: priorConversationSummary?.trim() || undefined,
         });
         sendRef.current = session.sendText;
         sendAudioChunkRef.current = session.sendAudioChunk;
@@ -773,7 +784,7 @@ export const VideoCallScreen: React.FC<VideoCallScreenProps> = ({ onEndCall }) =
       active = false;
       void stopRef.current?.();
     };
-  }, [effectiveVehicleId]);
+  }, [joinVehicleId, priorConversationSummary]);
 
   const handleEndCall = () => {
     void Speech.stop();

@@ -4,21 +4,52 @@ import { DiagnosisHistoryModel } from '../models/DiagnosisHistory';
 import { analyzeDiagnosis } from './gemini.client';
 import { HttpError } from './auth.service';
 
-export async function runDiagnosis(userId: string, input: { symptoms: string; obdCode: string; vehicleId: string }) {
-  const vehicle = await VehicleModel.findById(input.vehicleId);
-  if (!vehicle || String(vehicle.ownerId) !== userId) throw new HttpError(404, 'vehicle not found');
+export type RunDiagnosisInput = {
+  symptoms: string;
+  obdCode: string;
+  vehicleId?: string;
+  vehicleMakeModel?: string;
+  vehicleVin?: string;
+};
+
+export async function runDiagnosis(userId: string, input: RunDiagnosisInput) {
+  const symptoms = input.symptoms ?? '';
+  const obdCode = input.obdCode ?? '';
+
+  let makeModel: string;
+  let vin: string;
+  let vehicleLabel: string;
+  let vehicleId: Types.ObjectId | undefined;
+
+  if (input.vehicleId && input.vehicleId.trim().length > 0) {
+    const vehicle = await VehicleModel.findById(input.vehicleId.trim());
+    if (!vehicle || String(vehicle.ownerId) !== userId) throw new HttpError(404, 'vehicle not found');
+    makeModel = vehicle.makeModel;
+    vin = vehicle.vin;
+    vehicleLabel = vehicle.label;
+    vehicleId = vehicle._id as Types.ObjectId;
+  } else {
+    const mm = (input.vehicleMakeModel ?? '').trim();
+    if (!mm) throw new HttpError(400, 'vehicleMakeModel is required without vehicleId');
+    makeModel = mm;
+    vin = (input.vehicleVin ?? '').trim() || '—';
+    vehicleLabel = mm;
+    vehicleId = undefined;
+  }
+
   const ai = await analyzeDiagnosis({
-    symptoms: input.symptoms,
-    obdCode: input.obdCode,
-    vehicleMakeModel: vehicle.makeModel,
-    vehicleVin: vehicle.vin,
+    symptoms,
+    obdCode,
+    vehicleMakeModel: makeModel,
+    vehicleVin: vin,
   });
+
   const doc = await DiagnosisHistoryModel.create({
     userId: new Types.ObjectId(userId),
-    vehicleId: vehicle._id,
-    vehicleLabel: vehicle.label,
-    symptoms: input.symptoms,
-    obdCode: input.obdCode,
+    ...(vehicleId ? { vehicleId } : {}),
+    vehicleLabel,
+    symptoms,
+    obdCode,
     diagnosis: ai.diagnosis,
     severity: ai.severity,
     likelyCauses: ai.likelyCauses,

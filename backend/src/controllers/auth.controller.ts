@@ -1,13 +1,16 @@
 import { Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import { registerUser, loginUser } from '../services/auth.service';
-import { UserModel, USER_ROLES } from '../models/User';
+import { UserModel } from '../models/User';
+
+const REGISTER_ROLES = ['owner', 'mechanic', 'tow'] as const;
 
 const registerSchema = z.object({
   email: z.string().email(),
   password: z.string().min(8).max(200),
   displayName: z.string().min(1).max(120),
-  role: z.enum(USER_ROLES).optional(),
+  /** Public sign-up only allows provider/owner roles; admin is created separately. */
+  role: z.enum(REGISTER_ROLES).optional(),
 });
 
 const loginSchema = z.object({

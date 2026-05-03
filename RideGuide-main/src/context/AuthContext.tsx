@@ -9,7 +9,12 @@ interface AuthContextValue {
   profile: AuthUser | null;
   authReady: boolean;
   signInWithEmail: (email: string, password: string) => Promise<void>;
-  registerWithEmail: (displayName: string, email: string, password: string) => Promise<void>;
+  registerWithEmail: (
+    displayName: string,
+    email: string,
+    password: string,
+    role?: 'owner' | 'mechanic' | 'tow'
+  ) => Promise<void>;
   signOutUser: () => Promise<void>;
   refreshProfile: () => Promise<void>;
 }
@@ -47,12 +52,22 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } catch (e) { throw new Error(formatAuthError(e)); }
   }, []);
 
-  const registerWithEmail = useCallback(async (displayName: string, email: string, password: string) => {
-    try {
-      const u = await registerWithApi({ email, password, displayName });
-      setUser(u);
-    } catch (e) { throw new Error(formatAuthError(e)); }
-  }, []);
+  const registerWithEmail = useCallback(
+    async (
+      displayName: string,
+      email: string,
+      password: string,
+      role?: 'owner' | 'mechanic' | 'tow'
+    ) => {
+      try {
+        const u = await registerWithApi({ email, password, displayName, role });
+        setUser(u);
+      } catch (e) {
+        throw new Error(formatAuthError(e));
+      }
+    },
+    []
+  );
 
   const signOutUser = useCallback(async () => {
     await logoutWithApi();

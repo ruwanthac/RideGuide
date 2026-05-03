@@ -10,6 +10,7 @@ export async function registerWithApi(input: {
   email: string;
   password: string;
   displayName: string;
+  role?: 'owner' | 'mechanic' | 'tow';
 }): Promise<AuthUser> {
   try {
     const { data } = await api.post<AuthResponse>('/auth/register', input);

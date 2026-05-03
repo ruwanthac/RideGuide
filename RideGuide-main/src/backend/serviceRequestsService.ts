@@ -3,8 +3,11 @@ import { getSocket } from './socketClient';
 import { joinRequestRoom, leaveRequestRoom } from './socketClient';
 import type { ServiceRequest, TowEstimate } from './types';
 
-export async function listServiceRequests(params?: { vehicleId?: string }): Promise<ServiceRequest[]> {
-  const { data } = await api.get<ServiceRequest[]>('/requests', { params });
+export async function listServiceRequests(params?: { vehicleId?: string; history?: boolean }): Promise<ServiceRequest[]> {
+  const query: Record<string, string> = {};
+  if (params?.vehicleId) query.vehicleId = params.vehicleId;
+  if (params?.history) query.history = '1';
+  const { data } = await api.get<ServiceRequest[]>('/requests', { params: query });
   return data;
 }
 

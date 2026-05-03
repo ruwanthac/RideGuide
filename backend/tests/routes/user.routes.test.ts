@@ -16,7 +16,7 @@ describe('users routes', () => {
       .send({ displayName: 'A2', role: 'mechanic', businessName: 'A-Auto', location: { lat: 1.5, lng: 2.5 } });
     expect(res.status).toBe(200);
     expect(res.body.displayName).toBe('A2');
-    expect(res.body.role).toBe('mechanic');
+    expect(res.body.role).toBe('owner');
     expect(res.body.businessName).toBe('A-Auto');
     expect(res.body.location.coordinates).toEqual([2.5, 1.5]);
   });

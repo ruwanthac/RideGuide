@@ -1,4 +1,5 @@
 import type { NavigatorScreenParams } from '@react-navigation/native';
+import type { DiagnosisEntry } from '../backend/types';
 
 export type RootStackParamList = {
   Splash: undefined;
@@ -23,15 +24,22 @@ export type HomeStackParamList = {
   TowTruckAssistant: undefined;
   TowOwnerTracking: { requestId: string };
   TowDriverActiveJob: { requestId: string };
-  ChatAssistant: undefined;
+  ChatAssistant: { sessionId?: string } | undefined;
   Assistance: undefined;
-  VideoCall: undefined;
+  VideoCall: { priorConversationSummary?: string; vehicleId?: string } | undefined;
   RequestMap: { location: string; latitude: number; longitude: number };
   RequestChat: { requestId: string; userName: string; vehicle: string; issue: string };
 };
 
 export type HistoryStackParamList = {
   History: undefined;
+  TowJobHistory: undefined;
+  VehicleRecordsHistory: undefined;
+  ObdDiagnoseHistory: undefined;
+  AiChatHistory: undefined;
+  DiagnosisHistoryDetail: { entry: DiagnosisEntry };
+  AiVideoHistoryDetail: { id: string };
+  AssistantHistoryDetail: { id: string };
 };
 
 export type ProfileStackParamList = {

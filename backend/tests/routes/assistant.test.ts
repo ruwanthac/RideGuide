@@ -26,5 +26,6 @@ describe('assistant', () => {
       .send({ messages: [{ role: 'user', content: 'car wont start' }] });
     expect(res.status).toBe(200);
     expect(res.body.reply).toContain('battery');
+    expect(typeof res.body.sessionId).toBe('string');
   });
 });

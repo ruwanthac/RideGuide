@@ -33,4 +33,21 @@ describe('auth routes', () => {
     const res = await request(app).post('/api/auth/login').send({ email: 'x@y.com', password: 'nope12345' });
     expect(res.status).toBe(401);
   });
+
+  it('registers with mechanic role when provided', async () => {
+    const app = buildApp();
+    const reg = await request(app)
+      .post('/api/auth/register')
+      .send({ email: 'mech@b.com', password: 'secret12', displayName: 'M', role: 'mechanic' });
+    expect(reg.status).toBe(201);
+    expect(reg.body.user.role).toBe('mechanic');
+  });
+
+  it('rejects admin role on public register', async () => {
+    const app = buildApp();
+    const reg = await request(app)
+      .post('/api/auth/register')
+      .send({ email: 'bad@b.com', password: 'secret12', displayName: 'X', role: 'admin' });
+    expect(reg.status).toBe(400);
+  });
 });

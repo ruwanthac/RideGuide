@@ -46,4 +46,28 @@ describe('diagnosis', () => {
     expect(hist.status).toBe(200);
     expect(hist.body).toHaveLength(1);
   });
+
+  it('creates diagnosis with manual vehicle (no saved vehicle)', async () => {
+    const app = buildApp();
+    const { token } = await registerUser({
+      email: 'mech@b.com',
+      password: 'secret12',
+      displayName: 'Mech',
+      role: 'mechanic',
+    });
+    const h = { Authorization: `Bearer ${token}` };
+
+    const diag = await request(app)
+      .post('/api/diagnosis')
+      .set(h)
+      .send({
+        symptoms: 'rough idle',
+        obdCode: 'P0300',
+        vehicleMakeModel: '2018 Ford F-150',
+        vehicleVin: '1FTFW1ET4EFA12345',
+      });
+    expect(diag.status).toBe(201);
+    expect(diag.body.vehicleLabel).toBe('2018 Ford F-150');
+    expect(diag.body.vehicleId).toBeFalsy();
+  });
 });

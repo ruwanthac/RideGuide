@@ -20,7 +20,23 @@ function inferDevHost(): string | null {
 
 function resolveBaseURL(): string {
   const envBaseURL = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000';
-  if (Platform.OS === 'web') return envBaseURL;
+
+  if (Platform.OS === 'web') {
+    try {
+      const parsed = new URL(envBaseURL);
+      const loopback = parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1';
+      if (typeof window !== 'undefined' && loopback) {
+        const { hostname } = window.location;
+        if (hostname && hostname !== 'localhost' && hostname !== '127.0.0.1') {
+          parsed.hostname = hostname;
+          return parsed.toString().replace(/\/$/, '');
+        }
+      }
+      return envBaseURL.replace(/\/$/, '');
+    } catch {
+      return envBaseURL.replace(/\/$/, '');
+    }
+  }
 
   try {
     const parsed = new URL(envBaseURL);
@@ -32,9 +48,9 @@ function resolveBaseURL(): string {
         return parsed.toString().replace(/\/$/, '');
       }
     }
-    return envBaseURL;
+    return envBaseURL.replace(/\/$/, '');
   } catch {
-    return envBaseURL;
+    return envBaseURL.replace(/\/$/, '');
   }
 }
 
@@ -63,9 +79,27 @@ export async function getAuthToken(): Promise<string | null> {
   return AsyncStorage.getItem(TOKEN_KEY);
 }
 
+type ApiErrorBody = {
+  error?: string;
+  details?: { fieldErrors?: Record<string, string[] | undefined>; formErrors?: string[] };
+};
+
+function messageFromValidationDetails(details: ApiErrorBody['details']): string | null {
+  if (!details) return null;
+  const parts: string[] = [...(details.formErrors ?? [])];
+  for (const [field, msgs] of Object.entries(details.fieldErrors ?? {})) {
+    if (Array.isArray(msgs) && msgs.length) parts.push(`${field}: ${msgs.join(', ')}`);
+  }
+  return parts.length ? parts.join(' · ') : null;
+}
+
 export function extractApiError(err: unknown, fallback = 'Request failed'): string {
   if (err instanceof AxiosError) {
-    const data = err.response?.data as { error?: string } | undefined;
+    const data = err.response?.data as ApiErrorBody | undefined;
+    if (data?.error === 'validation failed' || !data?.error) {
+      const fromDetails = data?.details ? messageFromValidationDetails(data.details) : null;
+      if (fromDetails) return fromDetails;
+    }
     return data?.error ?? err.message ?? fallback;
   }
   return err instanceof Error ? err.message : fallback;

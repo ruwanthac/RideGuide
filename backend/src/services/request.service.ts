@@ -24,12 +24,29 @@ const TOW_TRANSITIONS: Record<string, TowStatus | null> = {
   cancelled: null,
 };
 
-export async function listForRole(userId: string, role: Role, vehicleId?: string) {
+export async function listForRole(userId: string, role: Role, vehicleId?: string, historyOnly = false) {
   if (role === 'admin') return ServiceRequestModel.find().sort({ createdAt: -1 }).limit(200).lean();
   if (role === 'owner') {
     const filter: Record<string, unknown> = { requesterId: userId };
     if (vehicleId) filter.vehicleId = vehicleId;
     return ServiceRequestModel.find(filter).sort({ createdAt: -1 }).lean();
+  }
+  if (historyOnly) {
+    if (role === 'tow') {
+      return ServiceRequestModel.find({
+        type: 'tow',
+        acceptedBy: new Types.ObjectId(userId),
+        status: { $in: ['completed', 'cancelled'] },
+      }).sort({ createdAt: -1 }).limit(100).lean();
+    }
+    if (role === 'mechanic') {
+      return ServiceRequestModel.find({
+        type: 'roadside',
+        acceptedBy: new Types.ObjectId(userId),
+        status: { $in: ['completed', 'cancelled'] },
+      }).sort({ createdAt: -1 }).limit(100).lean();
+    }
+    return [];
   }
   const type = role === 'mechanic' ? 'roadside' : 'tow';
   if (role === 'tow') {

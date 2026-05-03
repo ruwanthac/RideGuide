@@ -48,7 +48,10 @@ const towEstimateSchema = z.object({
 export async function list(req: Request, res: Response, next: NextFunction) {
   try {
     const vehicleId = typeof req.query.vehicleId === 'string' ? req.query.vehicleId : undefined;
-    res.json(await svc.listForRole(req.user!.userId, req.user!.role, vehicleId));
+    const history =
+      req.query.history === '1' ||
+      req.query.history === 'true';
+    res.json(await svc.listForRole(req.user!.userId, req.user!.role, vehicleId, history));
   } catch (e) { next(e); }
 }
 export async function create(req: Request, res: Response, next: NextFunction) {

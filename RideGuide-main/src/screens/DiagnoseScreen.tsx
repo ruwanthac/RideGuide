@@ -1,5 +1,5 @@
-import React, { useState, useMemo } from 'react';
-import { View, Text, StyleSheet, ScrollView, Alert } from 'react-native';
+import React, { useState, useMemo, useEffect } from 'react';
+import { View, Text, StyleSheet, ScrollView, Alert, Platform } from 'react-native';
 import { Header, InputField, PrimaryButton, Card } from '../components';
 import { colors } from '../constants/theme';
 import { useResponsive } from '../hooks';
@@ -24,8 +24,12 @@ export const DiagnoseScreen: React.FC<DiagnoseScreenProps> = ({ onBack }) => {
   );
   const [symptoms, setSymptoms] = useState('');
   const [obdCode, setObdCode] = useState('');
+  /** Used when the account has no saved vehicle (e.g. mechanic/tow) — backend accepts make/model without vehicleId. */
+  const [manualMakeModel, setManualMakeModel] = useState('');
+  const [manualVin, setManualVin] = useState('');
   const [result, setResult] = useState<DiagnosisEntry | null>(null);
   const [loading, setLoading] = useState(false);
+  const [inlineError, setInlineError] = useState<string | null>(null);
   const { spacing, fontSizes, verticalScale } = useResponsive();
 
   const styles = useMemo(
@@ -91,9 +95,22 @@ export const DiagnoseScreen: React.FC<DiagnoseScreenProps> = ({ onBack }) => {
           color: colors.textSecondary,
           lineHeight: fontSizes.sm * 1.4,
         },
+        inlineError: {
+          fontSize: fontSizes.sm,
+          color: colors.error,
+          marginBottom: spacing.md,
+          lineHeight: fontSizes.sm * 1.35,
+        },
       }),
     [spacing, fontSizes, verticalScale]
   );
+
+  useEffect(() => {
+    setInlineError(null);
+  }, [symptoms, obdCode, manualMakeModel, manualVin]);
+
+  const hasVehicleContext = !!effectiveVehicle || manualMakeModel.trim().length > 0;
+  const hasSymptomOrCode = !!(symptoms.trim() || obdCode.trim());
 
   const severityColor = (severity: DiagnosisEntry['severity']) => {
     if (severity === 'critical') return '#FF3B30';
@@ -101,28 +118,48 @@ export const DiagnoseScreen: React.FC<DiagnoseScreenProps> = ({ onBack }) => {
     return '#34C759';
   };
 
+  const alertMaybe = (title: string, message: string) => {
+    if (Platform.OS !== 'web') Alert.alert(title, message);
+  };
+
   const handleSubmit = async () => {
-    if (!effectiveVehicle) {
-      Alert.alert('No vehicle', 'Add a vehicle in Profile first, then try again.');
-      return;
-    }
+    setInlineError(null);
     const symptomsTrim = symptoms.trim();
     const obdTrim = obdCode.trim().toUpperCase();
     if (!symptomsTrim && !obdTrim) {
-      Alert.alert('Input needed', 'Enter your symptoms and/or an OBD code, then tap Get Diagnosis.');
+      const msg = 'Enter your symptoms and/or an OBD code, then tap Get Diagnosis.';
+      setInlineError(msg);
+      alertMaybe('Input needed', msg);
+      return;
+    }
+    if (!effectiveVehicle && !manualMakeModel.trim()) {
+      const msg =
+        'Enter the vehicle make and model (e.g. 2019 Honda Civic), or add a vehicle in Profile and try again.';
+      setInlineError(msg);
+      alertMaybe('Vehicle needed', msg);
       return;
     }
     setLoading(true);
     setResult(null);
     try {
-      const entry = await runDiagnosis({
-        symptoms: symptomsTrim,
-        obdCode: obdTrim,
-        vehicleId: effectiveVehicle._id,
-      });
+      const entry = effectiveVehicle
+        ? await runDiagnosis({
+            symptoms: symptomsTrim,
+            obdCode: obdTrim,
+            vehicleId: effectiveVehicle._id,
+          })
+        : await runDiagnosis({
+            symptoms: symptomsTrim,
+            obdCode: obdTrim,
+            vehicleMakeModel: manualMakeModel.trim(),
+            vehicleVin: manualVin.trim() || undefined,
+          });
       setResult(entry);
+      setInlineError(null);
     } catch (e) {
-      Alert.alert('Diagnosis failed', extractApiError(e, 'Please try again.'));
+      const msg = extractApiError(e, 'Please try again.');
+      setInlineError(msg);
+      alertMaybe('Diagnosis failed', msg);
     } finally {
       setLoading(false);
     }
@@ -140,13 +177,36 @@ export const DiagnoseScreen: React.FC<DiagnoseScreenProps> = ({ onBack }) => {
       <ScrollView
         style={styles.scroll}
         contentContainerStyle={styles.content}
-        keyboardShouldPersistTaps="handled"
+        keyboardShouldPersistTaps="always"
       >
         {effectiveVehicle ? (
           <Text style={[styles.resultText, { marginBottom: spacing.sm }]}>
             Vehicle: {effectiveVehicle.makeModel}
             {effectiveVehicle.vin ? ` · VIN ${effectiveVehicle.vin}` : ''}
           </Text>
+        ) : (
+          <Text style={[styles.resultText, { marginBottom: spacing.md }]}>
+            No vehicle saved on this account. Enter the customer vehicle below, or add one in Profile for faster
+            reuse.
+          </Text>
+        )}
+
+        {!effectiveVehicle ? (
+          <>
+            <InputField
+              label="Make & model"
+              placeholder="e.g. 2019 Audi A4 2.0T"
+              value={manualMakeModel}
+              onChangeText={setManualMakeModel}
+            />
+            <InputField
+              label="VIN (optional)"
+              placeholder="e.g. WAUZZZ8K0DA108140"
+              value={manualVin}
+              onChangeText={setManualVin}
+              autoCapitalize="characters"
+            />
+          </>
         ) : null}
 
         <InputField
@@ -156,6 +216,7 @@ export const DiagnoseScreen: React.FC<DiagnoseScreenProps> = ({ onBack }) => {
           onChangeText={setSymptoms}
           multiline
           numberOfLines={4}
+          scrollEnabled={false}
           style={styles.textArea}
         />
         <InputField
@@ -166,11 +227,13 @@ export const DiagnoseScreen: React.FC<DiagnoseScreenProps> = ({ onBack }) => {
           autoCapitalize="characters"
         />
 
+        {inlineError ? <Text style={styles.inlineError}>{inlineError}</Text> : null}
+
         <PrimaryButton
           title="Get Diagnosis"
           onPress={handleSubmit}
           loading={loading}
-          disabled={!effectiveVehicle || (!symptoms.trim() && !obdCode.trim())}
+          disabled={!hasVehicleContext || !hasSymptomOrCode}
           style={styles.button}
         />
 

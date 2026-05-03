@@ -1,4 +1,4 @@
-import React, { useState, useRef, useMemo } from 'react';
+import React, { useState, useRef, useMemo, useEffect } from 'react';
 import {
   View,
   Text,
@@ -17,6 +17,8 @@ import { ChatBubble, Icon, TypingIndicator } from '../components';
 import { colors } from '../constants/theme';
 import { useResponsive } from '../hooks';
 import { askAssistant, AssistantMsg } from '../backend/assistantService';
+import { getAssistantChatSession } from '../backend/assistantChatHistoryService';
+import { useVehicles } from '../context/VehiclesContext';
 
 interface Message {
   id: string;
@@ -29,9 +31,15 @@ interface Message {
 interface ChatAssistantScreenProps {
   onBack: () => void;
   onVideoCallPress?: () => void;
+  /** Open assistant with an existing saved session (from History). */
+  initialSessionId?: string;
 }
 
-export const ChatAssistantScreen: React.FC<ChatAssistantScreenProps> = ({ onBack, onVideoCallPress }) => {
+export const ChatAssistantScreen: React.FC<ChatAssistantScreenProps> = ({
+  onBack,
+  onVideoCallPress,
+  initialSessionId,
+}) => {
   const { spacing, fontSizes, iconSizes, scale, borderRadius } = useResponsive();
   const [messages, setMessages] = useState<Message[]>([
     {
@@ -45,6 +53,40 @@ export const ChatAssistantScreen: React.FC<ChatAssistantScreenProps> = ({ onBack
   const [pendingImageUri, setPendingImageUri] = useState<string | null>(null);
   const [isTyping, setIsTyping] = useState(false);
   const flatListRef = useRef<FlatList>(null);
+  const assistantSessionIdRef = useRef<string | null>(null);
+  const { selectedVehicle, vehicles, selectedVehicleId } = useVehicles();
+  const effectiveVehicleId =
+    selectedVehicle?._id ??
+    vehicles.find((v) => v._id === selectedVehicleId)?._id ??
+    vehicles[0]?._id;
+
+  useEffect(() => {
+    if (!initialSessionId) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const doc = await getAssistantChatSession(initialSessionId);
+        if (cancelled) return;
+        assistantSessionIdRef.current = doc._id;
+        const time = new Date(doc.updatedAt).toLocaleTimeString([], {
+          hour: '2-digit',
+          minute: '2-digit',
+        });
+        const mapped: Message[] = (doc.messages || []).map((m, i) => ({
+          id: `loaded-${i}-${m.role}`,
+          text: m.content,
+          isUser: m.role === 'user',
+          timestamp: time,
+        }));
+        if (mapped.length) setMessages(mapped);
+      } catch {
+        // keep default greeting
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [initialSessionId]);
 
   const requestMediaLibraryPermission = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -247,7 +289,11 @@ export const ChatAssistantScreen: React.FC<ChatAssistantScreenProps> = ({ onBack
         role: m.isUser ? 'user' : 'model',
         content: m.text,
       }));
-      const reply = await askAssistant(history);
+      const { reply, sessionId } = await askAssistant(history, {
+        sessionId: assistantSessionIdRef.current ?? undefined,
+        vehicleId: effectiveVehicleId ?? undefined,
+      });
+      if (sessionId) assistantSessionIdRef.current = sessionId;
       setMessages((prev) => [
         ...prev,
         {

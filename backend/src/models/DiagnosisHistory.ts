@@ -3,7 +3,8 @@ import { Schema, model, InferSchemaType, Types } from 'mongoose';
 const DiagnosisHistorySchema = new Schema(
   {
     userId: { type: Schema.Types.ObjectId, ref: 'User', required: true, index: true },
-    vehicleId: { type: Schema.Types.ObjectId, ref: 'Vehicle', required: true },
+    /** Omitted when the user ran diagnosis with manual vehicle text (e.g. mechanic/tow with no garage profile). */
+    vehicleId: { type: Schema.Types.ObjectId, ref: 'Vehicle', required: false },
     vehicleLabel: { type: String, required: true },
     symptoms: { type: String, default: '' },
     obdCode: { type: String, default: '' },
