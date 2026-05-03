@@ -585,6 +585,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
         requestActions: {
           marginTop: spacing.md,
           alignSelf: 'stretch',
+          width: '100%',
         },
         acceptBtn: {
           paddingVertical: spacing.sm,
@@ -687,7 +688,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                   ? (req: ServiceRequest) => { void handleAcceptTowRequest(req); }
                   : (req: ServiceRequest) => { handleAcceptRequest(req._id); };
                 return (
-                  <Card padded style={styles.requestsCard}>
+                  <Card padded={false} style={styles.requestsCard}>
                     <View style={styles.requestHeaderRow}>
                       <View>
                         <Text style={styles.requestSectionTitle}>{sectionTitle}</Text>
@@ -766,14 +767,16 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                               )}
                             </View>
                           </View>
-                          <View style={styles.requestFooterRow}>
-                            <View style={styles.requestPhoneInline}>
+                          <View style={styles.requestFooterColumn}>
+                            <View style={styles.requestPhoneRow}>
                               <Icon
                                 name="call"
                                 size={iconSizes.sm}
                                 color={colors.textSecondary}
                               />
-                              <Text style={styles.requestPhoneText}>{req.phoneNumber}</Text>
+                              <Text style={styles.requestPhoneText} numberOfLines={2}>
+                                {req.phoneNumber}
+                              </Text>
                             </View>
                             <View style={styles.requestFooterActions}>
                               <TouchableOpacity
