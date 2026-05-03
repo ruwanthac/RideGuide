@@ -16,9 +16,12 @@ import {
   DiagnoseScreen,
   ChatAssistantScreen,
   TowTruckAssistantScreen,
+  TowOwnerTrackingScreen,
+  TowDriverActiveJobScreen,
   HistoryScreen,
   AssistanceScreen,
   ProfileScreen,
+  PrivacyScreen,
   VideoCallScreen,
   ActivitiesScreen,
   RequestMapScreen,
@@ -39,6 +42,8 @@ const HomeStackNavigator = () => (
     <HomeStack.Screen name="Home" component={HomeScreenWrapper} />
     <HomeStack.Screen name="Diagnose" component={DiagnoseScreenWrapper} />
     <HomeStack.Screen name="TowTruckAssistant" component={TowTruckAssistantScreenWrapper} />
+    <HomeStack.Screen name="TowOwnerTracking" component={TowOwnerTrackingScreenWrapper} />
+    <HomeStack.Screen name="TowDriverActiveJob" component={TowDriverActiveJobScreenWrapper} />
     <HomeStack.Screen name="ChatAssistant" component={ChatAssistantScreenWrapper} />
     <HomeStack.Screen name="Assistance" component={AssistanceScreenWrapper} />
     <HomeStack.Screen name="VideoCall" component={VideoCallScreenWrapper} />
@@ -61,7 +66,24 @@ const DiagnoseScreenWrapper = ({ navigation }: { navigation: any }) => (
 );
 
 const TowTruckAssistantScreenWrapper = ({ navigation }: { navigation: any }) => (
-  <TowTruckAssistantScreen onBack={() => navigation.goBack()} />
+  <TowTruckAssistantScreen
+    onBack={() => navigation.goBack()}
+    onBooked={(requestId) => navigation.replace('TowOwnerTracking', { requestId })}
+  />
+);
+
+const TowOwnerTrackingScreenWrapper = ({ navigation, route }: { navigation: any; route: any }) => (
+  <TowOwnerTrackingScreen
+    requestId={route.params?.requestId ?? ''}
+    onBackHome={() => navigation.navigate('Home')}
+  />
+);
+
+const TowDriverActiveJobScreenWrapper = ({ navigation, route }: { navigation: any; route: any }) => (
+  <TowDriverActiveJobScreen
+    requestId={route.params?.requestId ?? ''}
+    onDone={() => navigation.navigate('Home')}
+  />
 );
 
 const ChatAssistantScreenWrapper = ({ navigation }: { navigation: any }) => (
@@ -154,6 +176,9 @@ const MainTabNavigator = () => (
       {() => (
         <ProfileStack.Navigator screenOptions={{ headerShown: false }}>
           <ProfileStack.Screen name="Profile" component={ProfileScreen} />
+          <ProfileStack.Screen name="Privacy">
+            {({ navigation }) => <PrivacyScreen onBack={() => navigation.goBack()} />}
+          </ProfileStack.Screen>
           <ProfileStack.Screen name="Activities">
             {({ navigation }) => (
               <ActivitiesScreen onBack={() => navigation.goBack()} />

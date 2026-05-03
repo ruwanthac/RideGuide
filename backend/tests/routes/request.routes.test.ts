@@ -52,3 +52,57 @@ describe('service requests — vehicleId scoping', () => {
     expect(filtered.body[0].vehicleId).toBe(v1.body._id);
   });
 });
+
+describe('service requests — tow lifecycle and estimate', () => {
+  it('owner gets estimate and tow follows strict status order', async () => {
+    const app = buildApp();
+    const owner = await registerUser({ email: 'tow-owner@b.com', password: 'secret12', displayName: 'Tow Owner' });
+    const tow = await registerUser({ email: 'tow-driver@b.com', password: 'secret12', displayName: 'Tow Driver', role: 'tow' });
+
+    const estimate = await request(app)
+      .post('/api/requests/tow-estimate')
+      .set('Authorization', `Bearer ${owner.token}`)
+      .send({ pickupLatitude: 6.91, pickupLongitude: 79.86, dropoffLatitude: 6.93, dropoffLongitude: 79.88, bookingType: 'scheduled' });
+    expect(estimate.status).toBe(200);
+    expect(estimate.body.estimatedAmount).toBeGreaterThan(0);
+
+    const create = await request(app)
+      .post('/api/requests')
+      .set('Authorization', `Bearer ${owner.token}`)
+      .send({
+        type: 'tow',
+        vehicle: 'Civic',
+        issue: 'Tow requested',
+        location: 'Pickup',
+        latitude: 6.91,
+        longitude: 79.86,
+        pickupAddress: 'Pickup',
+        dropoffAddress: 'Drop',
+        phoneNumber: '123',
+        bookingType: 'scheduled',
+        scheduledAt: new Date(Date.now() + 3600_000).toISOString(),
+        estimatedAmount: estimate.body.estimatedAmount,
+      });
+    expect(create.status).toBe(201);
+    expect(create.body.status).toBe('requested');
+
+    const invalidSkip = await request(app)
+      .patch(`/api/requests/${create.body._id}`)
+      .set('Authorization', `Bearer ${tow.token}`)
+      .send({ status: 'driver_on_the_way' });
+    expect(invalidSkip.status).toBe(409);
+
+    const picked = await request(app)
+      .patch(`/api/requests/${create.body._id}`)
+      .set('Authorization', `Bearer ${tow.token}`)
+      .send({ status: 'driver_picked_hire' });
+    expect(picked.status).toBe(200);
+    expect(picked.body.acceptedBy).toBeTruthy();
+
+    const onWay = await request(app)
+      .patch(`/api/requests/${create.body._id}`)
+      .set('Authorization', `Bearer ${tow.token}`)
+      .send({ status: 'driver_on_the_way' });
+    expect(onWay.status).toBe(200);
+  });
+});

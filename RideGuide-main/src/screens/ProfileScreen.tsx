@@ -71,18 +71,24 @@ export const ProfileScreen: React.FC = () => {
   const handleSelectProfile = (role: UserRole) => {
     const label =
       role === 'mechanic' ? 'Mechanic' : role === 'tow' ? 'Tow Truck Driver' : 'Owner';
-    setUserRole(role);
-    setShowProfiles(false);
-    Alert.alert('Profile Selected', `Switched to ${label} profile`, [
-      {
-        text: 'OK',
-        onPress: () => {
-          if (role === 'owner' || role === 'mechanic' || role === 'tow') {
-            navigation.getParent()?.navigate('HomeTab');
-          }
-        },
-      },
-    ]);
+    void setUserRole(role)
+      .then(() => {
+        setShowProfiles(false);
+        Alert.alert('Profile Selected', `Switched to ${label} profile`, [
+          {
+            text: 'OK',
+            onPress: () => {
+              if (role === 'owner' || role === 'mechanic' || role === 'tow') {
+                // Force-enter the Home stack at root so old role-specific pages do not leak across profiles.
+                navigation.getParent()?.navigate('HomeTab', { screen: 'Home' });
+              }
+            },
+          },
+        ]);
+      })
+      .catch((error) => {
+        Alert.alert('Profile switch failed', error instanceof Error ? error.message : 'Please try again.');
+      });
   };
 
   const cancelEditingVehicle = () => {
@@ -543,7 +549,11 @@ export const ProfileScreen: React.FC = () => {
           <Text style={styles.menuText}>Units & Preferences</Text>
           <Text style={styles.menuArrow}>›</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.menuItem}>
+        <TouchableOpacity
+          style={styles.menuItem}
+          onPress={() => navigation.navigate('Privacy' as never)}
+          activeOpacity={0.7}
+        >
           <Text style={styles.menuText}>Privacy</Text>
           <Text style={styles.menuArrow}>›</Text>
         </TouchableOpacity>

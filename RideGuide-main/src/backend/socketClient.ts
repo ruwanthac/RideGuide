@@ -22,3 +22,13 @@ export function disconnectSocket(): void {
     socket = null;
   }
 }
+
+export async function joinRequestRoom(requestId: string): Promise<void> {
+  const s = await getSocket();
+  s.emit('request:join', requestId);
+}
+
+export async function leaveRequestRoom(requestId: string): Promise<void> {
+  const s = await getSocket();
+  s.emit('request:leave', requestId);
+}

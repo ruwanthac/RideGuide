@@ -16,14 +16,16 @@ import * as Location from 'expo-location';
 import { Icon, PrimaryButton } from '../components';
 import { colors } from '../constants/theme';
 import { useResponsive } from '../hooks';
-import { createServiceRequest } from '../backend/serviceRequestsService';
+import { createServiceRequest, getTowEstimate } from '../backend/serviceRequestsService';
 import { useAuth } from '../context/AuthContext';
 import { useVehicles } from '../context/VehiclesContext';
+import type { TowEstimate } from '../backend/types';
 
 type TripType = 'tow' | 'roadside';
 
 interface TowTruckAssistantScreenProps {
   onBack: () => void;
+  onBooked?: (requestId: string) => void;
 }
 
 const SUGGESTED_LOCATIONS = [
@@ -38,7 +40,7 @@ const RECENT_GARAGES = [
   { id: 'g4', name: 'Roadside Pro Garage', address: 'Kotte, Sri Lanka' },
 ];
 
-export const TowTruckAssistantScreen: React.FC<TowTruckAssistantScreenProps> = ({ onBack }) => {
+export const TowTruckAssistantScreen: React.FC<TowTruckAssistantScreenProps> = ({ onBack, onBooked }) => {
   const { user } = useAuth();
   const { selectedVehicle } = useVehicles();
   const [tripType, setTripType] = useState<TripType>('tow');
@@ -51,6 +53,10 @@ export const TowTruckAssistantScreen: React.FC<TowTruckAssistantScreenProps> = (
   const [showSearchResults, setShowSearchResults] = useState(false);
   const [loadingLocation, setLoadingLocation] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  const [bookingType, setBookingType] = useState<'on_demand' | 'scheduled'>('on_demand');
+  const [scheduledAt, setScheduledAt] = useState<string | null>(null);
+  const [estimate, setEstimate] = useState<TowEstimate | null>(null);
+  const [estimating, setEstimating] = useState(false);
   const scrollViewRef = useRef<ScrollView>(null);
   const dropInputRef = useRef<TextInput>(null);
   const { spacing, fontSizes, iconSizes, borderRadius, verticalScale, scale, width } = useResponsive();
@@ -121,6 +127,32 @@ export const TowTruckAssistantScreen: React.FC<TowTruckAssistantScreenProps> = (
     }
     prevTripTypeRef.current = tripType;
   }, [tripType, currentLocationAddress]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (tripType !== 'tow' || !location || !dropLocation.trim()) {
+      setEstimate(null);
+      return;
+    }
+    setEstimating(true);
+    getTowEstimate({
+      pickupLatitude: location.latitude,
+      pickupLongitude: location.longitude,
+      bookingType,
+    })
+      .then((value) => {
+        if (!cancelled) setEstimate(value);
+      })
+      .catch(() => {
+        if (!cancelled) setEstimate(null);
+      })
+      .finally(() => {
+        if (!cancelled) setEstimating(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [bookingType, dropLocation, location, tripType]);
 
   const getLeafletMapHTML = (lat: number, lng: number, serviceType: TripType) => {
     const isTowTruck = serviceType === 'tow';
@@ -232,20 +264,34 @@ export const TowTruckAssistantScreen: React.FC<TowTruckAssistantScreenProps> = (
       Alert.alert('Missing info', 'Sign in and select a vehicle first.');
       return;
     }
+    if (!user.phoneNumber?.trim()) {
+      Alert.alert('Missing phone number', 'Please add your phone number in your profile before booking.');
+      return;
+    }
     setSubmitting(true);
     try {
-      await createServiceRequest({
+      const created = await createServiceRequest({
         type: tripType,
         vehicle: `${selectedVehicle.label} — ${selectedVehicle.makeModel}`,
         issue: 'Tow requested',
-        location: dropLocation,
+        location: pickupLocation || currentLocationAddress || dropLocation,
         latitude: location?.latitude ?? 0,
         longitude: location?.longitude ?? 0,
-        phoneNumber: user.phoneNumber ?? '',
+        phoneNumber: user.phoneNumber,
         vehicleId: selectedVehicle._id,
+        pickupAddress: pickupLocation || currentLocationAddress || dropLocation,
+        pickupLatitude: location?.latitude ?? 0,
+        pickupLongitude: location?.longitude ?? 0,
+        dropoffAddress: dropLocation,
+        bookingType: tripType === 'tow' ? bookingType : 'on_demand',
+        scheduledAt: tripType === 'tow' && bookingType === 'scheduled' ? scheduledAt ?? undefined : undefined,
+        estimatedAmount: estimate?.estimatedAmount,
+        currency: estimate?.currency,
+        pricingVersion: estimate?.pricingVersion,
       });
       Alert.alert('Booked', 'A tow driver will respond shortly.');
-      onBack();
+      if (onBooked) onBooked(created._id);
+      else onBack();
     } catch (e) {
       Alert.alert('Booking failed', e instanceof Error ? e.message : 'Try again');
     } finally {
@@ -347,6 +393,41 @@ export const TowTruckAssistantScreen: React.FC<TowTruckAssistantScreenProps> = (
         },
         tripTypeTextSelected: {
           color: colors.primary,
+        },
+        bookingTypeContainer: {
+          flexDirection: 'row',
+          marginBottom: spacing.md,
+        },
+        bookingChip: {
+          flexDirection: 'row',
+          alignItems: 'center',
+          borderWidth: 1,
+          borderColor: colors.border,
+          borderRadius: borderRadius.full,
+          paddingHorizontal: spacing.md,
+          paddingVertical: spacing.xs,
+          marginRight: spacing.sm,
+        },
+        bookingChipActive: {
+          borderColor: colors.primary,
+          backgroundColor: 'rgba(37,99,235,0.10)',
+        },
+        bookingChipText: {
+          fontSize: fontSizes.sm,
+          fontWeight: '600',
+          color: colors.textSecondary,
+          marginLeft: spacing.xs,
+        },
+        bookingChipTextActive: {
+          color: colors.primary,
+        },
+        estimateCard: {
+          borderWidth: 1,
+          borderColor: colors.border,
+          borderRadius: borderRadius.md,
+          padding: spacing.md,
+          marginBottom: spacing.md,
+          backgroundColor: colors.background,
         },
         locationField: {
           marginBottom: spacing.md,
@@ -596,6 +677,56 @@ export const TowTruckAssistantScreen: React.FC<TowTruckAssistantScreenProps> = (
             </Text>
           </TouchableOpacity>
         </View>
+        {tripType === 'tow' && (
+          <>
+            <View style={styles.bookingTypeContainer}>
+              <TouchableOpacity
+                style={[styles.bookingChip, bookingType === 'on_demand' && styles.bookingChipActive]}
+                onPress={() => {
+                  setBookingType('on_demand');
+                  setScheduledAt(null);
+                }}
+                activeOpacity={0.8}
+              >
+                <Icon
+                  name="flash"
+                  size={iconSizes.sm}
+                  color={bookingType === 'on_demand' ? colors.primary : colors.textSecondary}
+                />
+                <Text style={[styles.bookingChipText, bookingType === 'on_demand' && styles.bookingChipTextActive]}>
+                  On-demand
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.bookingChip, bookingType === 'scheduled' && styles.bookingChipActive]}
+                onPress={() => {
+                  setBookingType('scheduled');
+                  setScheduledAt(new Date(Date.now() + 30 * 60 * 1000).toISOString());
+                }}
+                activeOpacity={0.8}
+              >
+                <Icon
+                  name="time"
+                  size={iconSizes.sm}
+                  color={bookingType === 'scheduled' ? colors.primary : colors.textSecondary}
+                />
+                <Text style={[styles.bookingChipText, bookingType === 'scheduled' && styles.bookingChipTextActive]}>
+                  Scheduled (+30 min)
+                </Text>
+              </TouchableOpacity>
+            </View>
+            <View style={styles.estimateCard}>
+              <Text style={styles.sectionTitle}>Estimated hire amount</Text>
+              <Text style={styles.mapText}>
+                {estimating
+                  ? 'Calculating estimate...'
+                  : estimate
+                  ? `${estimate.currency} ${Math.round(estimate.estimatedAmount)}`
+                  : 'Estimate unavailable right now. You can still continue.'}
+              </Text>
+            </View>
+          </>
+        )}
 
         <View style={styles.locationField}>
           <Text style={[styles.locationLabel, styles.pickupLabel]}>

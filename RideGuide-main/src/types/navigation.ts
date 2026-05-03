@@ -21,6 +21,8 @@ export type HomeStackParamList = {
   Home: undefined;
   Diagnose: undefined;
   TowTruckAssistant: undefined;
+  TowOwnerTracking: { requestId: string };
+  TowDriverActiveJob: { requestId: string };
   ChatAssistant: undefined;
   Assistance: undefined;
   VideoCall: undefined;
@@ -34,6 +36,7 @@ export type HistoryStackParamList = {
 
 export type ProfileStackParamList = {
   Profile: undefined;
+  Privacy: undefined;
   Activities: undefined;
   Admin: undefined;
   VehicleRecords: { vehicleId: string };

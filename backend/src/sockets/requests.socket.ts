@@ -9,4 +9,5 @@ export function emitRequestUpdated(doc: any) {
   getIo().to(`request:${doc._id}`).emit('request:updated', doc);
   const room = doc.type === 'roadside' ? 'providers:mechanic' : 'providers:tow';
   getIo().to(room).emit('request:updated', doc);
+  if (doc.requesterId) getIo().to(`user:${String(doc.requesterId)}`).emit('request:updated', doc);
 }

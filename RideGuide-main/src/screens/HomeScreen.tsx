@@ -13,6 +13,7 @@ import {
   NativeScrollEvent,
   RefreshControl,
   Linking,
+  Alert,
 } from 'react-native';
 import { Card, Icon } from '../components';
 import { colors } from '../constants/theme';
@@ -21,8 +22,9 @@ import { useResponsive } from '../hooks';
 import { useUserRole } from '../context/UserRoleContext';
 import { useNavigation } from '@react-navigation/native';
 import { useVehicles } from '../context/VehiclesContext';
-import { subscribeServiceRequests, deleteServiceRequest } from '../backend/serviceRequestsService';
+import { subscribeServiceRequests, updateServiceRequest } from '../backend/serviceRequestsService';
 import type { ServiceRequest } from '../backend/types';
+import { extractApiError } from '../backend/apiClient';
 
 interface MenuItem {
   id: string;
@@ -120,11 +122,22 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   const bannerScrollRef = useRef<ScrollView>(null);
 
   const handleAcceptRequest = (id: string) => {
-    void deleteServiceRequest(id);
+    void updateServiceRequest(id, 'accepted');
   };
 
-  const handleAcceptTowRequest = (id: string) => {
-    void deleteServiceRequest(id);
+  const handleAcceptTowRequest = async (request: ServiceRequest) => {
+    try {
+      let updated: ServiceRequest;
+      try {
+        updated = await updateServiceRequest(request._id, 'driver_picked_hire');
+      } catch {
+        // Backward compatibility when backend still supports legacy "accepted" only.
+        updated = await updateServiceRequest(request._id, 'accepted');
+      }
+      navigation.navigate('TowDriverActiveJob', { requestId: updated._id });
+    } catch (error) {
+      Alert.alert('Unable to accept', extractApiError(error, 'Please try again'));
+    }
   };
 
   const navigation = useNavigation<any>();
@@ -705,7 +718,9 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                 const isTow = role === 'tow';
                 const sectionTitle = isTow ? 'Tow truck requests' : 'Roadside help requests';
                 const requests = isTow ? towRequests : roadsideRequests;
-                const onAccept = isTow ? handleAcceptTowRequest : handleAcceptRequest;
+                const onAccept = isTow
+                  ? (req: ServiceRequest) => { void handleAcceptTowRequest(req); }
+                  : (req: ServiceRequest) => { handleAcceptRequest(req._id); };
                 return (
                   <Card padded style={styles.requestsCard}>
                     <View style={styles.requestHeaderRow}>
@@ -751,6 +766,11 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                               </Text>
                               <Text style={styles.requestMeta}>{req.location}</Text>
                               <Text style={styles.requestMeta}>{req.issue}</Text>
+                              {isTow && (
+                                <Text style={styles.requestMeta}>
+                                  {req.bookingType === 'scheduled' ? 'Scheduled' : 'On-demand'} · {req.currency ?? 'LKR'} {Math.round(req.estimatedAmount ?? 0)}
+                                </Text>
+                              )}
                             </View>
                             <View style={styles.requestChip}>
                               <Text style={styles.requestChipText}>
@@ -806,10 +826,10 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                           <View style={styles.requestActions}>
                             <TouchableOpacity
                               style={styles.acceptBtn}
-                              onPress={() => onAccept(req._id)}
+                              onPress={() => onAccept(req)}
                               activeOpacity={0.9}
                             >
-                              <Text style={styles.acceptBtnText}>Accept</Text>
+                              <Text style={styles.acceptBtnText}>{isTow ? 'Accept & Start' : 'Accept'}</Text>
                             </TouchableOpacity>
                           </View>
                         </TouchableOpacity>

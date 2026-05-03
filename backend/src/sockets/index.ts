@@ -27,8 +27,16 @@ export function attachSockets(httpServer: HttpServer): IoServer {
 
   server.on('connection', (socket: Socket) => {
     const role = socket.data.role as string;
+    const userId = socket.data.userId as string;
+    socket.join(`user:${userId}`);
     if (role === 'mechanic') socket.join('providers:mechanic');
     if (role === 'tow') socket.join('providers:tow');
+    socket.on('request:join', (requestId: string) => {
+      if (typeof requestId === 'string' && requestId.trim()) socket.join(`request:${requestId}`);
+    });
+    socket.on('request:leave', (requestId: string) => {
+      if (typeof requestId === 'string' && requestId.trim()) socket.leave(`request:${requestId}`);
+    });
     registerChatHandlers(server, socket);
     registerLiveAiHandlers(server, socket);
   });

@@ -50,7 +50,16 @@ export interface ServiceRequest {
   _id: string;
   requesterId: string;
   type: 'roadside' | 'tow';
-  status: 'pending' | 'accepted' | 'completed' | 'cancelled';
+  status:
+    | 'pending'
+    | 'accepted'
+    | 'requested'
+    | 'driver_picked_hire'
+    | 'driver_on_the_way'
+    | 'driver_arrived'
+    | 'vehicle_in_tow'
+    | 'completed'
+    | 'cancelled';
   acceptedBy: string | null;
   vehicleId: string | null;
   userName: string;
@@ -59,9 +68,35 @@ export interface ServiceRequest {
   location: string;
   latitude: number;
   longitude: number;
+  pickupAddress?: string;
+  pickupLatitude?: number | null;
+  pickupLongitude?: number | null;
+  dropoffAddress?: string;
+  dropoffLatitude?: number | null;
+  dropoffLongitude?: number | null;
+  bookingType?: 'on_demand' | 'scheduled';
+  scheduledAt?: string | null;
+  estimatedAmount?: number | null;
+  finalAmount?: number | null;
+  currency?: string;
+  pricingVersion?: string;
+  paymentMethod?: 'cash_manual';
+  paymentState?: 'unpaid' | 'paid_offline';
   phoneNumber: string;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface TowEstimate {
+  distanceKm: number;
+  estimatedAmount: number;
+  currency: string;
+  pricingVersion: string;
+  breakdown: {
+    baseFee: number;
+    perKm: number;
+    scheduleSurcharge: number;
+  };
 }
 
 export interface ChatMessage {

@@ -13,8 +13,37 @@ const createSchema = z.object({
   longitude: z.number(),
   phoneNumber: z.string().min(1),
   vehicleId: z.string().optional(),
+  pickupAddress: z.string().optional(),
+  pickupLatitude: z.number().optional(),
+  pickupLongitude: z.number().optional(),
+  dropoffAddress: z.string().optional(),
+  dropoffLatitude: z.number().optional(),
+  dropoffLongitude: z.number().optional(),
+  bookingType: z.enum(['on_demand', 'scheduled']).optional(),
+  scheduledAt: z.string().optional(),
+  estimatedAmount: z.number().nonnegative().optional(),
+  finalAmount: z.number().nonnegative().optional(),
+  currency: z.string().min(1).optional(),
+  pricingVersion: z.string().min(1).optional(),
 });
-const patchSchema = z.object({ status: z.enum(['accepted', 'completed', 'cancelled']) });
+const patchSchema = z.object({
+  status: z.enum([
+    'accepted',
+    'completed',
+    'cancelled',
+    'driver_picked_hire',
+    'driver_on_the_way',
+    'driver_arrived',
+    'vehicle_in_tow',
+  ]),
+});
+const towEstimateSchema = z.object({
+  pickupLatitude: z.number(),
+  pickupLongitude: z.number(),
+  dropoffLatitude: z.number().optional(),
+  dropoffLongitude: z.number().optional(),
+  bookingType: z.enum(['on_demand', 'scheduled']).optional(),
+});
 
 export async function list(req: Request, res: Response, next: NextFunction) {
   try {
@@ -29,6 +58,13 @@ export async function create(req: Request, res: Response, next: NextFunction) {
     const r = await svc.createRequest(req.user!.userId, body);
     res.status(201).json(r);
     try { emitRequestNew(r.toObject ? r.toObject() : r); } catch { /* no-io during tests */ }
+  } catch (e) { next(e); }
+}
+export async function towEstimate(req: Request, res: Response, next: NextFunction) {
+  try {
+    if (req.user!.role !== 'owner') return res.status(403).json({ error: 'only owners can estimate' });
+    const body = towEstimateSchema.parse(req.body);
+    res.json(svc.estimateTowPrice(body));
   } catch (e) { next(e); }
 }
 export async function patch(req: Request, res: Response, next: NextFunction) {
