@@ -85,7 +85,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   const { spacing, fontSizes, iconSizes, isSmallScreen, scale, width, verticalScale } = useResponsive();
   const { role } = useUserRole();
   const { selectedVehicleId, refresh: refreshVehicles } = useVehicles();
-  const { refreshProfile } = useAuth();
+  const { refreshProfile, user } = useAuth();
   const greeting = getTimeBasedGreeting();
   const [bannerIndex, setBannerIndex] = useState(0);
   const [refreshing, setRefreshing] = useState(false);
@@ -98,16 +98,31 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
     let alive = true;
     (async () => {
       try {
+        if (role === 'tow' && !user?._id) {
+          if (alive) setRequests([]);
+          return;
+        }
+        if (role === 'mechanic' && !user?._id) {
+          if (alive) setRequests([]);
+          return;
+        }
         const filter =
           role === 'owner' && selectedVehicleId
             ? { vehicleId: selectedVehicleId }
-            : role === 'mechanic'
-            ? { type: 'roadside' as const }
-            : role === 'tow'
-            ? { type: 'tow' as const }
+            : role === 'mechanic' && user?._id
+            ? {
+                type: 'roadside' as const,
+                inboxOnly: true as const,
+                mechanicRoadsidePendingOnly: true as const,
+              }
+            : role === 'tow' && user?._id
+            ? { type: 'tow' as const, inboxOnly: true as const, providerUserId: user._id }
             : undefined;
         const off = await subscribeServiceRequests((items) => {
-          if (alive) setRequests(items);
+          if (!alive) return;
+          setRequests(
+            items.filter((i) => i.status !== 'completed' && i.status !== 'cancelled'),
+          );
         }, filter);
         unsub = off;
       } catch (e) {
@@ -115,17 +130,26 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
       }
     })();
     return () => { alive = false; unsub?.(); };
-  }, [role, selectedVehicleId, requestReloadToken]);
+  }, [role, selectedVehicleId, requestReloadToken, user?._id]);
 
-  const roadsideRequests = useMemo(
-    () => requests.filter((r) => r.type === 'roadside'),
-    [requests],
-  );
+  /** Home inbox: only the open pending pool — never in-progress or history (same online/offline). */
+  const roadsideRequests = useMemo(() => {
+    const rows = requests
+      .filter((r) => r.type === 'roadside')
+      .filter((r) => r.status !== 'completed' && r.status !== 'cancelled');
+    if (role !== 'mechanic' || !user?._id) return rows;
+    return rows.filter((r) => r.status === 'pending');
+  }, [requests, role, user?._id]);
 
-  const towRequests = useMemo(
-    () => requests.filter((r) => r.type === 'tow'),
-    [requests],
-  );
+  const towRequests = useMemo(() => {
+    const rows = requests.filter((r) => r.type === 'tow');
+    if (role !== 'tow' || !user?._id) return rows;
+    return rows.filter((r) => {
+      if (r.status === 'completed' || r.status === 'cancelled') return false;
+      if (r.status === 'requested') return true;
+      return String(r.acceptedBy ?? '') === String(user._id);
+    });
+  }, [requests, role, user?._id]);
   const bannerScrollRef = useRef<ScrollView>(null);
 
   const handleAcceptRequest = async (request: ServiceRequest) => {
@@ -694,6 +718,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
             {(role === 'mechanic' || role === 'tow') && item.id === 'tow' ? (
               (() => {
                 const isTow = role === 'tow';
+                const mechanicOffline = !isTow && role === 'mechanic' && user?.mechanicAvailable === false;
                 const sectionTitle = isTow ? 'Tow truck requests' : 'Roadside help requests';
                 const requests = isTow ? towRequests : roadsideRequests;
                 const onAccept = isTow
@@ -718,21 +743,27 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                         />
                         <Text style={styles.emptyRequestsTitle}>You’re all caught up</Text>
                         <Text style={styles.emptyRequestsText}>
-                          New {isTow ? 'tow' : 'roadside'} requests will appear here instantly.
+                          {isTow
+                            ? 'New tow requests will appear here instantly.'
+                            : mechanicOffline
+                            ? 'Turn on availability in Profile to receive new roadside requests. Finished jobs stay in Roadside help history.'
+                            : 'New roadside requests will appear here instantly.'}
                         </Text>
                       </View>
                     ) : (
                       requests.map((req, index) => (
-                        <TouchableOpacity
+                        <View
                           key={req._id}
                           style={[
                             styles.requestRow,
                             index === requests.length - 1 && styles.requestRowLast,
                           ]}
-                          activeOpacity={0.8}
-                          onPress={() => openRequestOnMap(req)}
                         >
-                          <View style={styles.requestRowMain}>
+                          <TouchableOpacity
+                            style={styles.requestRowMain}
+                            activeOpacity={0.85}
+                            onPress={() => openRequestOnMap(req)}
+                          >
                             <View style={styles.requestAvatar}>
                               <Text style={styles.requestAvatarText}>
                                 {req.userName.charAt(0).toUpperCase()}
@@ -778,7 +809,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                                 </View>
                               )}
                             </View>
-                          </View>
+                          </TouchableOpacity>
                           <View style={styles.requestFooterColumn}>
                             <View style={styles.requestPhoneRow}>
                               <Icon
@@ -841,7 +872,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                               </Text>
                             )}
                           </View>
-                        </TouchableOpacity>
+                        </View>
                       ))
                     )}
                   </Card>

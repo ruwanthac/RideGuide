@@ -61,6 +61,15 @@ export async function listForRole(userId: string, role: Role, vehicleId?: string
       ],
     }).sort({ createdAt: -1 }).lean();
   }
+  const mechanicUser = await UserModel.findById(userId).select('mechanicAvailable').lean();
+  const mechanicReceiving = mechanicUser?.mechanicAvailable !== false;
+  if (!mechanicReceiving) {
+    return ServiceRequestModel.find({
+      type: 'roadside',
+      acceptedBy: new Types.ObjectId(userId),
+      status: { $nin: ['completed', 'cancelled'] },
+    }).sort({ createdAt: -1 }).lean();
+  }
   return ServiceRequestModel.find({
     type,
     $or: [
@@ -159,6 +168,12 @@ export async function transition(
   } else if (!isTow && target === 'accepted') {
     if (role !== 'mechanic' && role !== 'admin') {
       throw new HttpError(403, 'only mechanics can accept roadside requests');
+    }
+    if (role === 'mechanic') {
+      const providerRow = await UserModel.findById(userId).select('mechanicAvailable').lean();
+      if (providerRow?.mechanicAvailable === false) {
+        throw new HttpError(400, 'turn on availability to accept new requests');
+      }
     }
     if (req.status !== 'pending') throw new HttpError(409, 'not pending');
     req.status = 'accepted';

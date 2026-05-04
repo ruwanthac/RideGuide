@@ -12,6 +12,7 @@ const schema = z.object({
   truckName: z.string().nullable().optional(),
   plateNumber: z.string().nullable().optional(),
   phoneNumber: z.string().nullable().optional(),
+  mechanicAvailable: z.boolean().optional(),
   location: z.object({ lat: z.number(), lng: z.number() }).nullable().optional(),
 });
 
@@ -21,6 +22,9 @@ export async function patchMe(req: Request, res: Response, next: NextFunction) {
     const payload = { ...body } as Record<string, unknown>;
     if (req.user!.role !== 'admin') {
       delete payload.role;
+    }
+    if (req.user!.role !== 'mechanic') {
+      delete payload.mechanicAvailable;
     }
     res.json(await svc.updateProfile(req.user!.userId, payload as any));
   } catch (e) { next(e); }

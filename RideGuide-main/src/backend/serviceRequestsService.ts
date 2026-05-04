@@ -70,18 +70,50 @@ export async function deleteServiceRequest(id: string): Promise<void> {
 
 export async function subscribeServiceRequests(
   onChange: (items: ServiceRequest[]) => void,
-  filter?: { vehicleId?: string; type?: ServiceRequest['type'] },
+  filter?: {
+    vehicleId?: string;
+    type?: ServiceRequest['type'];
+    history?: boolean;
+    inboxOnly?: boolean;
+    /** Mechanic home: only unclaimed roadside requests (`pending`). */
+    mechanicRoadsidePendingOnly?: boolean;
+    /** When set with inboxOnly, only show open jobs (pending/requested) or jobs accepted by this user. */
+    providerUserId?: string;
+  },
 ): Promise<() => void> {
-  let items = await listServiceRequests(filter);
+  const inboxVisible = (doc: ServiceRequest): boolean => {
+    if (!filter?.inboxOnly) return true;
+    if (doc.status === 'completed' || doc.status === 'cancelled') return false;
+    if (filter.mechanicRoadsidePendingOnly && filter.type === 'roadside') {
+      return doc.status === 'pending';
+    }
+    if (!filter.providerUserId) {
+      return doc.status !== 'completed' && doc.status !== 'cancelled';
+    }
+    const open =
+      (filter.type === 'roadside' && doc.status === 'pending') ||
+      (filter.type === 'tow' && doc.status === 'requested');
+    if (open) return true;
+    return String(doc.acceptedBy ?? '') === String(filter.providerUserId);
+  };
+
+  let items = await listServiceRequests({
+    vehicleId: filter?.vehicleId,
+    history: filter?.history,
+  });
   if (filter?.type) {
     items = items.filter((item) => item.type === filter.type);
+  }
+  if (filter?.inboxOnly) {
+    items = items.filter(inboxVisible);
   }
   onChange(items);
   const socket = await getSocket();
 
   const matches = (doc: ServiceRequest) =>
     (!filter?.vehicleId || doc.vehicleId === filter.vehicleId) &&
-    (!filter?.type || doc.type === filter.type);
+    (!filter?.type || doc.type === filter.type) &&
+    inboxVisible(doc);
 
   const onNew = (doc: ServiceRequest) => {
     if (!matches(doc)) return;

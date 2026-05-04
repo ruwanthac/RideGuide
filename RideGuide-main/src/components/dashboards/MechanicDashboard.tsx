@@ -1,4 +1,5 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useFocusEffect } from '@react-navigation/native';
 import {
   View,
   Text,
@@ -17,6 +18,10 @@ import { Card, PrimaryButton } from '../';
 import { colors } from '../../constants/theme';
 import { useResponsive } from '../../hooks';
 import { Icon } from '../Icon';
+import { useAuth } from '../../context/AuthContext';
+import { listServiceRequests, subscribeServiceRequests } from '../../backend/serviceRequestsService';
+import { updateUserProfile } from '../../backend/userProfileService';
+import { extractApiError } from '../../backend/apiClient';
 
 interface MechanicDashboardProps {
   shopName?: string;
@@ -32,15 +37,30 @@ type WorkshopVerificationStatus =
 
 type WorkshopDocField = 'brCopy' | 'nicCopy';
 
-const DUMMY_REQUESTS = 5;
-const DUMMY_MONTHLY_JOBS = 32;
+function countRoadsideCompletedThisMonth(
+  rows: { type: string; status: string; acceptedBy?: string | null; updatedAt: string }[],
+  mechanicUserId: string,
+): number {
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = now.getMonth();
+  return rows.filter((r) => {
+    if (r.type !== 'roadside' || r.status !== 'completed') return false;
+    if (String(r.acceptedBy ?? '') !== String(mechanicUserId)) return false;
+    const d = new Date(r.updatedAt);
+    return d.getFullYear() === y && d.getMonth() === m;
+  }).length;
+}
 
 export const MechanicDashboard: React.FC<MechanicDashboardProps> = ({
   shopName,
 }) => {
+  const { user, refreshProfile } = useAuth();
   const { spacing, fontSizes, borderRadius, scale, iconSizes } = useResponsive();
   const fadeAnim = useRef(new Animated.Value(0)).current;
-  const [isOnline, setIsOnline] = useState(true);
+  const [incomingPendingCount, setIncomingPendingCount] = useState(0);
+  const [monthlyCompletedCount, setMonthlyCompletedCount] = useState(0);
+  const [availabilityBusy, setAvailabilityBusy] = useState(false);
   const [isVerificationModalOpen, setIsVerificationModalOpen] = useState(false);
   const [workshopNameDraft, setWorkshopNameDraft] = useState(shopName || '');
   const [workshopAddressDraft, setWorkshopAddressDraft] = useState('');
@@ -300,6 +320,69 @@ export const MechanicDashboard: React.FC<MechanicDashboardProps> = ({
     }).start();
   }, [fadeAnim]);
 
+  const refreshMonthlyCompleted = useCallback(async () => {
+    const uid = user?._id;
+    if (!uid) {
+      setMonthlyCompletedCount(0);
+      return;
+    }
+    try {
+      const rows = await listServiceRequests({ history: true });
+      setMonthlyCompletedCount(countRoadsideCompletedThisMonth(rows, uid));
+    } catch {
+      // keep last value on failure
+    }
+  }, [user?._id]);
+
+  useFocusEffect(
+    useCallback(() => {
+      void refreshMonthlyCompleted();
+    }, [refreshMonthlyCompleted]),
+  );
+
+  useEffect(() => {
+    if (!user?._id) {
+      setIncomingPendingCount(0);
+      return;
+    }
+    let alive = true;
+    let unsub: (() => void) | null = null;
+    (async () => {
+      try {
+        const off = await subscribeServiceRequests((items) => {
+          if (!alive) return;
+          setIncomingPendingCount(items.filter((r) => r.status === 'pending').length);
+        }, {
+          type: 'roadside',
+          inboxOnly: true,
+          providerUserId: user._id,
+        });
+        unsub = off;
+      } catch {
+        if (alive) setIncomingPendingCount(0);
+      }
+    })();
+    return () => {
+      alive = false;
+      unsub?.();
+    };
+  }, [user?._id]);
+
+  const mechanicReceiving = user?.mechanicAvailable !== false;
+
+  const onMechanicAvailabilityChange = async (next: boolean) => {
+    if (!user?._id || availabilityBusy) return;
+    setAvailabilityBusy(true);
+    try {
+      await updateUserProfile({ mechanicAvailable: next });
+      await refreshProfile();
+    } catch (e) {
+      Alert.alert('Could not update availability', extractApiError(e, 'Please try again.'));
+    } finally {
+      setAvailabilityBusy(false);
+    }
+  };
+
   const requestGalleryPermission = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== 'granted') {
@@ -455,15 +538,18 @@ export const MechanicDashboard: React.FC<MechanicDashboardProps> = ({
             </Text>
             <View style={styles.statusPill}>
               <Text style={styles.statusPillText}>
-                {isOnline ? 'Online · visible to drivers' : 'Offline · hidden from owners'}
+                {mechanicReceiving
+                  ? 'Online · visible to owners · receiving new requests'
+                  : 'Offline · not receiving new requests'}
               </Text>
             </View>
           </View>
           <Switch
-            value={isOnline}
+            value={mechanicReceiving}
+            disabled={availabilityBusy}
             trackColor={styles.switchTrackColor}
-            thumbColor={isOnline ? styles.switchThumbColor.true : styles.switchThumbColor.false}
-            onValueChange={setIsOnline}
+            thumbColor={mechanicReceiving ? styles.switchThumbColor.true : styles.switchThumbColor.false}
+            onValueChange={(v) => { void onMechanicAvailabilityChange(v); }}
           />
         </View>
       </Card>
@@ -472,13 +558,13 @@ export const MechanicDashboard: React.FC<MechanicDashboardProps> = ({
         <View style={styles.metricRow}>
           <View style={styles.metricCard}>
             <Text style={styles.metricLabel}>Incoming requests</Text>
-            <Text style={styles.metricValue}>{DUMMY_REQUESTS}</Text>
+            <Text style={styles.metricValue}>{incomingPendingCount}</Text>
             <Text style={styles.metricCaption}>Waiting for your response</Text>
           </View>
           <View style={styles.metricSpacer} />
           <View style={styles.metricCard}>
             <Text style={styles.metricLabel}>Jobs this month</Text>
-            <Text style={styles.metricValue}>{DUMMY_MONTHLY_JOBS}</Text>
+            <Text style={styles.metricValue}>{monthlyCompletedCount}</Text>
             <Text style={styles.metricCaption}>Completed jobs</Text>
           </View>
         </View>

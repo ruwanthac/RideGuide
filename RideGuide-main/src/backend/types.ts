@@ -11,6 +11,8 @@ export interface AuthUser {
   truckName?: string | null;
   plateNumber?: string | null;
   phoneNumber?: string | null;
+  /** Mechanics only: when false, pending roadside pool is hidden and accept is blocked server-side. */
+  mechanicAvailable?: boolean;
   location?: { type: 'Point'; coordinates: [number, number] } | null;
   createdAt: string;
   updatedAt: string;

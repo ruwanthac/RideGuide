@@ -11,6 +11,7 @@ export type IconName =
   | 'camera-reverse'
   | 'chatbubble'
   | 'help-circle'
+  | 'moon'
   | 'car'
   | 'map'
   | 'send'

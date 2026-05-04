@@ -10,6 +10,7 @@ export interface ProfilePatch {
   truckName?: string | null;
   plateNumber?: string | null;
   phoneNumber?: string | null;
+  mechanicAvailable?: boolean;
   location?: { lat: number; lng: number } | null;
 }
 

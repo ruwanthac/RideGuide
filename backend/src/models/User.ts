@@ -15,6 +15,8 @@ const UserSchema = new Schema(
     truckName: { type: String, default: null },
     plateNumber: { type: String, default: null },
     phoneNumber: { type: String, default: null },
+    /** When false, mechanic list omits open pending roadside pool and cannot accept new jobs. */
+    mechanicAvailable: { type: Boolean, default: true },
     location: {
       type: {
         type: String,
