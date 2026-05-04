@@ -29,6 +29,7 @@ const createSchema = z.object({
 const patchSchema = z.object({
   status: z.enum([
     'accepted',
+    'attending_to_location',
     'completed',
     'cancelled',
     'driver_picked_hire',

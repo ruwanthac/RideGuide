@@ -17,9 +17,12 @@ import {
   ChatAssistantScreen,
   TowTruckAssistantScreen,
   TowOwnerTrackingScreen,
+  RoadsideOwnerTrackingScreen,
   TowDriverActiveJobScreen,
+  MechanicActiveJobScreen,
   HistoryScreen,
   TowJobHistoryScreen,
+  RoadsideHelpHistoryScreen,
   VehicleRecordsHistoryScreen,
   ObdDiagnoseHistoryScreen,
   AiChatHistoryScreen,
@@ -56,7 +59,9 @@ const HomeStackNavigator = () => (
     <HomeStack.Screen name="Diagnose" component={DiagnoseScreenWrapper} />
     <HomeStack.Screen name="TowTruckAssistant" component={TowTruckAssistantScreenWrapper} />
     <HomeStack.Screen name="TowOwnerTracking" component={TowOwnerTrackingScreenWrapper} />
+    <HomeStack.Screen name="RoadsideOwnerTracking" component={RoadsideOwnerTrackingScreenWrapper} />
     <HomeStack.Screen name="TowDriverActiveJob" component={TowDriverActiveJobScreenWrapper} />
+    <HomeStack.Screen name="MechanicActiveJob" component={MechanicActiveJobScreenWrapper} />
     <HomeStack.Screen name="ChatAssistant" component={ChatAssistantScreenWrapper} />
     <HomeStack.Screen name="Assistance" component={AssistanceScreenWrapper} />
     <HomeStack.Screen name="VideoCall" component={VideoCallScreenWrapper} />
@@ -81,7 +86,9 @@ const DiagnoseScreenWrapper = ({ navigation }: { navigation: any }) => (
 const TowTruckAssistantScreenWrapper = ({ navigation }: { navigation: any }) => (
   <TowTruckAssistantScreen
     onBack={() => navigation.goBack()}
-    onBooked={(requestId) => navigation.replace('TowOwnerTracking', { requestId })}
+    onBooked={(requestId, type) =>
+      navigation.replace(type === 'roadside' ? 'RoadsideOwnerTracking' : 'TowOwnerTracking', { requestId })
+    }
   />
 );
 
@@ -92,10 +99,32 @@ const TowOwnerTrackingScreenWrapper = ({ navigation, route }: { navigation: any;
   />
 );
 
+const RoadsideOwnerTrackingScreenWrapper = ({ navigation, route }: { navigation: any; route: any }) => (
+  <RoadsideOwnerTrackingScreen
+    requestId={route.params?.requestId ?? ''}
+    onBackHome={() => navigation.navigate('Home')}
+  />
+);
+
 const TowDriverActiveJobScreenWrapper = ({ navigation, route }: { navigation: any; route: any }) => (
   <TowDriverActiveJobScreen
     requestId={route.params?.requestId ?? ''}
     onDone={() => navigation.navigate('Home')}
+  />
+);
+
+const MechanicActiveJobScreenWrapper = ({ navigation, route }: { navigation: any; route: any }) => (
+  <MechanicActiveJobScreen
+    requestId={route.params?.requestId ?? ''}
+    onDone={() => navigation.navigate('Home')}
+    onOpenChat={(request) =>
+      navigation.navigate('RequestChat', {
+        requestId: request._id,
+        userName: request.userName,
+        vehicle: request.vehicle,
+        issue: request.issue,
+      })
+    }
   />
 );
 
@@ -224,6 +253,7 @@ const HistoryStackScreen = () => (
   <HistoryStack.Navigator screenOptions={{ headerShown: false }}>
     <HistoryStack.Screen name="History" component={HistoryScreen} />
     <HistoryStack.Screen name="TowJobHistory" component={TowJobHistoryScreen} />
+    <HistoryStack.Screen name="RoadsideHelpHistory" component={RoadsideHelpHistoryScreen} />
     <HistoryStack.Screen name="VehicleRecordsHistory" component={VehicleRecordsHistoryScreen} />
     <HistoryStack.Screen name="ObdDiagnoseHistory" component={ObdDiagnoseHistoryScreen} />
     <HistoryStack.Screen name="AiChatHistory" component={AiChatHistoryScreen} />

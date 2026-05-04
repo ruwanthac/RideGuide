@@ -98,7 +98,14 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
     let alive = true;
     (async () => {
       try {
-        const filter = role === 'owner' && selectedVehicleId ? { vehicleId: selectedVehicleId } : undefined;
+        const filter =
+          role === 'owner' && selectedVehicleId
+            ? { vehicleId: selectedVehicleId }
+            : role === 'mechanic'
+            ? { type: 'roadside' as const }
+            : role === 'tow'
+            ? { type: 'tow' as const }
+            : undefined;
         const off = await subscribeServiceRequests((items) => {
           if (alive) setRequests(items);
         }, filter);
@@ -121,8 +128,13 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   );
   const bannerScrollRef = useRef<ScrollView>(null);
 
-  const handleAcceptRequest = (id: string) => {
-    void updateServiceRequest(id, 'accepted');
+  const handleAcceptRequest = async (request: ServiceRequest) => {
+    try {
+      const updated = await updateServiceRequest(request._id, 'accepted');
+      navigation.navigate('MechanicActiveJob', { requestId: updated._id });
+    } catch (error) {
+      Alert.alert('Unable to accept', extractApiError(error, 'Please try again'));
+    }
   };
 
   const handleAcceptTowRequest = async (request: ServiceRequest) => {
@@ -686,7 +698,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                 const requests = isTow ? towRequests : roadsideRequests;
                 const onAccept = isTow
                   ? (req: ServiceRequest) => { void handleAcceptTowRequest(req); }
-                  : (req: ServiceRequest) => { handleAcceptRequest(req._id); };
+                  : (req: ServiceRequest) => { void handleAcceptRequest(req); };
                 return (
                   <Card padded={false} style={styles.requestsCard}>
                     <View style={styles.requestHeaderRow}>
@@ -815,13 +827,19 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                             </View>
                           </View>
                           <View style={styles.requestActions}>
-                            <TouchableOpacity
-                              style={styles.acceptBtn}
-                              onPress={() => onAccept(req)}
-                              activeOpacity={0.9}
-                            >
-                              <Text style={styles.acceptBtnText}>{isTow ? 'Accept & Start' : 'Accept'}</Text>
-                            </TouchableOpacity>
+                            {isTow || req.status === 'pending' ? (
+                              <TouchableOpacity
+                                style={styles.acceptBtn}
+                                onPress={() => onAccept(req)}
+                                activeOpacity={0.9}
+                              >
+                                <Text style={styles.acceptBtnText}>{isTow ? 'Accept & Start' : 'Accept'}</Text>
+                              </TouchableOpacity>
+                            ) : (
+                              <Text style={styles.requestTimeMuted}>
+                                {req.status === 'accepted' ? 'Accepted by you' : `Status: ${req.status}`}
+                              </Text>
+                            )}
                           </View>
                         </TouchableOpacity>
                       ))

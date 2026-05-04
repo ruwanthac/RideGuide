@@ -52,6 +52,7 @@ export async function updateServiceRequest(
   id: string,
   status:
     | 'accepted'
+    | 'attending_to_location'
     | 'completed'
     | 'cancelled'
     | 'driver_picked_hire'
@@ -69,14 +70,18 @@ export async function deleteServiceRequest(id: string): Promise<void> {
 
 export async function subscribeServiceRequests(
   onChange: (items: ServiceRequest[]) => void,
-  filter?: { vehicleId?: string },
+  filter?: { vehicleId?: string; type?: ServiceRequest['type'] },
 ): Promise<() => void> {
   let items = await listServiceRequests(filter);
+  if (filter?.type) {
+    items = items.filter((item) => item.type === filter.type);
+  }
   onChange(items);
   const socket = await getSocket();
 
   const matches = (doc: ServiceRequest) =>
-    !filter?.vehicleId || doc.vehicleId === filter.vehicleId;
+    (!filter?.vehicleId || doc.vehicleId === filter.vehicleId) &&
+    (!filter?.type || doc.type === filter.type);
 
   const onNew = (doc: ServiceRequest) => {
     if (!matches(doc)) return;

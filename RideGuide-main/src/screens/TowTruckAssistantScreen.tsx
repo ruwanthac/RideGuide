@@ -25,19 +25,12 @@ type TripType = 'tow' | 'roadside';
 
 interface TowTruckAssistantScreenProps {
   onBack: () => void;
-  onBooked?: (requestId: string) => void;
+  onBooked?: (requestId: string, type: TripType) => void;
 }
 
 const SUGGESTED_LOCATIONS = [
   { id: '1', name: 'Iskole Handiya', address: 'Homagama, Sri Lanka' },
   { id: '2', name: 'Pettah Bus', address: 'Colombo, Sri Lanka' },
-];
-
-const RECENT_GARAGES = [
-  { id: 'g1', name: 'AutoCare Garage', address: 'Homagama, Sri Lanka' },
-  { id: 'g2', name: 'Quick Fix Motors', address: 'Colombo 03, Sri Lanka' },
-  { id: 'g3', name: 'City Auto Service', address: 'Pettah, Colombo, Sri Lanka' },
-  { id: 'g4', name: 'Roadside Pro Garage', address: 'Kotte, Sri Lanka' },
 ];
 
 export const TowTruckAssistantScreen: React.FC<TowTruckAssistantScreenProps> = ({ onBack, onBooked }) => {
@@ -59,60 +52,76 @@ export const TowTruckAssistantScreen: React.FC<TowTruckAssistantScreenProps> = (
   const [estimating, setEstimating] = useState(false);
   const scrollViewRef = useRef<ScrollView>(null);
   const dropInputRef = useRef<TextInput>(null);
+  const locationRef = useRef<{ latitude: number; longitude: number } | null>(null);
   const { spacing, fontSizes, iconSizes, borderRadius, verticalScale, scale, width } = useResponsive();
 
   useEffect(() => {
-    const getLocation = async () => {
+    locationRef.current = location;
+  }, [location]);
+
+  const getLocationWithTimeout = async (timeoutMs = 12000) => {
+    return Promise.race([
+      Location.getCurrentPositionAsync({}),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('Location request timed out')), timeoutMs)
+      ),
+    ]);
+  };
+
+  const resolveCurrentLocation = async () => {
+    setLoadingLocation(true);
+    try {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Location Permission', 'Location permission is required to show nearby services.');
+        return;
+      }
+
+      let currentLocation: Location.LocationObject | null = null;
       try {
-        const { status } = await Location.requestForegroundPermissionsAsync();
-        if (status !== 'granted') {
-          Alert.alert(
-            'Location Permission',
-            'Location permission is required to show nearby services.'
-          );
-          setLoadingLocation(false);
-          return;
-        }
+        currentLocation = await getLocationWithTimeout();
+      } catch {
+        // Fallback when precise location hangs/slow.
+        currentLocation = await Location.getLastKnownPositionAsync();
+      }
 
-        const currentLocation = await Location.getCurrentPositionAsync({});
-        const coords = {
-          latitude: currentLocation.coords.latitude,
-          longitude: currentLocation.coords.longitude,
-        };
-        setLocation(coords);
+      if (!currentLocation) {
+        Alert.alert('Location unavailable', 'Unable to fetch your location. Please try again.');
+        return;
+      }
 
-        // Reverse geocode to get address
-        try {
-          const addresses = await Location.reverseGeocodeAsync(coords);
-          if (addresses && addresses.length > 0) {
-            const addr = addresses[0];
-            const addressParts = [
-              addr.street,
-              addr.district,
-              addr.city,
-              addr.region,
-            ].filter(Boolean);
-            const address = addressParts.join(', ') || `${coords.latitude.toFixed(4)}, ${coords.longitude.toFixed(4)}`;
-            setCurrentLocationAddress(address);
-            setPickupLocation(address);
-          } else {
-            const address = `${coords.latitude.toFixed(4)}, ${coords.longitude.toFixed(4)}`;
-            setCurrentLocationAddress(address);
-            setPickupLocation('Current Location');
-          }
-        } catch {
-          setCurrentLocationAddress('Current Location');
+      const coords = {
+        latitude: currentLocation.coords.latitude,
+        longitude: currentLocation.coords.longitude,
+      };
+      setLocation(coords);
+
+      try {
+        const addresses = await Location.reverseGeocodeAsync(coords);
+        if (addresses && addresses.length > 0) {
+          const addr = addresses[0];
+          const addressParts = [addr.street, addr.district, addr.city, addr.region].filter(Boolean);
+          const address = addressParts.join(', ') || `${coords.latitude.toFixed(4)}, ${coords.longitude.toFixed(4)}`;
+          setCurrentLocationAddress(address);
+          setPickupLocation(address);
+        } else {
+          setCurrentLocationAddress(`${coords.latitude.toFixed(4)}, ${coords.longitude.toFixed(4)}`);
           setPickupLocation('Current Location');
         }
-
-        setLoadingLocation(false);
-      } catch (error) {
-        console.error('Error getting location:', error);
-        setLoadingLocation(false);
+      } catch {
+        setCurrentLocationAddress('Current Location');
+        setPickupLocation('Current Location');
       }
-    };
+    } catch (error) {
+      console.error('Error getting location:', error);
+      Alert.alert('Location error', 'Unable to fetch location right now. Please try again.');
+    } finally {
+      setLoadingLocation(false);
+    }
+  };
 
-    getLocation();
+  useEffect(() => {
+    void resolveCurrentLocation();
   }, []);
 
   const prevTripTypeRef = useRef<TripType>(tripType);
@@ -210,7 +219,7 @@ export const TowTruckAssistantScreen: React.FC<TowTruckAssistantScreenProps> = (
             // Roadside help locations (mechanics)
             var services = [
               { lat: ${lat + 0.004}, lng: ${lng + 0.006}, name: 'AutoCare Center' },
-              { lat: ${lat - 0.002}, lng: ${lng + 0.007}, name: 'QuickFix Garage' },
+              { lat: ${lat - 0.002}, lng: ${lng + 0.007}, name: 'QuickFix Mechanics' },
               { lat: ${lat + 0.007}, lng: ${lng - 0.003}, name: 'City Auto Services' }
             ];
             
@@ -256,9 +265,16 @@ export const TowTruckAssistantScreen: React.FC<TowTruckAssistantScreenProps> = (
   };
 
   const handleConfirmBooking = async () => {
-    if (!dropLocation.trim()) {
+    if (tripType === 'tow' && !dropLocation.trim()) {
       Alert.alert('Please select a drop location');
       return;
+    }
+    if (tripType === 'roadside' && !locationRef.current) {
+      await resolveCurrentLocation();
+      if (!locationRef.current) {
+        Alert.alert('Location required', 'Please enable location and try again.');
+        return;
+      }
     }
     if (!user || !selectedVehicle) {
       Alert.alert('Missing info', 'Sign in and select a vehicle first.');
@@ -273,7 +289,7 @@ export const TowTruckAssistantScreen: React.FC<TowTruckAssistantScreenProps> = (
       const created = await createServiceRequest({
         type: tripType,
         vehicle: `${selectedVehicle.label} — ${selectedVehicle.makeModel}`,
-        issue: 'Tow requested',
+        issue: tripType === 'roadside' ? 'Roadside help requested' : 'Tow requested',
         location: pickupLocation || currentLocationAddress || dropLocation,
         latitude: location?.latitude ?? 0,
         longitude: location?.longitude ?? 0,
@@ -282,15 +298,20 @@ export const TowTruckAssistantScreen: React.FC<TowTruckAssistantScreenProps> = (
         pickupAddress: pickupLocation || currentLocationAddress || dropLocation,
         pickupLatitude: location?.latitude ?? 0,
         pickupLongitude: location?.longitude ?? 0,
-        dropoffAddress: dropLocation,
+        dropoffAddress: tripType === 'tow' ? dropLocation : undefined,
         bookingType: tripType === 'tow' ? bookingType : 'on_demand',
         scheduledAt: tripType === 'tow' && bookingType === 'scheduled' ? scheduledAt ?? undefined : undefined,
         estimatedAmount: estimate?.estimatedAmount,
         currency: estimate?.currency,
         pricingVersion: estimate?.pricingVersion,
       });
-      Alert.alert('Booked', 'A tow driver will respond shortly.');
-      if (onBooked) onBooked(created._id);
+      Alert.alert(
+        'Booked',
+        tripType === 'roadside'
+          ? 'A mechanic will respond shortly.'
+          : 'A tow driver will respond shortly.'
+      );
+      if (onBooked) onBooked(created._id, tripType);
       else onBack();
     } catch (e) {
       Alert.alert('Booking failed', e instanceof Error ? e.message : 'Try again');
@@ -739,104 +760,90 @@ export const TowTruckAssistantScreen: React.FC<TowTruckAssistantScreenProps> = (
               placeholderTextColor={colors.textSecondary}
               value={pickupLocation || currentLocationAddress || ''}
               onChangeText={setPickupLocation}
-              editable={true}
+              editable={tripType !== 'roadside'}
             />
             <TouchableOpacity
               style={styles.locationActionButton}
               activeOpacity={0.7}
-              onPress={() => setIsPickupFavorite(!isPickupFavorite)}
+              onPress={() => {
+                if (tripType === 'roadside') {
+                  void resolveCurrentLocation();
+                  return;
+                }
+                setIsPickupFavorite(!isPickupFavorite);
+              }}
             >
               <Icon
-                name="star"
+                name={tripType === 'roadside' ? 'refresh' : 'star'}
                 size={iconSizes.sm}
                 color={isPickupFavorite ? '#FBBF24' : colors.textSecondary}
               />
             </TouchableOpacity>
           </View>
-        </View>
-
-        <View style={styles.locationField}>
-          <Text style={[styles.locationLabel, styles.dropLabel]}>
-            {tripType === 'roadside' ? 'GARAGE LOCATION' : 'DROP'}
-          </Text>
-          <View style={styles.locationInputContainer}>
-            <TextInput
-              ref={dropInputRef}
-              style={styles.locationInput}
-              placeholder={tripType === 'roadside' ? 'Search garage location' : 'Search location'}
-              placeholderTextColor={colors.textSecondary}
-              value={dropLocation}
-              onChangeText={handleSearch}
-              onFocus={handleDropInputFocus}
-            />
-          </View>
-          {showSearchResults && searchQuery.length > 0 && (
-            <View style={styles.searchResultsContainer}>
-              {(tripType === 'roadside' ? RECENT_GARAGES : SUGGESTED_LOCATIONS)
-                .filter(
-                  (loc) =>
-                    loc.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                    loc.address.toLowerCase().includes(searchQuery.toLowerCase())
-                )
-                .map((loc) => (
-                  <TouchableOpacity
-                    key={loc.id}
-                    style={styles.searchResultItem}
-                    onPress={() => handleSelectDropLocation(loc.name, loc.address)}
-                    activeOpacity={0.7}
-                  >
-                    <Icon name="map" size={iconSizes.sm} color={colors.primary} style={{ marginRight: spacing.sm }} />
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.searchResultName}>{loc.name}</Text>
-                      <Text style={styles.searchResultAddress}>{loc.address}</Text>
-                    </View>
-                  </TouchableOpacity>
-                ))}
-              {(tripType === 'roadside' ? RECENT_GARAGES : SUGGESTED_LOCATIONS).filter(
-                (loc) =>
-                  loc.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                  loc.address.toLowerCase().includes(searchQuery.toLowerCase())
-              ).length === 0 && (
-                <View style={styles.searchResultItem}>
-                  <Text style={styles.searchResultAddress}>No results found</Text>
-                </View>
-              )}
-            </View>
+          {tripType === 'roadside' && !location && (
+            <Text style={[styles.mapSubtext, { marginTop: spacing.xs }]}>
+              Location is required to confirm roadside help.
+            </Text>
           )}
         </View>
 
+        {tripType === 'tow' && (
+          <View style={styles.locationField}>
+            <Text style={[styles.locationLabel, styles.dropLabel]}>DROP</Text>
+            <View style={styles.locationInputContainer}>
+              <TextInput
+                ref={dropInputRef}
+                style={styles.locationInput}
+                placeholder="Search location"
+                placeholderTextColor={colors.textSecondary}
+                value={dropLocation}
+                onChangeText={handleSearch}
+                onFocus={handleDropInputFocus}
+              />
+            </View>
+            {showSearchResults && searchQuery.length > 0 && (
+              <View style={styles.searchResultsContainer}>
+                {SUGGESTED_LOCATIONS
+                  .filter(
+                    (loc) =>
+                      loc.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                      loc.address.toLowerCase().includes(searchQuery.toLowerCase())
+                  )
+                  .map((loc) => (
+                    <TouchableOpacity
+                      key={loc.id}
+                      style={styles.searchResultItem}
+                      onPress={() => handleSelectDropLocation(loc.name, loc.address)}
+                      activeOpacity={0.7}
+                    >
+                      <Icon name="map" size={iconSizes.sm} color={colors.primary} style={{ marginRight: spacing.sm }} />
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.searchResultName}>{loc.name}</Text>
+                        <Text style={styles.searchResultAddress}>{loc.address}</Text>
+                      </View>
+                    </TouchableOpacity>
+                  ))}
+                {SUGGESTED_LOCATIONS.filter(
+                  (loc) =>
+                    loc.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                    loc.address.toLowerCase().includes(searchQuery.toLowerCase())
+                ).length === 0 && (
+                  <View style={styles.searchResultItem}>
+                    <Text style={styles.searchResultAddress}>No results found</Text>
+                  </View>
+                )}
+              </View>
+            )}
+          </View>
+        )}
+
         {tripType === 'roadside' ? (
           <>
-            <Text style={styles.sectionTitle}>Recent garage locations</Text>
-            <View style={styles.suggestedContainer}>
-              {RECENT_GARAGES.map((loc, index) => (
-                <TouchableOpacity
-                  key={loc.id}
-                  style={[
-                    styles.suggestedCard,
-                    index === RECENT_GARAGES.length - 1 && styles.suggestedCardLast,
-                  ]}
-                  activeOpacity={0.7}
-                  onPress={() => {
-                    setDropLocation(loc.name);
-                    setShowSearchResults(false);
-                  }}
-                >
-                  <Icon name="construct" size={iconSizes.sm} color={colors.primary} style={styles.suggestedIcon} />
-                  <Text style={styles.suggestedName} numberOfLines={1}>
-                    {loc.name}
-                  </Text>
-                  <Text style={styles.suggestedAddress} numberOfLines={1}>
-                    {loc.address}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
             <View style={styles.confirmButtonContainer}>
               <PrimaryButton
-                title={submitting ? 'Booking…' : 'Confirm Garage Location'}
+                title={submitting ? 'Booking…' : 'Confirm Roadside Help'}
                 onPress={handleConfirmBooking}
-                disabled={!dropLocation.trim() || submitting}
+                disabled={submitting}
               />
             </View>
           </>

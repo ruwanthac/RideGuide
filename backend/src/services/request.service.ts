@@ -4,7 +4,7 @@ import { UserModel } from '../models/User';
 import { HttpError } from './auth.service';
 
 type Role = 'owner' | 'mechanic' | 'tow' | 'admin';
-type LegacyStatus = 'pending' | 'accepted' | 'completed' | 'cancelled';
+type LegacyStatus = 'pending' | 'accepted' | 'attending_to_location' | 'completed' | 'cancelled';
 type TowStatus =
   | 'requested'
   | 'driver_picked_hire'
@@ -63,7 +63,13 @@ export async function listForRole(userId: string, role: Role, vehicleId?: string
   }
   return ServiceRequestModel.find({
     type,
-    $or: [{ status: 'pending' }, { acceptedBy: new Types.ObjectId(userId) }],
+    $or: [
+      { status: 'pending' },
+      {
+        acceptedBy: new Types.ObjectId(userId),
+        status: { $nin: ['completed', 'cancelled'] },
+      },
+    ],
   }).sort({ createdAt: -1 }).lean();
 }
 
@@ -146,16 +152,25 @@ export async function transition(
     if (isTow && req.status !== 'requested' && role !== 'admin') {
       throw new HttpError(409, 'can only cancel before driver accepts');
     }
+    if (!isTow && req.status !== 'pending' && role !== 'admin') {
+      throw new HttpError(409, 'can only cancel before mechanic accepts');
+    }
     req.status = 'cancelled';
   } else if (!isTow && target === 'accepted') {
-    if (!(role === 'mechanic' || role === 'tow')) throw new HttpError(403, 'only providers can accept');
+    if (role !== 'mechanic' && role !== 'admin') {
+      throw new HttpError(403, 'only mechanics can accept roadside requests');
+    }
     if (req.status !== 'pending') throw new HttpError(409, 'not pending');
     req.status = 'accepted';
     req.acceptedBy = new Types.ObjectId(userId);
   } else if (!isTow && target === 'completed') {
     if (String(req.acceptedBy) !== userId && role !== 'admin') throw new HttpError(403, 'forbidden');
-    if (req.status !== 'accepted') throw new HttpError(409, 'not accepted');
+    if (req.status !== 'attending_to_location') throw new HttpError(409, 'must be attending to location first');
     req.status = 'completed';
+  } else if (!isTow && target === 'attending_to_location') {
+    if (String(req.acceptedBy) !== userId && role !== 'admin') throw new HttpError(403, 'forbidden');
+    if (req.status !== 'accepted') throw new HttpError(409, 'not accepted');
+    req.status = 'attending_to_location';
   } else if (isTow) {
     if (role !== 'tow' && role !== 'admin') throw new HttpError(403, 'only tow providers can update status');
     if (role === 'tow' && req.acceptedBy && String(req.acceptedBy) !== userId) {

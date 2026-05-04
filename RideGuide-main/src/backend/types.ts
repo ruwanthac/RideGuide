@@ -54,6 +54,7 @@ export interface ServiceRequest {
   status:
     | 'pending'
     | 'accepted'
+    | 'attending_to_location'
     | 'requested'
     | 'driver_picked_hire'
     | 'driver_on_the_way'

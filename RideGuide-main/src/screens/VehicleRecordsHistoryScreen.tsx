@@ -34,6 +34,7 @@ function statusLabel(s: ServiceRequest['status']): string {
     case 'requested':
       return 'Waiting';
     case 'accepted':
+    case 'attending_to_location':
     case 'driver_picked_hire':
     case 'driver_on_the_way':
     case 'driver_arrived':

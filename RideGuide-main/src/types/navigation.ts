@@ -23,7 +23,9 @@ export type HomeStackParamList = {
   Diagnose: undefined;
   TowTruckAssistant: undefined;
   TowOwnerTracking: { requestId: string };
+  RoadsideOwnerTracking: { requestId: string };
   TowDriverActiveJob: { requestId: string };
+  MechanicActiveJob: { requestId: string };
   ChatAssistant: { sessionId?: string } | undefined;
   Assistance: undefined;
   VideoCall: { priorConversationSummary?: string; vehicleId?: string } | undefined;
@@ -34,6 +36,7 @@ export type HomeStackParamList = {
 export type HistoryStackParamList = {
   History: undefined;
   TowJobHistory: undefined;
+  RoadsideHelpHistory: undefined;
   VehicleRecordsHistory: undefined;
   ObdDiagnoseHistory: undefined;
   AiChatHistory: undefined;
