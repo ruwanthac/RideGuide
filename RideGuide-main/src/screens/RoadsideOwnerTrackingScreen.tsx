@@ -1,5 +1,15 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Animated, Easing, ActivityIndicator } from 'react-native';
+import {
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  Animated,
+  Easing,
+  ActivityIndicator,
+  Linking,
+  Alert,
+} from 'react-native';
 import { WebView } from 'react-native-webview';
 import { Icon } from '../components';
 import { colors } from '../constants/theme';
@@ -7,6 +17,7 @@ import { useResponsive } from '../hooks';
 import type { ServiceRequest } from '../backend/types';
 import { listServiceRequests, subscribeRequestById } from '../backend/serviceRequestsService';
 import { useUserRole } from '../context/UserRoleContext';
+import { useNavigation } from '@react-navigation/native';
 
 const ROAD_STATUS_LABELS: Record<string, string> = {
   pending: 'Pending',
@@ -29,6 +40,7 @@ export const RoadsideOwnerTrackingScreen: React.FC<RoadsideOwnerTrackingScreenPr
 }) => {
   const { spacing, fontSizes, borderRadius } = useResponsive();
   const { role } = useUserRole();
+  const navigation = useNavigation<any>();
   const [request, setRequest] = useState<ServiceRequest | null>(null);
   const [loading, setLoading] = useState(true);
   const pulse = useRef(new Animated.Value(0.8)).current;
@@ -139,6 +151,25 @@ export const RoadsideOwnerTrackingScreen: React.FC<RoadsideOwnerTrackingScreenPr
           backgroundColor: 'rgba(37,99,235,0.12)',
         },
         activeText: { color: colors.primary, marginLeft: spacing.xs, fontWeight: '600' },
+        mechanicSection: {
+          marginTop: spacing.md,
+          paddingTop: spacing.md,
+          borderTopWidth: StyleSheet.hairlineWidth,
+          borderTopColor: colors.border,
+        },
+        mechanicLabel: { fontSize: fontSizes.xs, fontWeight: '600', color: colors.textSecondary, marginBottom: spacing.xs },
+        mechanicName: { fontSize: fontSizes.md, fontWeight: '700', color: colors.text },
+        mechanicPhone: { fontSize: fontSizes.sm, color: colors.textSecondary, marginTop: spacing.xs },
+        actionsRow: { flexDirection: 'row', marginTop: spacing.md },
+        iconBtn: {
+          width: 44,
+          height: 44,
+          borderRadius: 22,
+          backgroundColor: colors.primary + '10',
+          alignItems: 'center',
+          justifyContent: 'center',
+          marginRight: spacing.sm,
+        },
         backBtn: {
           position: 'absolute',
           top: spacing.xl + spacing.md,
@@ -163,6 +194,30 @@ export const RoadsideOwnerTrackingScreen: React.FC<RoadsideOwnerTrackingScreenPr
   }
 
   const activeIndex = ROADSIDE_FLOW.indexOf(request.status);
+  const showMechanicContact =
+    request.status === 'accepted' ||
+    request.status === 'attending_to_location' ||
+    request.status === 'completed';
+  const mechanicName = request.acceptedProviderDisplayName?.trim() || 'Your mechanic';
+  const mechanicPhone = request.acceptedProviderPhone?.trim() ?? '';
+
+  const openCall = () => {
+    if (!mechanicPhone) {
+      Alert.alert('Phone unavailable', 'Your mechanic has not added a phone number yet.');
+      return;
+    }
+    void Linking.openURL(`tel:${mechanicPhone}`);
+  };
+
+  const openChat = () => {
+    navigation.navigate('RequestChat', {
+      requestId: request._id,
+      userName: mechanicName,
+      vehicle: request.vehicle,
+      issue: request.issue,
+    });
+  };
+
   return (
     <View style={styles.container}>
       <WebView source={{ html: mapHtml }} style={styles.map} />
@@ -178,6 +233,21 @@ export const RoadsideOwnerTrackingScreen: React.FC<RoadsideOwnerTrackingScreenPr
             {ROAD_STATUS_LABELS[request.status] ?? request.status.replaceAll('_', ' ')}
           </Text>
         </Animated.View>
+        {showMechanicContact ? (
+          <View style={styles.mechanicSection}>
+            <Text style={styles.mechanicLabel}>MECHANIC</Text>
+            <Text style={styles.mechanicName}>{mechanicName}</Text>
+            <Text style={styles.mechanicPhone}>{mechanicPhone || 'Phone number not on file'}</Text>
+            <View style={styles.actionsRow}>
+              <TouchableOpacity style={styles.iconBtn} onPress={openCall} activeOpacity={0.85}>
+                <Icon name="call" size={20} color={colors.primary} />
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.iconBtn} onPress={openChat} activeOpacity={0.85}>
+                <Icon name="chatbubble" size={20} color={colors.primary} />
+              </TouchableOpacity>
+            </View>
+          </View>
+        ) : null}
         <View style={{ marginTop: spacing.md }}>
           {ROADSIDE_FLOW.map((step, index) => (
             <View key={step} style={styles.statusRow}>

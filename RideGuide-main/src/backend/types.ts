@@ -63,6 +63,9 @@ export interface ServiceRequest {
     | 'completed'
     | 'cancelled';
   acceptedBy: string | null;
+  /** Set when a provider accepts (mechanic for roadside). */
+  acceptedProviderDisplayName?: string | null;
+  acceptedProviderPhone?: string | null;
   vehicleId: string | null;
   userName: string;
   vehicle: string;

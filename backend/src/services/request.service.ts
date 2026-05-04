@@ -163,6 +163,11 @@ export async function transition(
     if (req.status !== 'pending') throw new HttpError(409, 'not pending');
     req.status = 'accepted';
     req.acceptedBy = new Types.ObjectId(userId);
+    const provider = await UserModel.findById(userId).lean();
+    if (provider) {
+      (req as any).acceptedProviderDisplayName = provider.displayName ?? '';
+      (req as any).acceptedProviderPhone = provider.phoneNumber ?? '';
+    }
   } else if (!isTow && target === 'completed') {
     if (String(req.acceptedBy) !== userId && role !== 'admin') throw new HttpError(403, 'forbidden');
     if (req.status !== 'attending_to_location') throw new HttpError(409, 'must be attending to location first');
