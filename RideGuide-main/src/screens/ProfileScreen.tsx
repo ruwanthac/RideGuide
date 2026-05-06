@@ -110,16 +110,22 @@ export const ProfileScreen: React.FC = () => {
   };
 
   const handleAddVehicle = () => {
-    void addVehicle({ label: 'New Vehicle', makeModel: DEFAULT_MAKE_MODEL, vin: DEFAULT_VIN })
-      .then((created) => {
-        void setSelectedVehicleId(created._id);
+    void (async () => {
+      try {
+        const created = await addVehicle({
+          label: 'New Vehicle',
+          makeModel: DEFAULT_MAKE_MODEL,
+          vin: DEFAULT_VIN,
+        });
+        // Persist the new vehicle as selected before the user enters flows like AI video call.
+        await setSelectedVehicleId(created._id);
         setEditMakeModel(created.makeModel);
         setEditVin(created.vin);
         setIsEditingVehicle(true);
-      })
-      .catch(() => {
+      } catch {
         Alert.alert('Error', 'Could not add vehicle. Try again.');
-      });
+      }
+    })();
   };
 
   const handleDeleteVehicle = (vehicleId: string) => {

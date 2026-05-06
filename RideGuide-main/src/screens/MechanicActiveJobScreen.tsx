@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, Linking, Alert } from 'react-native';
 import { WebView } from 'react-native-webview';
 import { Icon } from '../components';
@@ -44,6 +44,22 @@ export const MechanicActiveJobScreen: React.FC<MechanicActiveJobScreenProps> = (
   const [request, setRequest] = useState<ServiceRequest | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const completionTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const hasRedirectedRef = useRef(false);
+
+  const scheduleDoneOnce = () => {
+    if (hasRedirectedRef.current) return;
+    hasRedirectedRef.current = true;
+    if (completionTimeoutRef.current) clearTimeout(completionTimeoutRef.current);
+    completionTimeoutRef.current = setTimeout(onDone, 1300);
+  };
+
+  useEffect(() => {
+    return () => {
+      if (completionTimeoutRef.current) clearTimeout(completionTimeoutRef.current);
+      hasRedirectedRef.current = false;
+    };
+  }, []);
 
   useEffect(() => {
     if (role !== 'mechanic') onDone();
@@ -58,7 +74,7 @@ export const MechanicActiveJobScreen: React.FC<MechanicActiveJobScreenProps> = (
         if (alive) setRequest(items.find((item) => item._id === requestId) ?? null);
         off = await subscribeRequestById(requestId, (doc) => {
           setRequest(doc);
-          if (doc.status === 'completed') setTimeout(onDone, 1300);
+          if (doc.status === 'completed') scheduleDoneOnce();
         });
       } finally {
         if (alive) setLoading(false);
@@ -93,7 +109,7 @@ export const MechanicActiveJobScreen: React.FC<MechanicActiveJobScreenProps> = (
     try {
       const updated = await updateServiceRequest(request._id, nextStatus);
       setRequest(updated);
-      if (updated.status === 'completed') setTimeout(onDone, 1300);
+      if (updated.status === 'completed') scheduleDoneOnce();
     } catch (error) {
       Alert.alert('Unable to update', extractApiError(error, 'Please try again'));
     } finally {

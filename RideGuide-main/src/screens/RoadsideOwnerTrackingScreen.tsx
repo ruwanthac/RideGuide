@@ -44,6 +44,22 @@ export const RoadsideOwnerTrackingScreen: React.FC<RoadsideOwnerTrackingScreenPr
   const [request, setRequest] = useState<ServiceRequest | null>(null);
   const [loading, setLoading] = useState(true);
   const pulse = useRef(new Animated.Value(0.8)).current;
+  const completionTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const hasRedirectedRef = useRef(false);
+
+  const scheduleBackHomeOnce = () => {
+    if (hasRedirectedRef.current) return;
+    hasRedirectedRef.current = true;
+    if (completionTimeoutRef.current) clearTimeout(completionTimeoutRef.current);
+    completionTimeoutRef.current = setTimeout(onBackHome, 1800);
+  };
+
+  useEffect(() => {
+    return () => {
+      if (completionTimeoutRef.current) clearTimeout(completionTimeoutRef.current);
+      hasRedirectedRef.current = false;
+    };
+  }, []);
 
   useEffect(() => {
     Animated.loop(
@@ -68,7 +84,7 @@ export const RoadsideOwnerTrackingScreen: React.FC<RoadsideOwnerTrackingScreenPr
         if (alive) setRequest(found);
         off = await subscribeRequestById(requestId, (doc) => {
           setRequest(doc);
-          if (doc.status === 'completed') setTimeout(onBackHome, 1800);
+          if (doc.status === 'completed') scheduleBackHomeOnce();
         });
       } finally {
         if (alive) setLoading(false);
@@ -93,7 +109,7 @@ export const RoadsideOwnerTrackingScreen: React.FC<RoadsideOwnerTrackingScreenPr
             return prev;
           });
           if (latest.status === 'completed') {
-            setTimeout(onBackHome, 1800);
+            scheduleBackHomeOnce();
           }
         } catch {
           // Ignore polling errors; realtime subscription still handles updates.

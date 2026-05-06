@@ -41,6 +41,22 @@ export const TowDriverActiveJobScreen: React.FC<TowDriverActiveJobScreenProps> =
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const pulse = useRef(new Animated.Value(1)).current;
+  const completionTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const hasRedirectedRef = useRef(false);
+
+  const scheduleDoneOnce = () => {
+    if (hasRedirectedRef.current) return;
+    hasRedirectedRef.current = true;
+    if (completionTimeoutRef.current) clearTimeout(completionTimeoutRef.current);
+    completionTimeoutRef.current = setTimeout(onDone, 1400);
+  };
+
+  useEffect(() => {
+    return () => {
+      if (completionTimeoutRef.current) clearTimeout(completionTimeoutRef.current);
+      hasRedirectedRef.current = false;
+    };
+  }, []);
 
   useEffect(() => {
     Animated.loop(
@@ -64,7 +80,7 @@ export const TowDriverActiveJobScreen: React.FC<TowDriverActiveJobScreenProps> =
         if (alive) setRequest(items.find((item) => item._id === requestId) ?? null);
         off = await subscribeRequestById(requestId, (doc) => {
           setRequest(doc);
-          if (doc.status === 'completed') setTimeout(onDone, 1400);
+          if (doc.status === 'completed') scheduleDoneOnce();
         });
       } finally {
         if (alive) setLoading(false);
@@ -103,7 +119,7 @@ export const TowDriverActiveJobScreen: React.FC<TowDriverActiveJobScreenProps> =
     try {
       const updated = await updateServiceRequest(request._id, nextStatus);
       setRequest(updated);
-      if (updated.status === 'completed') setTimeout(onDone, 1400);
+      if (updated.status === 'completed') scheduleDoneOnce();
     } catch (error) {
       alert(extractApiError(error, 'Failed to update status'));
     } finally {
