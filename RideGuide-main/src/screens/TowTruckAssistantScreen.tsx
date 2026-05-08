@@ -1155,12 +1155,13 @@ export const TowTruckAssistantScreen: React.FC<TowTruckAssistantScreenProps> = (
           alignSelf: 'flex-start',
           flexDirection: 'row',
           alignItems: 'center',
-          paddingVertical: spacing.xs,
+          paddingVertical: 2,
+          paddingHorizontal: 2,
         },
         mapPickButtonText: {
-          marginLeft: spacing.sm,
+          marginLeft: spacing.xs,
           color: '#111111',
-          fontSize: fontSizes.sm,
+          fontSize: fontSizes.xs,
           fontWeight: '600',
         },
         sectionTitle: {
@@ -1615,7 +1616,7 @@ export const TowTruckAssistantScreen: React.FC<TowTruckAssistantScreenProps> = (
             </View>
           )}
           <TouchableOpacity style={styles.mapPickButton} onPress={openPickupMapPicker} activeOpacity={0.8}>
-            <Icon name="location-outline" size={iconSizes.md} color="#111111" />
+            <Icon name="location-outline" size={iconSizes.sm} color="#111111" />
             <Text style={styles.mapPickButtonText}>
               {tripType === 'roadside' ? 'Set current location on map' : 'Set location on map'}
             </Text>
@@ -1673,7 +1674,7 @@ export const TowTruckAssistantScreen: React.FC<TowTruckAssistantScreenProps> = (
               </View>
             )}
             <TouchableOpacity style={styles.mapPickButton} onPress={openDropMapPicker} activeOpacity={0.8}>
-              <Icon name="location-outline" size={iconSizes.md} color="#111111" />
+              <Icon name="location-outline" size={iconSizes.sm} color="#111111" />
               <Text style={styles.mapPickButtonText}>Set location on map</Text>
             </TouchableOpacity>
           </View>
