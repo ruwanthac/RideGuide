@@ -15,6 +15,11 @@ type TowStatus =
   | 'completed'
   | 'cancelled';
 
+type RequestWithProviderLocation = Record<string, any> & {
+  acceptedBy?: unknown;
+  acceptedProviderLocation?: { latitude: number; longitude: number } | null;
+};
+
 const TOW_TRANSITIONS: Record<string, TowStatus | null> = {
   requested: 'driver_picked_hire',
   driver_picked_hire: 'driver_on_the_way',
@@ -25,33 +30,56 @@ const TOW_TRANSITIONS: Record<string, TowStatus | null> = {
   cancelled: null,
 };
 
+async function enrichProviderLocation<T extends RequestWithProviderLocation>(req: T): Promise<T> {
+  if (!req?.acceptedBy) return req;
+  const provider = await UserModel.findById(req.acceptedBy).select('location').lean();
+  const coordinates = provider?.location?.coordinates;
+  if (!Array.isArray(coordinates) || coordinates.length !== 2) {
+    return { ...req, acceptedProviderLocation: null };
+  }
+  const [longitude, latitude] = coordinates;
+  if (typeof latitude !== 'number' || typeof longitude !== 'number') {
+    return { ...req, acceptedProviderLocation: null };
+  }
+  return {
+    ...req,
+    acceptedProviderLocation: { latitude, longitude },
+  };
+}
+
 export async function listForRole(userId: string, role: Role, vehicleId?: string, historyOnly = false) {
-  if (role === 'admin') return ServiceRequestModel.find().sort({ createdAt: -1 }).limit(200).lean();
+  if (role === 'admin') {
+    const rows = await ServiceRequestModel.find().sort({ createdAt: -1 }).limit(200).lean();
+    return Promise.all(rows.map((row) => enrichProviderLocation(row as RequestWithProviderLocation)));
+  }
   if (role === 'owner') {
     const filter: Record<string, unknown> = { requesterId: userId };
     if (vehicleId) filter.vehicleId = vehicleId;
-    return ServiceRequestModel.find(filter).sort({ createdAt: -1 }).lean();
+    const rows = await ServiceRequestModel.find(filter).sort({ createdAt: -1 }).lean();
+    return Promise.all(rows.map((row) => enrichProviderLocation(row as RequestWithProviderLocation)));
   }
   if (historyOnly) {
     if (role === 'tow') {
-      return ServiceRequestModel.find({
+      const rows = await ServiceRequestModel.find({
         type: 'tow',
         acceptedBy: new Types.ObjectId(userId),
         status: { $in: ['completed', 'cancelled'] },
       }).sort({ createdAt: -1 }).limit(100).lean();
+      return Promise.all(rows.map((row) => enrichProviderLocation(row as RequestWithProviderLocation)));
     }
     if (role === 'mechanic') {
-      return ServiceRequestModel.find({
+      const rows = await ServiceRequestModel.find({
         type: 'roadside',
         acceptedBy: new Types.ObjectId(userId),
         status: { $in: ['completed', 'cancelled'] },
       }).sort({ createdAt: -1 }).limit(100).lean();
+      return Promise.all(rows.map((row) => enrichProviderLocation(row as RequestWithProviderLocation)));
     }
     return [];
   }
   const type = role === 'mechanic' ? 'roadside' : 'tow';
   if (role === 'tow') {
-    return ServiceRequestModel.find({
+    const rows = await ServiceRequestModel.find({
       type: 'tow',
       $or: [
         { status: 'requested' },
@@ -61,17 +89,19 @@ export async function listForRole(userId: string, role: Role, vehicleId?: string
         },
       ],
     }).sort({ createdAt: -1 }).lean();
+    return Promise.all(rows.map((row) => enrichProviderLocation(row as RequestWithProviderLocation)));
   }
   const mechanicUser = await UserModel.findById(userId).select('mechanicAvailable').lean();
   const mechanicReceiving = mechanicUser?.mechanicAvailable !== false;
   if (!mechanicReceiving) {
-    return ServiceRequestModel.find({
+    const rows = await ServiceRequestModel.find({
       type: 'roadside',
       acceptedBy: new Types.ObjectId(userId),
       status: { $nin: ['completed', 'cancelled'] },
     }).sort({ createdAt: -1 }).lean();
+    return Promise.all(rows.map((row) => enrichProviderLocation(row as RequestWithProviderLocation)));
   }
-  return ServiceRequestModel.find({
+  const rows = await ServiceRequestModel.find({
     type,
     $or: [
       { status: 'pending' },
@@ -81,6 +111,7 @@ export async function listForRole(userId: string, role: Role, vehicleId?: string
       },
     ],
   }).sort({ createdAt: -1 }).lean();
+  return Promise.all(rows.map((row) => enrichProviderLocation(row as RequestWithProviderLocation)));
 }
 
 export async function createRequest(userId: string, input: {
@@ -210,7 +241,7 @@ export async function transition(
     throw new HttpError(400, 'invalid status transition');
   }
   await req.save();
-  return req.toObject();
+  return enrichProviderLocation(req.toObject() as RequestWithProviderLocation);
 }
 
 function haversineKm(lat1: number, lon1: number, lat2: number, lon2: number): number {

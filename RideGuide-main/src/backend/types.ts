@@ -68,6 +68,7 @@ export interface ServiceRequest {
   /** Set when a provider accepts (mechanic for roadside). */
   acceptedProviderDisplayName?: string | null;
   acceptedProviderPhone?: string | null;
+  acceptedProviderLocation?: { latitude: number; longitude: number } | null;
   vehicleId: string | null;
   userName: string;
   vehicle: string;

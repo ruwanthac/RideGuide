@@ -99,7 +99,12 @@ export const TowOwnerTrackingScreen: React.FC<TowOwnerTrackingScreenProps> = ({ 
           const latest = items.find((item) => item._id === requestId);
           if (!latest) return;
           setRequest((prev) => {
-            if (!prev || prev.status !== latest.status || prev.updatedAt !== latest.updatedAt) {
+            const prevDriver = prev?.acceptedProviderLocation;
+            const nextDriver = latest.acceptedProviderLocation;
+            const driverLocationChanged =
+              prevDriver?.latitude !== nextDriver?.latitude ||
+              prevDriver?.longitude !== nextDriver?.longitude;
+            if (!prev || prev.status !== latest.status || prev.updatedAt !== latest.updatedAt || driverLocationChanged) {
               return latest;
             }
             return prev;
@@ -119,14 +124,18 @@ export const TowOwnerTrackingScreen: React.FC<TowOwnerTrackingScreenProps> = ({ 
   }, [onBackHome, requestId]);
 
   const mapHtml = useMemo(() => {
+    const ownerLat = request?.pickupLatitude ?? request?.latitude ?? 6.9271;
+    const ownerLng = request?.pickupLongitude ?? request?.longitude ?? 79.8612;
+    const driverLat = request?.acceptedProviderLocation?.latitude;
+    const driverLng = request?.acceptedProviderLocation?.longitude;
+    const showTowLiveRoute =
+      request?.status === 'driver_picked_hire' ||
+      request?.status === 'driver_on_the_way' ||
+      request?.status === 'driver_arrived' ||
+      request?.status === 'vehicle_in_tow';
+    const hasDriverLocation =
+      typeof driverLat === 'number' && typeof driverLng === 'number' && Boolean(showTowLiveRoute);
     const isRequested = request?.status === 'requested';
-    const lat = isRequested
-      ? request?.latitude ?? request?.pickupLatitude ?? 6.9271
-      : request?.pickupLatitude ?? request?.latitude ?? 6.9271;
-    const lng = isRequested
-      ? request?.longitude ?? request?.pickupLongitude ?? 79.8612
-      : request?.pickupLongitude ?? request?.longitude ?? 79.8612;
-    const markerLabel = isRequested ? 'Your current location' : 'Pickup';
     return `
       <!DOCTYPE html><html><head>
       <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0"/>
@@ -135,19 +144,40 @@ export const TowOwnerTrackingScreen: React.FC<TowOwnerTrackingScreenProps> = ({ 
       <body><div id="map"></div>
       <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
       <script>
-        const map=L.map('map').setView([${lat},${lng}],13);
+        const ownerLat=${ownerLat};
+        const ownerLng=${ownerLng};
+        const hasDriverLocation=${hasDriverLocation ? 'true' : 'false'};
+        const showTowLiveRoute=${showTowLiveRoute ? 'true' : 'false'};
+        const rawDriverLat=${typeof driverLat === 'number' ? driverLat : 'null'};
+        const rawDriverLng=${typeof driverLng === 'number' ? driverLng : 'null'};
+        const fallbackDriverLat = ownerLat + 0.00035;
+        const fallbackDriverLng = ownerLng + 0.00035;
+        const driverLat = hasDriverLocation ? rawDriverLat : fallbackDriverLat;
+        const driverLng = hasDriverLocation ? rawDriverLng : fallbackDriverLng;
+        const bounds = hasDriverLocation
+          ? [[ownerLat, ownerLng], [driverLat, driverLng]]
+          : [[ownerLat, ownerLng]];
+        const map=L.map('map');
+        map.fitBounds(bounds, { padding: [30, 30], maxZoom: 16 });
         L.tileLayer('${MAP_TILE_URL}',{maxZoom:19, attribution:'${MAP_ATTRIBUTION}'}).addTo(map);
-        ${
-          isRequested
-            ? `L.marker([${lat},${lng}], {
-                 icon: L.divIcon({
-                   className: 'owner-car-marker',
-                   html: '<div style="background:#2563EB;color:#fff;border-radius:999px;width:40px;height:40px;display:flex;align-items:center;justify-content:center;font-size:20px;border:3px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,0.35);">🚗</div>',
-                   iconSize: [40, 40],
-                   iconAnchor: [20, 20]
-                 })
-               }).addTo(map).bindPopup('<span class="lbl">${markerLabel}</span>');`
-            : `L.marker([${lat},${lng}]).addTo(map).bindPopup('<span class="lbl">${markerLabel}</span>');`
+        L.marker([ownerLat,ownerLng], {
+          icon: L.divIcon({
+            className: 'owner-car-marker',
+            html: '<div style="background:#2563EB;color:#fff;border-radius:999px;width:40px;height:40px;display:flex;align-items:center;justify-content:center;font-size:20px;border:3px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,0.35);">🚗</div>',
+            iconSize: [40, 40],
+            iconAnchor: [20, 20]
+          })
+        }).addTo(map).bindPopup('<span class="lbl">${isRequested ? 'Your current location' : 'Pickup location'}</span>');
+        if (showTowLiveRoute) {
+          L.marker([driverLat,driverLng], {
+            icon: L.divIcon({
+              className: 'tow-truck-marker',
+              html: '<div style="background:#111;color:#fff;border-radius:999px;width:40px;height:40px;display:flex;align-items:center;justify-content:center;font-size:20px;border:3px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,0.35);">🚚</div>',
+              iconSize: [40, 40],
+              iconAnchor: [20, 20]
+            })
+          }).addTo(map).bindPopup('<span class="lbl">'+(hasDriverLocation ? 'Tow truck live location' : 'Tow truck location (waiting for live GPS)')+'</span>');
+          L.polyline([[driverLat,driverLng],[ownerLat,ownerLng]],{color:'#000000', weight:4, opacity:0.95}).addTo(map);
         }
       </script></body></html>
     `;

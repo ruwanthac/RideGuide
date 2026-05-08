@@ -677,6 +677,16 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
     '3': onTowTruckAssistant,
   };
 
+  const formatTowBookingType = (bookingType?: ServiceRequest['bookingType']) => {
+    if (bookingType === 'scheduled') return 'Scheduled';
+    return 'On-demand';
+  };
+
+  const formatTowAmount = (req: ServiceRequest) => {
+    if (typeof req.estimatedAmount !== 'number') return null;
+    return `${req.currency ?? 'LKR'} ${Math.round(req.estimatedAmount)}`;
+  };
+
   return (
     <View style={styles.container}>
       <ScrollView
@@ -790,21 +800,37 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                                 {req.issue}
                               </Text>
                               {isTow ? (
-                                <View style={styles.requestBadgeRow}>
-                                  <View style={styles.requestTag}>
-                                    <Text style={styles.requestTagText}>Tow</Text>
-                                  </View>
-                                  <View style={styles.requestTag}>
-                                    <Text style={styles.requestTagText}>
-                                      {req.bookingType === 'scheduled' ? 'Scheduled' : 'On-demand'}
+                                <>
+                                  <Text style={styles.requestMeta} numberOfLines={2}>
+                                    Pickup: {req.pickupAddress?.trim() || req.location}
+                                  </Text>
+                                  <Text style={styles.requestMeta} numberOfLines={2}>
+                                    Drop: {req.dropoffAddress?.trim() || 'Not provided'}
+                                  </Text>
+                                  {(req.bookingType === 'scheduled' || Boolean(req.scheduledAt)) && (
+                                    <Text style={styles.requestMeta} numberOfLines={2}>
+                                      Scheduled for:{' '}
+                                      {req.scheduledAt
+                                        ? new Date(req.scheduledAt).toLocaleString()
+                                        : 'Not set'}
                                     </Text>
+                                  )}
+                                  <View style={styles.requestBadgeRow}>
+                                    <View style={styles.requestTag}>
+                                      <Text style={styles.requestTagText}>Tow</Text>
+                                    </View>
+                                    <View style={styles.requestTag}>
+                                      <Text style={styles.requestTagText}>
+                                        {formatTowBookingType(req.bookingType)}
+                                      </Text>
+                                    </View>
+                                    {formatTowAmount(req) ? (
+                                      <View style={styles.requestTag}>
+                                        <Text style={styles.requestTagText}>{formatTowAmount(req)}</Text>
+                                      </View>
+                                    ) : null}
                                   </View>
-                                  <View style={styles.requestTag}>
-                                    <Text style={styles.requestTagText}>
-                                      {req.currency ?? 'LKR'} {Math.round(req.estimatedAmount ?? 0)}
-                                    </Text>
-                                  </View>
-                                </View>
+                                </>
                               ) : (
                                 <View style={styles.requestBadgeRow}>
                                   <View style={styles.requestTag}>
