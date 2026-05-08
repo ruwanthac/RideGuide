@@ -159,9 +159,76 @@ export const RoadsideOwnerTrackingScreen: React.FC<RoadsideOwnerTrackingScreenPr
         },
         title: { fontSize: fontSizes.lg, fontWeight: '700', color: colors.text, marginBottom: spacing.sm },
         subtitle: { color: colors.textSecondary, marginBottom: spacing.md },
-        statusRow: { flexDirection: 'row', alignItems: 'center', marginBottom: spacing.sm },
-        doneText: { color: colors.primary, marginLeft: spacing.sm, fontWeight: '600' },
-        pendingText: { color: colors.textSecondary, marginLeft: spacing.sm },
+        timelineContainer: {
+          marginTop: spacing.md,
+          borderWidth: 1,
+          borderColor: colors.border,
+          borderRadius: borderRadius.md,
+          backgroundColor: colors.background,
+          paddingVertical: spacing.sm,
+          paddingHorizontal: spacing.sm,
+        },
+        timelineRow: {
+          flexDirection: 'row',
+          alignItems: 'flex-start',
+          minHeight: 56,
+        },
+        timelineRailWrap: {
+          width: 28,
+          alignItems: 'center',
+          marginRight: spacing.sm,
+        },
+        timelineConnector: {
+          position: 'absolute',
+          top: 24,
+          width: 2,
+          height: 32,
+          backgroundColor: colors.border,
+          borderRadius: 1,
+        },
+        timelineConnectorDone: {
+          backgroundColor: colors.primary,
+        },
+        timelineNodeOuter: {
+          width: 18,
+          height: 18,
+          borderRadius: 9,
+          borderWidth: 2,
+          borderColor: colors.border,
+          backgroundColor: colors.card,
+          alignItems: 'center',
+          justifyContent: 'center',
+          marginTop: 2,
+        },
+        timelineNodeOuterDone: {
+          borderColor: colors.primary,
+        },
+        timelineNodeInner: {
+          width: 8,
+          height: 8,
+          borderRadius: 4,
+          backgroundColor: colors.border,
+        },
+        timelineNodeInnerDone: {
+          backgroundColor: colors.primary,
+        },
+        timelineContent: {
+          flex: 1,
+          paddingTop: 1,
+        },
+        timelineTitle: {
+          fontSize: fontSizes.sm,
+          fontWeight: '700',
+          color: colors.text,
+        },
+        timelineTitleDone: {
+          color: colors.primary,
+        },
+        timelineSubtitle: {
+          fontSize: fontSizes.xs,
+          color: colors.textSecondary,
+          marginTop: 2,
+        },
         activePill: {
           flexDirection: 'row',
           alignItems: 'center',
@@ -269,19 +336,43 @@ export const RoadsideOwnerTrackingScreen: React.FC<RoadsideOwnerTrackingScreenPr
             </View>
           </View>
         ) : null}
-        <View style={{ marginTop: spacing.md }}>
-          {ROADSIDE_FLOW.map((step, index) => (
-            <View key={step} style={styles.statusRow}>
-              <Icon
-                name={index <= activeIndex ? 'checkmark-circle' : 'ellipse-outline'}
-                size={18}
-                color={index <= activeIndex ? colors.primary : colors.textSecondary}
-              />
-              <Text style={index <= activeIndex ? styles.doneText : styles.pendingText}>
-                {ROAD_STATUS_LABELS[step]}
-              </Text>
-            </View>
-          ))}
+        <View style={styles.timelineContainer}>
+          {ROADSIDE_FLOW.map((step, index) => {
+            const isDone = index <= activeIndex;
+            const isActive = index === activeIndex;
+            const showConnector = index < ROADSIDE_FLOW.length - 1;
+            return (
+              <View key={step} style={styles.timelineRow}>
+                <View style={styles.timelineRailWrap}>
+                  {showConnector ? (
+                    <View
+                      style={[
+                        styles.timelineConnector,
+                        index < activeIndex && styles.timelineConnectorDone,
+                      ]}
+                    />
+                  ) : null}
+                  <Animated.View
+                    style={[
+                      styles.timelineNodeOuter,
+                      isDone && styles.timelineNodeOuterDone,
+                      isActive ? { transform: [{ scale: pulse }] } : null,
+                    ]}
+                  >
+                    <View style={[styles.timelineNodeInner, isDone && styles.timelineNodeInnerDone]} />
+                  </Animated.View>
+                </View>
+                <View style={styles.timelineContent}>
+                  <Text style={[styles.timelineTitle, isDone && styles.timelineTitleDone]}>
+                    {ROAD_STATUS_LABELS[step]}
+                  </Text>
+                  <Text style={styles.timelineSubtitle}>
+                    {isActive ? 'Current step' : isDone ? 'Completed step' : 'Upcoming step'}
+                  </Text>
+                </View>
+              </View>
+            );
+          })}
         </View>
       </View>
     </View>

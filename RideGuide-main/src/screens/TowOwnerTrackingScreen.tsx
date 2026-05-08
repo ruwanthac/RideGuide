@@ -119,8 +119,14 @@ export const TowOwnerTrackingScreen: React.FC<TowOwnerTrackingScreenProps> = ({ 
   }, [onBackHome, requestId]);
 
   const mapHtml = useMemo(() => {
-    const lat = request?.pickupLatitude ?? request?.latitude ?? 6.9271;
-    const lng = request?.pickupLongitude ?? request?.longitude ?? 79.8612;
+    const isRequested = request?.status === 'requested';
+    const lat = isRequested
+      ? request?.latitude ?? request?.pickupLatitude ?? 6.9271
+      : request?.pickupLatitude ?? request?.latitude ?? 6.9271;
+    const lng = isRequested
+      ? request?.longitude ?? request?.pickupLongitude ?? 79.8612
+      : request?.pickupLongitude ?? request?.longitude ?? 79.8612;
+    const markerLabel = isRequested ? 'Your current location' : 'Pickup';
     return `
       <!DOCTYPE html><html><head>
       <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0"/>
@@ -131,7 +137,18 @@ export const TowOwnerTrackingScreen: React.FC<TowOwnerTrackingScreenProps> = ({ 
       <script>
         const map=L.map('map').setView([${lat},${lng}],13);
         L.tileLayer('${MAP_TILE_URL}',{maxZoom:19, attribution:'${MAP_ATTRIBUTION}'}).addTo(map);
-        L.marker([${lat},${lng}]).addTo(map).bindPopup('<span class="lbl">Pickup</span>');
+        ${
+          isRequested
+            ? `L.marker([${lat},${lng}], {
+                 icon: L.divIcon({
+                   className: 'owner-car-marker',
+                   html: '<div style="background:#2563EB;color:#fff;border-radius:999px;width:40px;height:40px;display:flex;align-items:center;justify-content:center;font-size:20px;border:3px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,0.35);">🚗</div>',
+                   iconSize: [40, 40],
+                   iconAnchor: [20, 20]
+                 })
+               }).addTo(map).bindPopup('<span class="lbl">${markerLabel}</span>');`
+            : `L.marker([${lat},${lng}]).addTo(map).bindPopup('<span class="lbl">${markerLabel}</span>');`
+        }
       </script></body></html>
     `;
   }, [request]);
@@ -142,9 +159,76 @@ export const TowOwnerTrackingScreen: React.FC<TowOwnerTrackingScreenProps> = ({ 
     card: { margin: spacing.lg, marginTop: spacing.md, padding: spacing.lg, backgroundColor: colors.card, borderRadius: borderRadius.lg },
     title: { fontSize: fontSizes.lg, fontWeight: '700', color: colors.text, marginBottom: spacing.sm },
     subtitle: { color: colors.textSecondary, marginBottom: spacing.md },
-    statusRow: { flexDirection: 'row', alignItems: 'center', marginBottom: spacing.sm },
-    doneText: { color: colors.primary, marginLeft: spacing.sm, fontWeight: '600' },
-    pendingText: { color: colors.textSecondary, marginLeft: spacing.sm },
+    timelineContainer: {
+      marginTop: spacing.md,
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: borderRadius.md,
+      backgroundColor: colors.background,
+      paddingVertical: spacing.sm,
+      paddingHorizontal: spacing.sm,
+    },
+    timelineRow: {
+      flexDirection: 'row',
+      alignItems: 'flex-start',
+      minHeight: 56,
+    },
+    timelineRailWrap: {
+      width: 28,
+      alignItems: 'center',
+      marginRight: spacing.sm,
+    },
+    timelineConnector: {
+      position: 'absolute',
+      top: 24,
+      width: 2,
+      height: 32,
+      backgroundColor: colors.border,
+      borderRadius: 1,
+    },
+    timelineConnectorDone: {
+      backgroundColor: colors.primary,
+    },
+    timelineNodeOuter: {
+      width: 18,
+      height: 18,
+      borderRadius: 9,
+      borderWidth: 2,
+      borderColor: colors.border,
+      backgroundColor: colors.card,
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginTop: 2,
+    },
+    timelineNodeOuterDone: {
+      borderColor: colors.primary,
+    },
+    timelineNodeInner: {
+      width: 8,
+      height: 8,
+      borderRadius: 4,
+      backgroundColor: colors.border,
+    },
+    timelineNodeInnerDone: {
+      backgroundColor: colors.primary,
+    },
+    timelineContent: {
+      flex: 1,
+      paddingTop: 1,
+    },
+    timelineTitle: {
+      fontSize: fontSizes.sm,
+      fontWeight: '700',
+      color: colors.text,
+    },
+    timelineTitleDone: {
+      color: colors.primary,
+    },
+    timelineSubtitle: {
+      fontSize: fontSizes.xs,
+      color: colors.textSecondary,
+      marginTop: 2,
+    },
     activePill: { flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start', paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: borderRadius.full, backgroundColor: 'rgba(37,99,235,0.12)' },
     activeText: { color: colors.primary, marginLeft: spacing.xs, fontWeight: '600' },
     amount: { marginTop: spacing.md, fontSize: fontSizes.md, color: colors.text, fontWeight: '700' },
@@ -182,13 +266,41 @@ export const TowOwnerTrackingScreen: React.FC<TowOwnerTrackingScreenProps> = ({ 
         <Text style={styles.amount}>
           {amountLabel}: {request.currency ?? 'LKR'} {Math.round(request.estimatedAmount ?? 0)}
         </Text>
-        <View style={{ marginTop: spacing.md }}>
-          {flow.map((step, index) => (
-            <View key={step} style={styles.statusRow}>
-              <Icon name={index <= activeIndex ? 'checkmark-circle' : 'ellipse-outline'} size={18} color={index <= activeIndex ? colors.primary : colors.textSecondary} />
-              <Text style={index <= activeIndex ? styles.doneText : styles.pendingText}>{LABELS[step]}</Text>
-            </View>
-          ))}
+        <View style={styles.timelineContainer}>
+          {flow.map((step, index) => {
+            const isDone = index <= activeIndex;
+            const isActive = index === activeIndex;
+            const showConnector = index < flow.length - 1;
+            return (
+              <View key={step} style={styles.timelineRow}>
+                <View style={styles.timelineRailWrap}>
+                  {showConnector ? (
+                    <View
+                      style={[
+                        styles.timelineConnector,
+                        index < activeIndex && styles.timelineConnectorDone,
+                      ]}
+                    />
+                  ) : null}
+                  <Animated.View
+                    style={[
+                      styles.timelineNodeOuter,
+                      isDone && styles.timelineNodeOuterDone,
+                      isActive ? { transform: [{ scale: pulse }] } : null,
+                    ]}
+                  >
+                    <View style={[styles.timelineNodeInner, isDone && styles.timelineNodeInnerDone]} />
+                  </Animated.View>
+                </View>
+                <View style={styles.timelineContent}>
+                  <Text style={[styles.timelineTitle, isDone && styles.timelineTitleDone]}>{LABELS[step]}</Text>
+                  <Text style={styles.timelineSubtitle}>
+                    {isActive ? 'Current step' : isDone ? 'Completed step' : 'Upcoming step'}
+                  </Text>
+                </View>
+              </View>
+            );
+          })}
         </View>
       </View>
     </View>

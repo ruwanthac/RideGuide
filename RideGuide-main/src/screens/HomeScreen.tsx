@@ -293,6 +293,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
         },
         cardWrapperFullWidth: {
           width: '100%',
+          paddingHorizontal: 0,
         },
         cardContent: {
           alignItems: 'center',
@@ -461,6 +462,9 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
         },
         requestsCard: {
           padding: isSmallScreen ? spacing.sm : spacing.lg,
+        },
+        requestsCardExpanded: {
+          marginHorizontal: isSmallScreen ? -spacing.xs : -spacing.sm,
         },
         requestHeaderRow: {
           flexDirection: 'row',
@@ -725,7 +729,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                   ? (req: ServiceRequest) => { void handleAcceptTowRequest(req); }
                   : (req: ServiceRequest) => { void handleAcceptRequest(req); };
                 return (
-                  <Card padded={false} style={styles.requestsCard}>
+                  <Card padded={false} style={[styles.requestsCard, styles.requestsCardExpanded]}>
                     <View style={styles.requestHeaderRow}>
                       <View>
                         <Text style={styles.requestSectionTitle}>{sectionTitle}</Text>

@@ -21,6 +21,7 @@ import { colors } from '../../constants/theme';
 import { useResponsive } from '../../hooks';
 import { Icon } from '../Icon';
 import { updateUserProfile } from '../../backend/userProfileService';
+import { fetchMe } from '../../backend/authService';
 import { listServiceRequests } from '../../backend/serviceRequestsService';
 import type { ServiceRequest } from '../../backend/types';
 import { useAuth } from '../../context/AuthContext';
@@ -482,6 +483,17 @@ export const TowDashboard: React.FC<TowDashboardProps> = ({ driverName }) => {
       watchRef.current = null;
     };
 
+    const applyServerLocation = async (coords: { latitude: number; longitude: number }) => {
+      setLiveCoordsText(`${coords.latitude.toFixed(5)}, ${coords.longitude.toFixed(5)}`);
+      try {
+        const geo = await Location.reverseGeocodeAsync(coords);
+        const built = buildGeocodeLabel(geo);
+        if (!cancelled) setLiveLocationLabel(built || 'Current location updated');
+      } catch {
+        if (!cancelled) setLiveLocationLabel('Current location updated');
+      }
+    };
+
     const syncLocationToServer = async (lat: number, lng: number) => {
       const now = Date.now();
       const first = !hasSentLocationOnce.current;
@@ -489,7 +501,14 @@ export const TowDashboard: React.FC<TowDashboardProps> = ({ driverName }) => {
       hasSentLocationOnce.current = true;
       lastServerPatchAt.current = now;
       try {
-        await updateUserProfile({ location: { lat, lng } });
+        const updated = await updateUserProfile({ location: { lat, lng } });
+        const serverCoords = updated.location?.coordinates;
+        if (Array.isArray(serverCoords) && serverCoords.length === 2) {
+          const [serverLng, serverLat] = serverCoords;
+          if (typeof serverLat === 'number' && typeof serverLng === 'number' && !cancelled) {
+            void applyServerLocation({ latitude: serverLat, longitude: serverLng });
+          }
+        }
       } catch {
         /* non-fatal */
       }
@@ -517,6 +536,20 @@ export const TowDashboard: React.FC<TowDashboardProps> = ({ driverName }) => {
         setLiveLocationLabel('Getting current location…');
         setLiveCoordsText(null);
         setLocationPermissionHint(null);
+      }
+
+      // Hydrate from API first so the card reflects server-side live location state.
+      try {
+        const me = await fetchMe();
+        const serverCoords = me?.location?.coordinates;
+        if (!cancelled && Array.isArray(serverCoords) && serverCoords.length === 2) {
+          const [lng, lat] = serverCoords;
+          if (typeof lat === 'number' && typeof lng === 'number') {
+            await applyServerLocation({ latitude: lat, longitude: lng });
+          }
+        }
+      } catch {
+        /* ignore API hydration failures */
       }
 
       const { status } = await Location.requestForegroundPermissionsAsync();
@@ -552,13 +585,13 @@ export const TowDashboard: React.FC<TowDashboardProps> = ({ driverName }) => {
             void syncLocationToServer(latitude, longitude);
 
             void (async () => {
-              let label = `${latitude.toFixed(4)}, ${longitude.toFixed(4)}`;
+              let label = 'Current location updated';
               try {
                 const geo = await Location.reverseGeocodeAsync({ latitude, longitude });
                 const built = buildGeocodeLabel(geo);
                 if (built) label = built;
               } catch {
-                /* keep coordinate label */
+                /* keep generic label */
               }
               if (!cancelled) setLiveLocationLabel(label);
             })();
@@ -832,7 +865,6 @@ export const TowDashboard: React.FC<TowDashboardProps> = ({ driverName }) => {
           <View style={styles.locationLabelBlock}>
             <Text style={styles.locationLabel}>Current location status</Text>
             <Text style={styles.locationValue}>{liveLocationLabel}</Text>
-            {liveCoordsText ? <Text style={styles.locationMeta}>{liveCoordsText}</Text> : null}
             {locationPermissionHint ? (
               <Text style={styles.locationPermissionError}>{locationPermissionHint}</Text>
             ) : null}
@@ -854,8 +886,7 @@ export const TowDashboard: React.FC<TowDashboardProps> = ({ driverName }) => {
         </View>
         <View style={styles.subtleDivider} />
         <Text style={styles.hintText}>
-          While you are available, your position updates from GPS and is sent to the server (about every
-          45s) so nearby requests can find you. Turn availability off to stop sharing.
+          Your live location updates while available so nearby requests can find you.
         </Text>
       </Card>
 
