@@ -13,6 +13,14 @@ import { colors } from '../constants/theme';
 import { useResponsive } from '../hooks';
 import type { HomeStackParamList } from '../types/navigation';
 
+const MAPBOX_TOKEN = process.env.EXPO_PUBLIC_MAPBOX_ACCESS_TOKEN?.trim() ?? '';
+const MAP_TILE_URL = MAPBOX_TOKEN
+  ? `https://api.mapbox.com/styles/v1/mapbox/streets-v12/tiles/{z}/{x}/{y}?access_token=${MAPBOX_TOKEN}`
+  : 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
+const MAP_ATTRIBUTION = MAPBOX_TOKEN
+  ? '&copy; <a href="https://www.mapbox.com/about/maps/">Mapbox</a> &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+  : '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>';
+
 function buildLeafletHtml(lat: number, lng: number, locationLabel: string): string {
   const escapedLabel = locationLabel
     .replace(/\\/g, '\\\\')
@@ -38,8 +46,8 @@ function buildLeafletHtml(lat: number, lng: number, locationLabel: string): stri
   <div id="map"></div>
   <script>
     var map = L.map('map').setView([${lat}, ${lng}], 15);
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+    L.tileLayer('${MAP_TILE_URL}', {
+      attribution: '${MAP_ATTRIBUTION}'
     }).addTo(map);
     var marker = L.marker([${lat}, ${lng}]).addTo(map);
     marker.bindPopup('<b>${escapedLabel}</b><br>Help request location').openPopup();

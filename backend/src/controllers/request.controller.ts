@@ -68,7 +68,7 @@ export async function towEstimate(req: Request, res: Response, next: NextFunctio
   try {
     if (req.user!.role !== 'owner') return res.status(403).json({ error: 'only owners can estimate' });
     const body = towEstimateSchema.parse(req.body);
-    res.json(svc.estimateTowPrice(body));
+    res.json(await svc.estimateTowPriceWithConfig(body));
   } catch (e) { next(e); }
 }
 export async function patch(req: Request, res: Response, next: NextFunction) {

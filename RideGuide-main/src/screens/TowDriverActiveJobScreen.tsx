@@ -28,6 +28,11 @@ const LABELS: Record<string, string> = {
   vehicle_in_tow: 'Mark vehicle in tow',
   completed: 'Mark completed',
 };
+const MAPBOX_TOKEN = process.env.EXPO_PUBLIC_MAPBOX_ACCESS_TOKEN?.trim() ?? '';
+const MAP_TILE_URL = MAPBOX_TOKEN
+  ? `https://api.mapbox.com/styles/v1/mapbox/streets-v12/tiles/{z}/{x}/{y}?access_token=${MAPBOX_TOKEN}`
+  : 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
+const MAP_ATTRIBUTION = MAPBOX_TOKEN ? '© Mapbox © OpenStreetMap contributors' : '© OpenStreetMap contributors';
 
 interface TowDriverActiveJobScreenProps {
   requestId: string;
@@ -105,7 +110,7 @@ export const TowDriverActiveJobScreen: React.FC<TowDriverActiveJobScreenProps> =
       <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
       <script>
         const map=L.map('map').fitBounds([[${lat},${lng}],[${dropLat},${dropLng}]]);
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19}).addTo(map);
+        L.tileLayer('${MAP_TILE_URL}',{maxZoom:19, attribution:'${MAP_ATTRIBUTION}'}).addTo(map);
         L.marker([${lat},${lng}]).addTo(map).bindPopup('Pickup');
         L.marker([${dropLat},${dropLng}]).addTo(map).bindPopup('Dropoff');
         L.polyline([[${lat},${lng}],[${dropLat},${dropLng}]],{color:'#2563EB'}).addTo(map);

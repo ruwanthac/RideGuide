@@ -23,6 +23,11 @@ const LABELS: Record<string, string> = {
 
 const TOW_FLOW = ['requested', 'driver_picked_hire', 'driver_on_the_way', 'driver_arrived', 'vehicle_in_tow', 'completed'];
 const ROADSIDE_FLOW = ['pending', 'accepted', 'attending_to_location', 'completed'];
+const MAPBOX_TOKEN = process.env.EXPO_PUBLIC_MAPBOX_ACCESS_TOKEN?.trim() ?? '';
+const MAP_TILE_URL = MAPBOX_TOKEN
+  ? `https://api.mapbox.com/styles/v1/mapbox/streets-v12/tiles/{z}/{x}/{y}?access_token=${MAPBOX_TOKEN}`
+  : 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
+const MAP_ATTRIBUTION = MAPBOX_TOKEN ? '© Mapbox © OpenStreetMap contributors' : '© OpenStreetMap contributors';
 
 interface TowOwnerTrackingScreenProps {
   requestId: string;
@@ -125,7 +130,7 @@ export const TowOwnerTrackingScreen: React.FC<TowOwnerTrackingScreenProps> = ({ 
       <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
       <script>
         const map=L.map('map').setView([${lat},${lng}],13);
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19}).addTo(map);
+        L.tileLayer('${MAP_TILE_URL}',{maxZoom:19, attribution:'${MAP_ATTRIBUTION}'}).addTo(map);
         L.marker([${lat},${lng}]).addTo(map).bindPopup('<span class="lbl">Pickup</span>');
       </script></body></html>
     `;

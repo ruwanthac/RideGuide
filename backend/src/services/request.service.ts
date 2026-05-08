@@ -1,6 +1,7 @@
 import { Types } from 'mongoose';
 import { ServiceRequestModel } from '../models/ServiceRequest';
 import { UserModel } from '../models/User';
+import { PricingConfigModel } from '../models/PricingConfig';
 import { HttpError } from './auth.service';
 
 type Role = 'owner' | 'mechanic' | 'tow' | 'admin';
@@ -232,6 +233,7 @@ export function estimateTowPrice(input: {
   dropoffLatitude?: number;
   dropoffLongitude?: number;
   bookingType?: 'on_demand' | 'scheduled';
+  towPerKmLkr?: number;
 }) {
   const fallbackDistanceKm = 5;
   const distanceKm =
@@ -239,10 +241,10 @@ export function estimateTowPrice(input: {
       ? haversineKm(input.pickupLatitude, input.pickupLongitude, input.dropoffLatitude, input.dropoffLongitude)
       : fallbackDistanceKm;
   const roundedDistance = Math.max(1, Number(distanceKm.toFixed(1)));
-  const baseFee = 2500;
-  const perKm = 350;
-  const scheduleSurcharge = input.bookingType === 'scheduled' ? 500 : 0;
-  const estimatedAmount = Math.round(baseFee + roundedDistance * perKm + scheduleSurcharge);
+  const perKm = input.towPerKmLkr ?? 320;
+  const baseFee = 0;
+  const scheduleSurcharge = 0;
+  const estimatedAmount = Math.round(roundedDistance * perKm);
   return {
     distanceKm: roundedDistance,
     estimatedAmount,
@@ -250,6 +252,20 @@ export function estimateTowPrice(input: {
     pricingVersion: 'v1',
     breakdown: { baseFee, perKm, scheduleSurcharge },
   };
+}
+
+export async function estimateTowPriceWithConfig(input: {
+  pickupLatitude: number;
+  pickupLongitude: number;
+  dropoffLatitude?: number;
+  dropoffLongitude?: number;
+  bookingType?: 'on_demand' | 'scheduled';
+}) {
+  const pricing =
+    (await PricingConfigModel.findOne({ key: 'tow' }).lean()) ??
+    (await PricingConfigModel.create({ key: 'tow', towPerKmLkr: 320 }));
+  const towPerKmLkr = Number(pricing.towPerKmLkr ?? 320);
+  return estimateTowPrice({ ...input, towPerKmLkr });
 }
 
 export async function removeRequest(userId: string, role: Role, id: string) {
