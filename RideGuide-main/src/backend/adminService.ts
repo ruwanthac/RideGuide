@@ -13,3 +13,13 @@ export async function setAdminUserRole(id: string, role: AuthUser['role']): Prom
   const { data } = await api.patch<AuthUser>(`/admin/users/${id}`, { role });
   return data;
 }
+
+export async function fetchTowPricing(): Promise<{ towPerKmLkr: number }> {
+  const { data } = await api.get<{ towPerKmLkr: number }>('/admin/pricing/tow');
+  return data;
+}
+
+export async function updateTowPricing(towPerKmLkr: number): Promise<{ towPerKmLkr: number }> {
+  const { data } = await api.patch<{ towPerKmLkr: number }>('/admin/pricing/tow', { towPerKmLkr });
+  return data;
+}

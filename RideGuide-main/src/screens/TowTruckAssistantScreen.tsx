@@ -11,7 +11,13 @@ import {
   ScrollView,
   KeyboardAvoidingView,
   Modal,
+  Animated,
+  PanResponder,
+  Dimensions,
+  Easing,
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { WebView } from 'react-native-webview';
 import * as Location from 'expo-location';
 import { Icon, PrimaryButton } from '../components';
@@ -37,6 +43,8 @@ const SUGGESTED_LOCATIONS = [
 const MAPBOX_TOKEN = process.env.EXPO_PUBLIC_MAPBOX_ACCESS_TOKEN?.trim() ?? '';
 const MAPBOX_TILE_URL = `https://api.mapbox.com/styles/v1/mapbox/streets-v12/tiles/{z}/{x}/{y}?access_token=${MAPBOX_TOKEN}`;
 const MAPBOX_ATTRIBUTION = '© Mapbox © OpenStreetMap contributors';
+const RECENT_DROP_STORAGE_KEY = 'tow_recent_drop_locations_v1';
+const MAX_RECENT_DROPS = 5;
 const getLocalSuggestions = (query: string): LocationSuggestion[] => {
   const needle = query.trim().toLowerCase();
   if (!needle) return [];
@@ -68,37 +76,118 @@ export const TowTruckAssistantScreen: React.FC<TowTruckAssistantScreenProps> = (
   })));
   const [isSearchingLocations, setIsSearchingLocations] = useState(false);
   const [dropLocationCoords, setDropLocationCoords] = useState<{ latitude: number; longitude: number } | null>(null);
+  const [recentDropLocations, setRecentDropLocations] = useState<LocationSuggestion[]>([]);
   const [showDropMapPicker, setShowDropMapPicker] = useState(false);
   const [dropMapDraft, setDropMapDraft] = useState<{ latitude: number; longitude: number } | null>(null);
   const [dropMapDraftLabel, setDropMapDraftLabel] = useState('');
+  const [dropMapSeed, setDropMapSeed] = useState<{ latitude: number; longitude: number } | null>(null);
   const [showPickupMapPicker, setShowPickupMapPicker] = useState(false);
   const [pickupMapDraft, setPickupMapDraft] = useState<{ latitude: number; longitude: number } | null>(null);
   const [pickupMapDraftLabel, setPickupMapDraftLabel] = useState('');
+  const [pickupMapSeed, setPickupMapSeed] = useState<{ latitude: number; longitude: number } | null>(null);
   const [loadingLocation, setLoadingLocation] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [bookingType, setBookingType] = useState<'on_demand' | 'scheduled'>('on_demand');
   const [scheduledAt, setScheduledAt] = useState<string | null>(null);
   const [estimate, setEstimate] = useState<TowEstimate | null>(null);
   const [estimating, setEstimating] = useState(false);
+  const visibleRecentDrops = useMemo(
+    () => (recentDropLocations.length > 0 ? recentDropLocations.slice(0, 5) : SUGGESTED_LOCATIONS),
+    [recentDropLocations]
+  );
+  const showTowEstimateCard =
+    tripType === 'tow' &&
+    !!location &&
+    !!dropLocationCoords &&
+    !!dropLocation.trim();
   const scrollViewRef = useRef<ScrollView>(null);
   const dropInputRef = useRef<TextInput>(null);
+  const pickupMapWebViewRef = useRef<WebView>(null);
+  const dropMapWebViewRef = useRef<WebView>(null);
   const locationRef = useRef<{ latitude: number; longitude: number } | null>(null);
-  const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const pickupSearchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastSearchIdRef = useRef(0);
   const lastPickupSearchIdRef = useRef(0);
   const { spacing, fontSizes, iconSizes, borderRadius, verticalScale, scale, width } = useResponsive();
+  const insets = useSafeAreaInsets();
+  const screenHeight = Dimensions.get('window').height;
+  const sheetMaxTranslate = Math.max(screenHeight * 0.42, 220);
+  const sheetTranslateY = useRef(new Animated.Value(0)).current;
+  const sheetStartY = useRef(0);
+  const isSheetCollapsedRef = useRef(false);
 
   useEffect(() => {
     locationRef.current = location;
   }, [location]);
 
+  const snapBottomSheet = (collapsed: boolean) => {
+    isSheetCollapsedRef.current = collapsed;
+    Animated.timing(sheetTranslateY, {
+      toValue: collapsed ? sheetMaxTranslate : 0,
+      duration: 180,
+      useNativeDriver: true,
+      easing: Easing.out(Easing.cubic),
+    }).start();
+  };
+
+  const sheetPanResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => false,
+      onMoveShouldSetPanResponder: (_evt, gestureState) =>
+        Math.abs(gestureState.dy) > 12 && Math.abs(gestureState.dy) > Math.abs(gestureState.dx) * 1.2,
+      onMoveShouldSetPanResponderCapture: (_evt, gestureState) =>
+        Math.abs(gestureState.dy) > 12 && Math.abs(gestureState.dy) > Math.abs(gestureState.dx) * 1.2,
+      onPanResponderGrant: () => {
+        sheetTranslateY.stopAnimation((value: number) => {
+          sheetStartY.current = value;
+        });
+      },
+      onPanResponderMove: (_evt, gestureState) => {
+        const next = Math.max(0, Math.min(sheetMaxTranslate, sheetStartY.current + gestureState.dy));
+        sheetTranslateY.setValue(next);
+      },
+      onPanResponderRelease: (_evt, gestureState) => {
+        const end = sheetStartY.current + gestureState.dy;
+        const threshold = sheetMaxTranslate * 0.45;
+        const shouldCollapse = gestureState.vy > 0.6 || end > threshold;
+        snapBottomSheet(shouldCollapse);
+      },
+      onPanResponderTerminationRequest: () => false,
+      onPanResponderTerminate: () => {
+        snapBottomSheet(isSheetCollapsedRef.current);
+      },
+    })
+  ).current;
+
   useEffect(() => {
-    return () => {
-      if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
-      if (pickupSearchDebounceRef.current) clearTimeout(pickupSearchDebounceRef.current);
-    };
+    void (async () => {
+      try {
+        const raw = await AsyncStorage.getItem(RECENT_DROP_STORAGE_KEY);
+        if (!raw) return;
+        const parsed = JSON.parse(raw) as LocationSuggestion[];
+        if (!Array.isArray(parsed)) return;
+        setRecentDropLocations(parsed.filter((item) => item && typeof item.name === 'string').slice(0, MAX_RECENT_DROPS));
+      } catch {
+        // ignore storage errors
+      }
+    })();
   }, []);
+
+  const saveRecentDropLocation = (loc: LocationSuggestion) => {
+    setRecentDropLocations((prev) => {
+      const next = [
+        loc,
+        ...prev.filter(
+          (item) =>
+            item.name.toLowerCase() !== loc.name.toLowerCase() ||
+            item.address.toLowerCase() !== loc.address.toLowerCase()
+        ),
+      ].slice(0, MAX_RECENT_DROPS);
+      void AsyncStorage.setItem(RECENT_DROP_STORAGE_KEY, JSON.stringify(next)).catch(() => {
+        // ignore storage errors
+      });
+      return next;
+    });
+  };
 
   const getLocationWithTimeout = async (timeoutMs = 12000) => {
     return Promise.race([
@@ -178,9 +267,8 @@ export const TowTruckAssistantScreen: React.FC<TowTruckAssistantScreenProps> = (
 
   const prevTripTypeRef = useRef<TripType>(tripType);
   useEffect(() => {
-    if (currentLocationAddress && (tripType === 'roadside' || !pickupManuallyEdited)) {
+    if (currentLocationAddress && !pickupManuallyEdited) {
       setPickupLocation(currentLocationAddress);
-      if (tripType === 'roadside') setPickupManuallyEdited(false);
     }
     if (prevTripTypeRef.current !== 'roadside' && tripType === 'roadside') {
       setDropLocation('');
@@ -200,6 +288,8 @@ export const TowTruckAssistantScreen: React.FC<TowTruckAssistantScreenProps> = (
     getTowEstimate({
       pickupLatitude: location.latitude,
       pickupLongitude: location.longitude,
+      dropoffLatitude: dropLocationCoords?.latitude,
+      dropoffLongitude: dropLocationCoords?.longitude,
       bookingType,
     })
       .then((value) => {
@@ -214,7 +304,7 @@ export const TowTruckAssistantScreen: React.FC<TowTruckAssistantScreenProps> = (
     return () => {
       cancelled = true;
     };
-  }, [bookingType, dropLocation, location, tripType]);
+  }, [bookingType, dropLocation, dropLocationCoords?.latitude, dropLocationCoords?.longitude, location, tripType]);
 
   const escapeJs = (value: string) =>
     value.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -336,10 +426,6 @@ export const TowTruckAssistantScreen: React.FC<TowTruckAssistantScreenProps> = (
   };
 
   const handleSearch = (query: string) => {
-    if (searchDebounceRef.current) {
-      clearTimeout(searchDebounceRef.current);
-      searchDebounceRef.current = null;
-    }
     setSearchQuery(query);
     setDropLocation(query);
     setDropLocationCoords(null);
@@ -359,21 +445,19 @@ export const TowTruckAssistantScreen: React.FC<TowTruckAssistantScreenProps> = (
     }
     setIsSearchingLocations(true);
     const searchId = ++lastSearchIdRef.current;
-    searchDebounceRef.current = setTimeout(() => {
-      void searchMapboxPlaces(trimmed, { limit: 6, country: 'lk' })
-        .then((results) => {
-          if (lastSearchIdRef.current !== searchId) return;
-          setSearchResults(results.length > 0 ? results : localResults);
-        })
-        .catch(() => {
-          if (lastSearchIdRef.current !== searchId) return;
-          setSearchResults(localResults);
-        })
-        .finally(() => {
-          if (lastSearchIdRef.current !== searchId) return;
-          setIsSearchingLocations(false);
-        });
-    }, 300);
+    void searchMapboxPlaces(trimmed, { limit: 3, country: 'lk' })
+      .then((results) => {
+        if (lastSearchIdRef.current !== searchId) return;
+        setSearchResults(results.length > 0 ? results : localResults);
+      })
+      .catch(() => {
+        if (lastSearchIdRef.current !== searchId) return;
+        setSearchResults(localResults);
+      })
+      .finally(() => {
+        if (lastSearchIdRef.current !== searchId) return;
+        setIsSearchingLocations(false);
+      });
 
     // Scroll to show search results when typing
     if (query.length > 0 && scrollViewRef.current) {
@@ -390,14 +474,10 @@ export const TowTruckAssistantScreen: React.FC<TowTruckAssistantScreenProps> = (
   };
 
   const handlePickupSearch = (query: string) => {
-    if (pickupSearchDebounceRef.current) {
-      clearTimeout(pickupSearchDebounceRef.current);
-      pickupSearchDebounceRef.current = null;
-    }
     setPickupQuery(query);
     setPickupLocation(query);
     setPickupManuallyEdited(true);
-    setShowPickupSearchResults(query.length > 0 && tripType === 'tow');
+    setShowPickupSearchResults(query.length > 0);
 
     const trimmed = query.trim();
     if (trimmed.length === 0) {
@@ -414,25 +494,23 @@ export const TowTruckAssistantScreen: React.FC<TowTruckAssistantScreenProps> = (
 
     setIsSearchingPickupLocations(true);
     const searchId = ++lastPickupSearchIdRef.current;
-    pickupSearchDebounceRef.current = setTimeout(() => {
-      void searchMapboxPlaces(trimmed, {
-        limit: 6,
-        country: 'lk',
-        proximity: location ?? undefined,
+    void searchMapboxPlaces(trimmed, {
+      limit: 3,
+      country: 'lk',
+      proximity: location ?? undefined,
+    })
+      .then((results) => {
+        if (lastPickupSearchIdRef.current !== searchId) return;
+        setPickupSearchResults(results.length > 0 ? results : localResults);
       })
-        .then((results) => {
-          if (lastPickupSearchIdRef.current !== searchId) return;
-          setPickupSearchResults(results.length > 0 ? results : localResults);
-        })
-        .catch(() => {
-          if (lastPickupSearchIdRef.current !== searchId) return;
-          setPickupSearchResults(localResults);
-        })
-        .finally(() => {
-          if (lastPickupSearchIdRef.current !== searchId) return;
-          setIsSearchingPickupLocations(false);
-        });
-    }, 300);
+      .catch(() => {
+        if (lastPickupSearchIdRef.current !== searchId) return;
+        setPickupSearchResults(localResults);
+      })
+      .finally(() => {
+        if (lastPickupSearchIdRef.current !== searchId) return;
+        setIsSearchingPickupLocations(false);
+      });
   };
 
   const handleSelectPickupLocation = (loc: LocationSuggestion) => {
@@ -445,22 +523,51 @@ export const TowTruckAssistantScreen: React.FC<TowTruckAssistantScreenProps> = (
     setShowPickupSearchResults(false);
   };
 
-  const getMapPickerHtml = (lat: number, lng: number, markerEmoji: string) => `
+  const getMapPickerHtml = (
+    lat: number,
+    lng: number,
+    markerEmoji: string,
+    currentLat?: number,
+    currentLng?: number
+  ) => `
     <!DOCTYPE html>
     <html>
       <head>
-        <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=8.0, user-scalable=yes" />
         <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
         <style>
           * { margin: 0; padding: 0; box-sizing: border-box; }
           body, html, #map { width: 100%; height: 100%; overflow: hidden; }
+          .locate-btn {
+            width: 58px;
+            height: 58px;
+            border: none;
+            border-radius: 29px;
+            background: #ffffff;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.22);
+            color: #2f3d49;
+            font-size: 28px;
+            line-height: 58px;
+            text-align: center;
+            cursor: pointer;
+          }
+          .locate-wrap {
+            margin-right: 16px;
+            margin-bottom: 92px;
+          }
         </style>
       </head>
       <body>
         <div id="map"></div>
         <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
         <script>
-          const map = L.map('map').setView([${lat}, ${lng}], 15);
+          const map = L.map('map', {
+            zoomControl: true,
+            scrollWheelZoom: true,
+            doubleClickZoom: true,
+            touchZoom: true,
+            boxZoom: true,
+          }).setView([${lat}, ${lng}], 15);
           L.tileLayer('${hasMapboxToken ? MAPBOX_TILE_URL : 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png'}', {
             attribution: '${hasMapboxToken ? MAPBOX_ATTRIBUTION : '© OpenStreetMap contributors'}',
             maxZoom: 19
@@ -476,8 +583,12 @@ export const TowTruckAssistantScreen: React.FC<TowTruckAssistantScreenProps> = (
           function post(lat, lng) {
             window.ReactNativeWebView.postMessage(JSON.stringify({ latitude: lat, longitude: lng }));
           }
-
           post(${lat}, ${lng});
+          window.__moveMarkerTo = function(lat, lng, shouldPost = true) {
+            marker.setLatLng([lat, lng]);
+            map.setView([lat, lng], Math.max(map.getZoom(), 16), { animate: true });
+            if (shouldPost) post(lat, lng);
+          };
           function syncMarkerToCenter(shouldPost) {
             const center = map.getCenter();
             marker.setLatLng(center);
@@ -495,6 +606,24 @@ export const TowTruckAssistantScreen: React.FC<TowTruckAssistantScreenProps> = (
             map.setView([lat, lng], map.getZoom(), { animate: true });
             post(lat, lng);
           });
+
+          const LocateControl = L.Control.extend({
+            options: { position: 'bottomright' },
+            onAdd: function() {
+              const container = L.DomUtil.create('div', 'locate-wrap');
+              const btn = L.DomUtil.create('button', 'locate-btn', container);
+              btn.type = 'button';
+              btn.title = 'Use current location';
+              btn.innerHTML = '⌖';
+              L.DomEvent.disableClickPropagation(container);
+              L.DomEvent.on(btn, 'click', function(e) {
+                L.DomEvent.stop(e);
+                window.ReactNativeWebView.postMessage(JSON.stringify({ action: 'use_live_location' }));
+              });
+              return container;
+            }
+          });
+          map.addControl(new LocateControl());
         </script>
       </body>
     </html>
@@ -503,13 +632,18 @@ export const TowTruckAssistantScreen: React.FC<TowTruckAssistantScreenProps> = (
   const openPickupMapPicker = () => {
     const base = location ?? { latitude: 6.9271, longitude: 79.8612 };
     setPickupMapDraft(base);
+    setPickupMapSeed(base);
     setPickupMapDraftLabel(pickupLocation || currentLocationAddress || 'Selected on map');
     setShowPickupMapPicker(true);
   };
 
   const handlePickupMapMessage = (raw: string) => {
     try {
-      const data = JSON.parse(raw) as { latitude?: number; longitude?: number };
+      const data = JSON.parse(raw) as { action?: string; latitude?: number; longitude?: number };
+      if (data.action === 'use_live_location') {
+        void useLiveLocationInMap('pickup');
+        return;
+      }
       if (typeof data.latitude !== 'number' || typeof data.longitude !== 'number') return;
       const coords = { latitude: data.latitude, longitude: data.longitude };
       setPickupMapDraft(coords);
@@ -532,13 +666,18 @@ export const TowTruckAssistantScreen: React.FC<TowTruckAssistantScreenProps> = (
   const openDropMapPicker = () => {
     const base = dropLocationCoords ?? location ?? { latitude: 6.9271, longitude: 79.8612 };
     setDropMapDraft(base);
+    setDropMapSeed(base);
     setDropMapDraftLabel(dropLocation || 'Selected on map');
     setShowDropMapPicker(true);
   };
 
   const handleDropMapMessage = (raw: string) => {
     try {
-      const data = JSON.parse(raw) as { latitude?: number; longitude?: number };
+      const data = JSON.parse(raw) as { action?: string; latitude?: number; longitude?: number };
+      if (data.action === 'use_live_location') {
+        void useLiveLocationInMap('drop');
+        return;
+      }
       if (typeof data.latitude !== 'number' || typeof data.longitude !== 'number') return;
       const coords = { latitude: data.latitude, longitude: data.longitude };
       setDropMapDraft(coords);
@@ -555,16 +694,91 @@ export const TowTruckAssistantScreen: React.FC<TowTruckAssistantScreenProps> = (
     const label = dropMapDraftLabel || `${dropMapDraft.latitude.toFixed(4)}, ${dropMapDraft.longitude.toFixed(4)}`;
     setDropLocation(label);
     setDropLocationCoords(dropMapDraft);
+    saveRecentDropLocation({
+      id: `recent-map-${Date.now()}`,
+      name: label.split(',')[0]?.trim() || label,
+      address: label,
+      latitude: dropMapDraft.latitude,
+      longitude: dropMapDraft.longitude,
+    });
     setSearchQuery('');
     setShowSearchResults(false);
     setShowDropMapPicker(false);
+    snapBottomSheet(false);
+    setTimeout(() => {
+      scrollViewRef.current?.scrollToEnd({ animated: true });
+    }, 120);
   };
+
+  const useLiveLocationInMap = async (target: 'pickup' | 'drop') => {
+    try {
+      let current = null as Location.LocationObject | null;
+      try {
+        current = await getLocationWithTimeout();
+      } catch {
+        current = await Location.getLastKnownPositionAsync();
+      }
+      if (!current) return;
+      const coords = { latitude: current.coords.latitude, longitude: current.coords.longitude };
+      const label = await resolveAddressLabel(coords);
+      const js = `window.__moveMarkerTo && window.__moveMarkerTo(${coords.latitude}, ${coords.longitude}, true); true;`;
+      if (target === 'pickup') {
+        setPickupMapDraft(coords);
+        setPickupMapDraftLabel(label);
+        pickupMapWebViewRef.current?.injectJavaScript(js);
+      } else {
+        setDropMapDraft(coords);
+        setDropMapDraftLabel(label);
+        dropMapWebViewRef.current?.injectJavaScript(js);
+      }
+    } catch {
+      // ignore live locate failures in map picker
+    }
+  };
+
+  const pickupMapSource = useMemo(
+    () => ({
+      html: getMapPickerHtml(
+        pickupMapSeed?.latitude ?? location?.latitude ?? 6.9271,
+        pickupMapSeed?.longitude ?? location?.longitude ?? 79.8612,
+        '🚗',
+        location?.latitude,
+        location?.longitude
+      ),
+    }),
+    [pickupMapSeed?.latitude, pickupMapSeed?.longitude, location?.latitude, location?.longitude]
+  );
+
+  const dropMapSource = useMemo(
+    () => ({
+      html: getMapPickerHtml(
+        dropMapSeed?.latitude ?? dropLocationCoords?.latitude ?? location?.latitude ?? 6.9271,
+        dropMapSeed?.longitude ?? dropLocationCoords?.longitude ?? location?.longitude ?? 79.8612,
+        '🚚',
+        location?.latitude,
+        location?.longitude
+      ),
+    }),
+    [
+      dropMapSeed?.latitude,
+      dropMapSeed?.longitude,
+      dropLocationCoords?.latitude,
+      dropLocationCoords?.longitude,
+      location?.latitude,
+      location?.longitude,
+    ]
+  );
 
   const handleSelectDropLocation = (loc: LocationSuggestion) => {
     setDropLocation(loc.name);
     setDropLocationCoords({ latitude: loc.latitude, longitude: loc.longitude });
+    saveRecentDropLocation(loc);
     setSearchQuery('');
     setShowSearchResults(false);
+    snapBottomSheet(false);
+    setTimeout(() => {
+      scrollViewRef.current?.scrollToEnd({ animated: true });
+    }, 120);
   };
 
   const handleConfirmBooking = async () => {
@@ -669,11 +883,24 @@ export const TowTruckAssistantScreen: React.FC<TowTruckAssistantScreenProps> = (
           shadowOpacity: 0.1,
           shadowRadius: 8,
           elevation: 8,
-          maxHeight: '70%',
+          maxHeight: Platform.OS === 'ios' ? '86%' : '82%',
+          transform: [{ translateY: sheetTranslateY }],
+        },
+        bottomSheetHandleArea: {
+          alignItems: 'center',
+          justifyContent: 'center',
+          paddingTop: spacing.xs,
+          paddingBottom: spacing.xs,
+        },
+        bottomSheetHandle: {
+          width: scale(48),
+          height: scale(5),
+          borderRadius: borderRadius.full,
+          backgroundColor: colors.border,
         },
         bottomOverlayContent: {
           padding: spacing.lg,
-          paddingBottom: spacing.xl,
+          paddingBottom: spacing.xl * 3 + insets.bottom,
         },
         laterButton: {
           flexDirection: 'row',
@@ -729,7 +956,7 @@ export const TowTruckAssistantScreen: React.FC<TowTruckAssistantScreenProps> = (
           alignItems: 'center',
           borderWidth: 1,
           borderColor: colors.border,
-          borderRadius: borderRadius.full,
+          borderRadius: scale(999),
           paddingHorizontal: spacing.md,
           paddingVertical: spacing.xs,
           marginRight: spacing.sm,
@@ -800,8 +1027,8 @@ export const TowTruckAssistantScreen: React.FC<TowTruckAssistantScreenProps> = (
           paddingVertical: spacing.xs,
         },
         mapPickButtonText: {
-          marginLeft: spacing.xs,
-          color: colors.primary,
+          marginLeft: spacing.sm,
+          color: '#111111',
           fontSize: fontSizes.sm,
           fontWeight: '600',
         },
@@ -817,7 +1044,7 @@ export const TowTruckAssistantScreen: React.FC<TowTruckAssistantScreenProps> = (
           marginTop: spacing.sm,
         },
         suggestedCard: {
-          flex: 1,
+          width: scale(180),
           backgroundColor: colors.background,
           borderRadius: borderRadius.md,
           padding: spacing.md,
@@ -927,7 +1154,7 @@ export const TowTruckAssistantScreen: React.FC<TowTruckAssistantScreenProps> = (
           flex: 1,
         },
       }),
-    [spacing, fontSizes, iconSizes, borderRadius, verticalScale, scale, width]
+    [spacing, fontSizes, iconSizes, borderRadius, verticalScale, scale, width, insets.bottom]
   );
 
   return (
@@ -970,16 +1197,23 @@ export const TowTruckAssistantScreen: React.FC<TowTruckAssistantScreenProps> = (
         <Icon name="close" size={iconSizes.md} color={colors.text} />
       </TouchableOpacity>
 
-      <KeyboardAvoidingView
-        style={styles.bottomOverlay}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
-      >
+      <Animated.View style={styles.bottomOverlay}>
+        <View style={styles.bottomSheetHandleArea} {...sheetPanResponder.panHandlers}>
+          <View style={styles.bottomSheetHandle} />
+        </View>
+        <KeyboardAvoidingView
+          style={{ flex: 1 }}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
+        >
         <ScrollView
           ref={scrollViewRef}
           style={{ flex: 1 }}
           contentContainerStyle={styles.bottomOverlayContent}
           showsVerticalScrollIndicator={true}
+          nestedScrollEnabled
+          bounces
+          overScrollMode="always"
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="on-drag"
         >
@@ -1104,16 +1338,18 @@ export const TowTruckAssistantScreen: React.FC<TowTruckAssistantScreenProps> = (
                 </Text>
               </TouchableOpacity>
             </View>
-            <View style={styles.estimateCard}>
-              <Text style={styles.sectionTitle}>Estimated hire amount</Text>
-              <Text style={styles.mapText}>
-                {estimating
-                  ? 'Calculating estimate...'
-                  : estimate
-                  ? `${estimate.currency} ${Math.round(estimate.estimatedAmount)}`
-                  : 'Estimate unavailable right now. You can still continue.'}
-              </Text>
-            </View>
+            {showTowEstimateCard && (
+              <View style={styles.estimateCard}>
+                <Text style={styles.sectionTitle}>Estimated hire amount</Text>
+                <Text style={styles.mapText}>
+                  {estimating
+                    ? 'Calculating estimate...'
+                    : estimate
+                    ? `${estimate.currency ?? 'LKR'} ${Number(estimate.estimatedAmount ?? 0).toFixed(2)}`
+                    : 'Unable to calculate estimate right now.'}
+                </Text>
+              </View>
+            )}
           </>
         )}
 
@@ -1129,52 +1365,48 @@ export const TowTruckAssistantScreen: React.FC<TowTruckAssistantScreenProps> = (
               value={pickupLocation}
               onChangeText={handlePickupSearch}
               onFocus={() => {
-                if (tripType === 'tow' && pickupLocation.trim().length > 0) {
+                if (pickupLocation.trim().length > 0) {
                   setShowPickupSearchResults(true);
                 }
               }}
-              editable={tripType !== 'roadside'}
+              editable
             />
             <TouchableOpacity
               style={styles.locationActionButton}
               activeOpacity={0.7}
               onPress={() => {
-                if (tripType === 'roadside') {
-                  void resolveCurrentLocation();
-                  return;
-                }
-                setIsPickupFavorite(!isPickupFavorite);
+                setPickupManuallyEdited(false);
+                void resolveCurrentLocation();
               }}
             >
               <Icon
-                name={tripType === 'roadside' ? 'refresh' : 'star'}
+                name="locate"
                 size={iconSizes.sm}
-                color={isPickupFavorite ? '#FBBF24' : colors.textSecondary}
+                color={colors.primary}
               />
             </TouchableOpacity>
           </View>
-          {showPickupSearchResults && pickupQuery.length > 0 && tripType === 'tow' && (
+          {showPickupSearchResults && pickupQuery.length > 0 && (
             <View style={styles.searchResultsContainer}>
-              {isSearchingPickupLocations ? (
+              {pickupSearchResults.slice(0, 3).map((loc) => (
+                <TouchableOpacity
+                  key={`pickup-${loc.id}`}
+                  style={styles.searchResultItem}
+                  onPress={() => handleSelectPickupLocation(loc)}
+                  activeOpacity={0.7}
+                >
+                  <Icon name="navigate" size={iconSizes.sm} color={colors.primary} style={{ marginRight: spacing.sm }} />
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.searchResultName}>{loc.name}</Text>
+                    <Text style={styles.searchResultAddress}>{loc.address}</Text>
+                  </View>
+                </TouchableOpacity>
+              ))}
+              {isSearchingPickupLocations && (
                 <View style={styles.searchResultItem}>
                   <ActivityIndicator size="small" color={colors.primary} />
-                  <Text style={[styles.searchResultAddress, { marginLeft: spacing.sm }]}>Searching locations...</Text>
+                  <Text style={[styles.searchResultAddress, { marginLeft: spacing.sm }]}>Searching...</Text>
                 </View>
-              ) : (
-                pickupSearchResults.map((loc) => (
-                  <TouchableOpacity
-                    key={`pickup-${loc.id}`}
-                    style={styles.searchResultItem}
-                    onPress={() => handleSelectPickupLocation(loc)}
-                    activeOpacity={0.7}
-                  >
-                    <Icon name="navigate" size={iconSizes.sm} color={colors.primary} style={{ marginRight: spacing.sm }} />
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.searchResultName}>{loc.name}</Text>
-                      <Text style={styles.searchResultAddress}>{loc.address}</Text>
-                    </View>
-                  </TouchableOpacity>
-                ))
               )}
               {!isSearchingPickupLocations && pickupSearchResults.length === 0 && (
                 <View style={styles.searchResultItem}>
@@ -1185,12 +1417,12 @@ export const TowTruckAssistantScreen: React.FC<TowTruckAssistantScreenProps> = (
               )}
             </View>
           )}
-          {tripType === 'tow' && (
-            <TouchableOpacity style={styles.mapPickButton} onPress={openPickupMapPicker} activeOpacity={0.8}>
-              <Icon name="map" size={iconSizes.sm} color={colors.primary} />
-              <Text style={styles.mapPickButtonText}>Set location on map</Text>
-            </TouchableOpacity>
-          )}
+          <TouchableOpacity style={styles.mapPickButton} onPress={openPickupMapPicker} activeOpacity={0.8}>
+            <Icon name="location-outline" size={iconSizes.md} color="#111111" />
+            <Text style={styles.mapPickButtonText}>
+              {tripType === 'roadside' ? 'Set current location on map' : 'Set location on map'}
+            </Text>
+          </TouchableOpacity>
           {tripType === 'roadside' && !location && (
             <Text style={[styles.mapSubtext, { marginTop: spacing.xs }]}>
               Location is required to confirm roadside help.
@@ -1214,26 +1446,25 @@ export const TowTruckAssistantScreen: React.FC<TowTruckAssistantScreenProps> = (
             </View>
             {showSearchResults && searchQuery.length > 0 && (
               <View style={styles.searchResultsContainer}>
-                {isSearchingLocations ? (
+                {searchResults.slice(0, 3).map((loc) => (
+                  <TouchableOpacity
+                    key={loc.id}
+                    style={styles.searchResultItem}
+                    onPress={() => handleSelectDropLocation(loc)}
+                    activeOpacity={0.7}
+                  >
+                    <Icon name="map" size={iconSizes.sm} color={colors.primary} style={{ marginRight: spacing.sm }} />
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.searchResultName}>{loc.name}</Text>
+                      <Text style={styles.searchResultAddress}>{loc.address}</Text>
+                    </View>
+                  </TouchableOpacity>
+                ))}
+                {isSearchingLocations && (
                   <View style={styles.searchResultItem}>
                     <ActivityIndicator size="small" color={colors.primary} />
-                    <Text style={[styles.searchResultAddress, { marginLeft: spacing.sm }]}>Searching locations...</Text>
+                    <Text style={[styles.searchResultAddress, { marginLeft: spacing.sm }]}>Searching...</Text>
                   </View>
-                ) : (
-                  searchResults.map((loc) => (
-                    <TouchableOpacity
-                      key={loc.id}
-                      style={styles.searchResultItem}
-                      onPress={() => handleSelectDropLocation(loc)}
-                      activeOpacity={0.7}
-                    >
-                      <Icon name="map" size={iconSizes.sm} color={colors.primary} style={{ marginRight: spacing.sm }} />
-                      <View style={{ flex: 1 }}>
-                        <Text style={styles.searchResultName}>{loc.name}</Text>
-                        <Text style={styles.searchResultAddress}>{loc.address}</Text>
-                      </View>
-                    </TouchableOpacity>
-                  ))
                 )}
                 {!isSearchingLocations && searchResults.length === 0 && (
                   <View style={styles.searchResultItem}>
@@ -1245,7 +1476,7 @@ export const TowTruckAssistantScreen: React.FC<TowTruckAssistantScreenProps> = (
               </View>
             )}
             <TouchableOpacity style={styles.mapPickButton} onPress={openDropMapPicker} activeOpacity={0.8}>
-              <Icon name="map" size={iconSizes.sm} color={colors.primary} />
+              <Icon name="location-outline" size={iconSizes.md} color="#111111" />
               <Text style={styles.mapPickButtonText}>Set location on map</Text>
             </TouchableOpacity>
           </View>
@@ -1263,24 +1494,28 @@ export const TowTruckAssistantScreen: React.FC<TowTruckAssistantScreenProps> = (
           </>
         ) : (
           <>
-            <View style={styles.suggestedContainer}>
-              {SUGGESTED_LOCATIONS.map((loc, index) => (
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.suggestedContainer}
+              keyboardShouldPersistTaps="handled"
+            >
+              {visibleRecentDrops.map((loc, index) => (
                 <TouchableOpacity
                   key={loc.id}
                   style={[
                     styles.suggestedCard,
-                    index === SUGGESTED_LOCATIONS.length - 1 && styles.suggestedCardLast,
+                    index === visibleRecentDrops.length - 1 && styles.suggestedCardLast,
                   ]}
                   activeOpacity={0.7}
                   onPress={() =>
                     handleSelectDropLocation({
                       ...loc,
-                      latitude: 0,
-                      longitude: 0,
+                      latitude: typeof loc.latitude === 'number' ? loc.latitude : 0,
+                      longitude: typeof loc.longitude === 'number' ? loc.longitude : 0,
                     })
                   }
                 >
-                  <Icon name="map" size={iconSizes.sm} color={colors.primary} style={styles.suggestedIcon} />
                   <Text style={styles.suggestedName} numberOfLines={1}>
                     {loc.name}
                   </Text>
@@ -1289,7 +1524,7 @@ export const TowTruckAssistantScreen: React.FC<TowTruckAssistantScreenProps> = (
                   </Text>
                 </TouchableOpacity>
               ))}
-            </View>
+            </ScrollView>
             <View style={styles.confirmButtonContainer}>
               <PrimaryButton
                 title={submitting ? 'Booking…' : 'Confirm Tow Truck Hire'}
@@ -1300,7 +1535,8 @@ export const TowTruckAssistantScreen: React.FC<TowTruckAssistantScreenProps> = (
           </>
         )}
         </ScrollView>
-      </KeyboardAvoidingView>
+        </KeyboardAvoidingView>
+      </Animated.View>
       <Modal visible={showPickupMapPicker} animationType="slide" onRequestClose={() => setShowPickupMapPicker(false)}>
         <View style={styles.mapPickerContainer}>
           <View style={styles.mapPickerHeader}>
@@ -1320,14 +1556,11 @@ export const TowTruckAssistantScreen: React.FC<TowTruckAssistantScreenProps> = (
             </Text>
           </View>
           <WebView
-            source={{
-              html: getMapPickerHtml(
-                pickupMapDraft?.latitude ?? location?.latitude ?? 6.9271,
-                pickupMapDraft?.longitude ?? location?.longitude ?? 79.8612,
-                '🚗'
-              ),
-            }}
+            ref={pickupMapWebViewRef}
+            source={pickupMapSource}
             onMessage={(event) => handlePickupMapMessage(event.nativeEvent.data)}
+            setBuiltInZoomControls={true}
+            setDisplayZoomControls={false}
             style={styles.mapPickerWebView}
           />
         </View>
@@ -1351,14 +1584,11 @@ export const TowTruckAssistantScreen: React.FC<TowTruckAssistantScreenProps> = (
             </Text>
           </View>
           <WebView
-            source={{
-              html: getMapPickerHtml(
-                dropMapDraft?.latitude ?? dropLocationCoords?.latitude ?? location?.latitude ?? 6.9271,
-                dropMapDraft?.longitude ?? dropLocationCoords?.longitude ?? location?.longitude ?? 79.8612,
-                '🚚'
-              ),
-            }}
+            ref={dropMapWebViewRef}
+            source={dropMapSource}
             onMessage={(event) => handleDropMapMessage(event.nativeEvent.data)}
+            setBuiltInZoomControls={true}
+            setDisplayZoomControls={false}
             style={styles.mapPickerWebView}
           />
         </View>

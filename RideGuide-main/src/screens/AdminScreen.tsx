@@ -1,6 +1,15 @@
 import React, { useEffect, useState } from 'react';
-import { SafeAreaView, ScrollView, View, Text, StyleSheet, TouchableOpacity, ActivityIndicator } from 'react-native';
-import { fetchAdminStats, listAdminUsers, setAdminUserRole } from '../backend';
+import {
+  SafeAreaView,
+  ScrollView,
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  ActivityIndicator,
+  TextInput,
+} from 'react-native';
+import { fetchAdminStats, listAdminUsers, setAdminUserRole, fetchTowPricing, updateTowPricing } from '../backend';
 import type { AuthUser } from '../backend/types';
 
 interface Props { onBack: () => void }
@@ -8,18 +17,39 @@ interface Props { onBack: () => void }
 export const AdminScreen: React.FC<Props> = ({ onBack }) => {
   const [stats, setStats] = useState<{ userCount: number; vehicleCount: number; requestCount: number; pendingCount: number } | null>(null);
   const [users, setUsers] = useState<AuthUser[]>([]);
+  const [towPerKmDraft, setTowPerKmDraft] = useState('320');
+  const [savingPricing, setSavingPricing] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const load = async () => {
     setLoading(true);
     try {
-      const [s, u] = await Promise.all([fetchAdminStats(), listAdminUsers()]);
+      const [s, u, pricing] = await Promise.all([fetchAdminStats(), listAdminUsers(), fetchTowPricing()]);
       setStats(s); setUsers(u); setError(null);
+      setTowPerKmDraft(String(pricing.towPerKmLkr));
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const saveTowPricing = async () => {
+    const parsed = Number(towPerKmDraft);
+    if (!Number.isFinite(parsed) || parsed < 0) {
+      setError('Tow per-km rate must be a non-negative number');
+      return;
+    }
+    setSavingPricing(true);
+    try {
+      const updated = await updateTowPricing(parsed);
+      setTowPerKmDraft(String(updated.towPerKmLkr));
+      setError(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to update pricing');
+    } finally {
+      setSavingPricing(false);
     }
   };
   useEffect(() => { load(); }, []);
@@ -47,6 +77,22 @@ export const AdminScreen: React.FC<Props> = ({ onBack }) => {
             <Stat label="Vehicles" value={stats?.vehicleCount ?? 0} />
             <Stat label="Requests" value={stats?.requestCount ?? 0} />
             <Stat label="Pending" value={stats?.pendingCount ?? 0} />
+          </View>
+          <Text style={styles.section}>Tow Pricing</Text>
+          <View style={styles.pricingCard}>
+            <Text style={styles.pricingLabel}>Per km hire amount (LKR)</Text>
+            <View style={styles.pricingRow}>
+              <TextInput
+                value={towPerKmDraft}
+                onChangeText={setTowPerKmDraft}
+                keyboardType="numeric"
+                style={styles.pricingInput}
+                placeholder="320"
+              />
+              <TouchableOpacity style={[styles.btn, savingPricing && { opacity: 0.7 }]} onPress={saveTowPricing} disabled={savingPricing}>
+                <Text style={styles.btnText}>{savingPricing ? 'Saving...' : 'Save'}</Text>
+              </TouchableOpacity>
+            </View>
           </View>
           <Text style={styles.section}>Users</Text>
           {users.map((u) => (
@@ -87,6 +133,19 @@ const styles = StyleSheet.create({
   userRow: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#FFF', padding: 12, borderRadius: 10, marginBottom: 8 },
   userName: { fontWeight: '600' },
   userMeta: { fontSize: 12, color: '#6B7280' },
+  pricingCard: { backgroundColor: '#FFF', borderRadius: 10, padding: 12, marginBottom: 8 },
+  pricingLabel: { fontSize: 12, color: '#6B7280', marginBottom: 8 },
+  pricingRow: { flexDirection: 'row', alignItems: 'center' },
+  pricingInput: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: '#D1D5DB',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    marginRight: 8,
+    backgroundColor: '#FFF',
+  },
   btn: { backgroundColor: '#2563EB', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8 },
   btnText: { color: '#FFF', fontWeight: '600' },
   error: { color: '#B91C1C', padding: 16 },
