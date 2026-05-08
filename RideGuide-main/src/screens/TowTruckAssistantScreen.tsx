@@ -17,8 +17,10 @@ import {
   Easing,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { WebView } from 'react-native-webview';
+import DateTimePicker, { DateTimePickerAndroid } from '@react-native-community/datetimepicker';
 import * as Location from 'expo-location';
 import { Icon, PrimaryButton } from '../components';
 import { colors } from '../constants/theme';
@@ -45,6 +47,8 @@ const MAPBOX_TILE_URL = `https://api.mapbox.com/styles/v1/mapbox/streets-v12/til
 const MAPBOX_ATTRIBUTION = '© Mapbox © OpenStreetMap contributors';
 const RECENT_DROP_STORAGE_KEY = 'tow_recent_drop_locations_v1';
 const MAX_RECENT_DROPS = 5;
+const MIN_SCHEDULE_MINUTES = 60;
+const MAX_SCHEDULE_DAYS = 7;
 const getLocalSuggestions = (query: string): LocationSuggestion[] => {
   const needle = query.trim().toLowerCase();
   if (!needle) return [];
@@ -66,7 +70,6 @@ export const TowTruckAssistantScreen: React.FC<TowTruckAssistantScreenProps> = (
   const [dropLocation, setDropLocation] = useState('');
   const [location, setLocation] = useState<{ latitude: number; longitude: number } | null>(null);
   const [currentLocationAddress, setCurrentLocationAddress] = useState<string>('');
-  const [isPickupFavorite, setIsPickupFavorite] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [showSearchResults, setShowSearchResults] = useState(false);
   const [searchResults, setSearchResults] = useState<LocationSuggestion[]>(SUGGESTED_LOCATIONS.map((item) => ({
@@ -89,6 +92,9 @@ export const TowTruckAssistantScreen: React.FC<TowTruckAssistantScreenProps> = (
   const [submitting, setSubmitting] = useState(false);
   const [bookingType, setBookingType] = useState<'on_demand' | 'scheduled'>('on_demand');
   const [scheduledAt, setScheduledAt] = useState<string | null>(null);
+  const [scheduleError, setScheduleError] = useState<string | null>(null);
+  const [showIosSchedulePicker, setShowIosSchedulePicker] = useState(false);
+  const [iosScheduleDraft, setIosScheduleDraft] = useState<Date>(() => new Date(Date.now() + MIN_SCHEDULE_MINUTES * 60 * 1000));
   const [estimate, setEstimate] = useState<TowEstimate | null>(null);
   const [estimating, setEstimating] = useState(false);
   const visibleRecentDrops = useMemo(
@@ -109,11 +115,35 @@ export const TowTruckAssistantScreen: React.FC<TowTruckAssistantScreenProps> = (
   const lastPickupSearchIdRef = useRef(0);
   const { spacing, fontSizes, iconSizes, borderRadius, verticalScale, scale, width } = useResponsive();
   const insets = useSafeAreaInsets();
+  const tabBarHeight = useBottomTabBarHeight();
   const screenHeight = Dimensions.get('window').height;
   const sheetMaxTranslate = Math.max(screenHeight * 0.42, 220);
   const sheetTranslateY = useRef(new Animated.Value(0)).current;
   const sheetStartY = useRef(0);
   const isSheetCollapsedRef = useRef(false);
+
+  const validateScheduledDate = (value: Date | null): string | null => {
+    if (!value || Number.isNaN(value.getTime())) return 'Please pick a valid date and time.';
+    const now = Date.now();
+    const minMs = now + MIN_SCHEDULE_MINUTES * 60 * 1000;
+    const maxMs = now + MAX_SCHEDULE_DAYS * 24 * 60 * 60 * 1000;
+    const target = value.getTime();
+    if (target < minMs) return `Scheduled time must be at least ${MIN_SCHEDULE_MINUTES} minutes from now.`;
+    if (target > maxMs) return `Scheduled time must be within ${MAX_SCHEDULE_DAYS} days.`;
+    return null;
+  };
+
+  const scheduledDate = useMemo(() => (scheduledAt ? new Date(scheduledAt) : null), [scheduledAt]);
+  const scheduledDisplay = useMemo(() => {
+    if (!scheduledDate || Number.isNaN(scheduledDate.getTime())) return 'No date selected';
+    return scheduledDate.toLocaleString([], {
+      weekday: 'short',
+      month: 'short',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+    });
+  }, [scheduledDate]);
 
   useEffect(() => {
     locationRef.current = location;
@@ -187,6 +217,66 @@ export const TowTruckAssistantScreen: React.FC<TowTruckAssistantScreenProps> = (
       });
       return next;
     });
+  };
+
+  const commitScheduledAt = (nextDate: Date) => {
+    const validation = validateScheduledDate(nextDate);
+    setScheduleError(validation);
+    if (!validation) {
+      setScheduledAt(nextDate.toISOString());
+    }
+  };
+
+  const openWebSchedulePrompt = () => {
+    if (typeof window === 'undefined') return;
+    const seed = scheduledDate && !Number.isNaN(scheduledDate.getTime()) ? scheduledDate : new Date(Date.now() + MIN_SCHEDULE_MINUTES * 60 * 1000);
+    const dateDefault = seed.toISOString().slice(0, 10);
+    const timeDefault = seed.toTimeString().slice(0, 5);
+    const dateInput = window.prompt('Enter date (YYYY-MM-DD)', dateDefault);
+    if (!dateInput) return;
+    const timeInput = window.prompt('Enter time (HH:mm)', timeDefault);
+    if (!timeInput) return;
+    const candidate = new Date(`${dateInput}T${timeInput}:00`);
+    commitScheduledAt(candidate);
+  };
+
+  const openAndroidSchedulePicker = () => {
+    const seed = scheduledDate && !Number.isNaN(scheduledDate.getTime()) ? scheduledDate : new Date(Date.now() + MIN_SCHEDULE_MINUTES * 60 * 1000);
+    DateTimePickerAndroid.open({
+      value: seed,
+      mode: 'date',
+      minimumDate: new Date(Date.now() + MIN_SCHEDULE_MINUTES * 60 * 1000),
+      maximumDate: new Date(Date.now() + MAX_SCHEDULE_DAYS * 24 * 60 * 60 * 1000),
+      onChange: (_event, selectedDate) => {
+        if (!selectedDate) return;
+        DateTimePickerAndroid.open({
+          value: seed,
+          mode: 'time',
+          is24Hour: false,
+          onChange: (_timeEvent, selectedTime) => {
+            if (!selectedTime) return;
+            const merged = new Date(selectedDate);
+            merged.setHours(selectedTime.getHours(), selectedTime.getMinutes(), 0, 0);
+            commitScheduledAt(merged);
+          },
+        });
+      },
+    });
+  };
+
+  const openSchedulePicker = () => {
+    const seed = scheduledDate && !Number.isNaN(scheduledDate.getTime()) ? scheduledDate : new Date(Date.now() + MIN_SCHEDULE_MINUTES * 60 * 1000);
+    setScheduleError(null);
+    if (Platform.OS === 'android') {
+      openAndroidSchedulePicker();
+      return;
+    }
+    if (Platform.OS === 'ios') {
+      setIosScheduleDraft(seed);
+      setShowIosSchedulePicker(true);
+      return;
+    }
+    openWebSchedulePrompt();
   };
 
   const getLocationWithTimeout = async (timeoutMs = 12000) => {
@@ -786,6 +876,15 @@ export const TowTruckAssistantScreen: React.FC<TowTruckAssistantScreenProps> = (
       Alert.alert('Please select a drop location');
       return;
     }
+    if (tripType === 'tow' && bookingType === 'scheduled') {
+      const picked = scheduledAt ? new Date(scheduledAt) : null;
+      const validation = validateScheduledDate(picked);
+      setScheduleError(validation);
+      if (validation) {
+        Alert.alert('Invalid schedule', validation);
+        return;
+      }
+    }
     if (tripType === 'roadside' && !locationRef.current) {
       await resolveCurrentLocation();
       if (!locationRef.current) {
@@ -883,7 +982,7 @@ export const TowTruckAssistantScreen: React.FC<TowTruckAssistantScreenProps> = (
           shadowOpacity: 0.1,
           shadowRadius: 8,
           elevation: 8,
-          maxHeight: Platform.OS === 'ios' ? '86%' : '82%',
+          maxHeight: Platform.OS === 'ios' ? '92%' : '88%',
           transform: [{ translateY: sheetTranslateY }],
         },
         bottomSheetHandleArea: {
@@ -900,7 +999,8 @@ export const TowTruckAssistantScreen: React.FC<TowTruckAssistantScreenProps> = (
         },
         bottomOverlayContent: {
           padding: spacing.lg,
-          paddingBottom: spacing.xl * 3 + insets.bottom,
+          // Extra bottom space so last CTA can scroll above tab bar on phones.
+          paddingBottom: spacing.xl * 2 + insets.bottom + tabBarHeight + spacing.lg,
         },
         laterButton: {
           flexDirection: 'row',
@@ -973,6 +1073,37 @@ export const TowTruckAssistantScreen: React.FC<TowTruckAssistantScreenProps> = (
         },
         bookingChipTextActive: {
           color: colors.primary,
+        },
+        scheduleCard: {
+          borderWidth: 1,
+          borderColor: colors.border,
+          borderRadius: borderRadius.md,
+          backgroundColor: colors.background,
+          padding: spacing.md,
+          marginBottom: spacing.md,
+        },
+        scheduleAction: {
+          flexDirection: 'row',
+          alignItems: 'center',
+          alignSelf: 'flex-start',
+        },
+        scheduleActionText: {
+          marginLeft: spacing.xs,
+          color: colors.primary,
+          fontSize: fontSizes.sm,
+          fontWeight: '700',
+        },
+        scheduleValue: {
+          marginTop: spacing.sm,
+          color: colors.text,
+          fontSize: fontSizes.sm,
+          fontWeight: '600',
+        },
+        scheduleError: {
+          marginTop: spacing.xs,
+          color: '#B91C1C',
+          fontSize: fontSizes.xs,
+          fontWeight: '600',
         },
         estimateCard: {
           borderWidth: 1,
@@ -1153,8 +1284,59 @@ export const TowTruckAssistantScreen: React.FC<TowTruckAssistantScreenProps> = (
         mapPickerWebView: {
           flex: 1,
         },
+        iosScheduleOverlay: {
+          flex: 1,
+          backgroundColor: 'rgba(0,0,0,0.35)',
+          justifyContent: 'flex-end',
+          paddingHorizontal: spacing.sm,
+          paddingBottom: spacing.sm,
+        },
+        iosScheduleSheet: {
+          backgroundColor: colors.card,
+          borderTopLeftRadius: borderRadius.xl,
+          borderTopRightRadius: borderRadius.xl,
+          borderBottomLeftRadius: borderRadius.xl,
+          borderBottomRightRadius: borderRadius.xl,
+          paddingBottom: Math.max(insets.bottom, spacing.md),
+          overflow: 'hidden',
+          borderWidth: 1,
+          borderColor: colors.border,
+        },
+        iosScheduleHeader: {
+          flexDirection: 'row',
+          alignItems: 'center',
+          justifyContent: 'center',
+          paddingHorizontal: spacing.lg,
+          paddingVertical: spacing.md,
+          borderBottomWidth: 1,
+          borderBottomColor: colors.border,
+        },
+        iosScheduleHeaderSide: {
+          width: scale(76),
+        },
+        iosScheduleHeaderSideRight: {
+          width: scale(76),
+          alignItems: 'flex-end',
+        },
+        iosScheduleHeaderButton: {
+          color: colors.primary,
+          fontSize: fontSizes.md,
+          fontWeight: '700',
+        },
+        iosScheduleTitle: {
+          color: colors.text,
+          fontSize: fontSizes.md,
+          fontWeight: '700',
+          textAlign: 'center',
+          flex: 1,
+        },
+        iosSchedulePickerContainer: {
+          paddingHorizontal: 0,
+          paddingTop: spacing.xs,
+          alignItems: 'center',
+        },
       }),
-    [spacing, fontSizes, iconSizes, borderRadius, verticalScale, scale, width, insets.bottom]
+    [spacing, fontSizes, iconSizes, borderRadius, verticalScale, scale, width, insets.bottom, tabBarHeight]
   );
 
   return (
@@ -1210,6 +1392,8 @@ export const TowTruckAssistantScreen: React.FC<TowTruckAssistantScreenProps> = (
           ref={scrollViewRef}
           style={{ flex: 1 }}
           contentContainerStyle={styles.bottomOverlayContent}
+          contentInset={{ bottom: tabBarHeight }}
+          scrollIndicatorInsets={{ bottom: tabBarHeight }}
           showsVerticalScrollIndicator={true}
           nestedScrollEnabled
           bounces
@@ -1308,6 +1492,7 @@ export const TowTruckAssistantScreen: React.FC<TowTruckAssistantScreenProps> = (
                 onPress={() => {
                   setBookingType('on_demand');
                   setScheduledAt(null);
+                  setScheduleError(null);
                 }}
                 activeOpacity={0.8}
               >
@@ -1324,7 +1509,9 @@ export const TowTruckAssistantScreen: React.FC<TowTruckAssistantScreenProps> = (
                 style={[styles.bookingChip, bookingType === 'scheduled' && styles.bookingChipActive]}
                 onPress={() => {
                   setBookingType('scheduled');
-                  setScheduledAt(new Date(Date.now() + 30 * 60 * 1000).toISOString());
+                  const next = new Date(Date.now() + MIN_SCHEDULE_MINUTES * 60 * 1000);
+                  setScheduledAt(next.toISOString());
+                  setScheduleError(null);
                 }}
                 activeOpacity={0.8}
               >
@@ -1334,10 +1521,20 @@ export const TowTruckAssistantScreen: React.FC<TowTruckAssistantScreenProps> = (
                   color={bookingType === 'scheduled' ? colors.primary : colors.textSecondary}
                 />
                 <Text style={[styles.bookingChipText, bookingType === 'scheduled' && styles.bookingChipTextActive]}>
-                  Scheduled (+30 min)
+                  Scheduled
                 </Text>
               </TouchableOpacity>
             </View>
+            {bookingType === 'scheduled' && (
+              <View style={styles.scheduleCard}>
+                <TouchableOpacity style={styles.scheduleAction} onPress={openSchedulePicker} activeOpacity={0.8}>
+                  <Icon name="calendar" size={iconSizes.sm} color={colors.primary} />
+                  <Text style={styles.scheduleActionText}>Pick date & time</Text>
+                </TouchableOpacity>
+                <Text style={styles.scheduleValue}>{scheduledDisplay}</Text>
+                {!!scheduleError && <Text style={styles.scheduleError}>{scheduleError}</Text>}
+              </View>
+            )}
             {showTowEstimateCard && (
               <View style={styles.estimateCard}>
                 <Text style={styles.sectionTitle}>Estimated hire amount</Text>
@@ -1591,6 +1788,51 @@ export const TowTruckAssistantScreen: React.FC<TowTruckAssistantScreenProps> = (
             setDisplayZoomControls={false}
             style={styles.mapPickerWebView}
           />
+        </View>
+      </Modal>
+      <Modal
+        visible={showIosSchedulePicker}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowIosSchedulePicker(false)}
+      >
+        <View style={styles.iosScheduleOverlay}>
+          <View style={styles.iosScheduleSheet}>
+            <View style={styles.iosScheduleHeader}>
+              <View style={styles.iosScheduleHeaderSide}>
+                <TouchableOpacity onPress={() => setShowIosSchedulePicker(false)} activeOpacity={0.8}>
+                  <Text style={styles.iosScheduleHeaderButton}>Cancel</Text>
+                </TouchableOpacity>
+              </View>
+              <Text style={styles.iosScheduleTitle}>Pick date & time</Text>
+              <View style={styles.iosScheduleHeaderSideRight}>
+                <TouchableOpacity
+                  onPress={() => {
+                    commitScheduledAt(iosScheduleDraft);
+                    setShowIosSchedulePicker(false);
+                  }}
+                  activeOpacity={0.8}
+                >
+                  <Text style={styles.iosScheduleHeaderButton}>Done</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+            <View style={styles.iosSchedulePickerContainer}>
+              <DateTimePicker
+                value={iosScheduleDraft}
+                mode="datetime"
+                display="default"
+                themeVariant="light"
+                textColor="#111111"
+                style={{ backgroundColor: colors.card, alignSelf: 'center' }}
+                minimumDate={new Date(Date.now() + MIN_SCHEDULE_MINUTES * 60 * 1000)}
+                maximumDate={new Date(Date.now() + MAX_SCHEDULE_DAYS * 24 * 60 * 60 * 1000)}
+                onChange={(_event, date) => {
+                  if (date) setIosScheduleDraft(date);
+                }}
+              />
+            </View>
+          </View>
         </View>
       </Modal>
     </View>
