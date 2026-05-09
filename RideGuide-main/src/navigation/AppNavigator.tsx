@@ -1,12 +1,18 @@
 import React, { useState } from 'react';
 import { View, ActivityIndicator } from 'react-native';
-import { NavigationContainer, getFocusedRouteNameFromRoute } from '@react-navigation/native';
+import {
+  NavigationContainer,
+  getFocusedRouteNameFromRoute,
+  useNavigationContainerRef,
+} from '@react-navigation/native';
 import { Icon } from '../components';
 import type { IconName } from '../components';
 import { useResponsive } from '../hooks';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { useAuth } from '../context/AuthContext';
+import { OngoingActivityProvider } from '../context/OngoingActivityContext';
+import { OngoingActivityMiniBar } from '../components/OngoingActivityMiniBar';
 
 import {
   SplashScreen,
@@ -109,6 +115,7 @@ const RoadsideOwnerTrackingScreenWrapper = ({ navigation, route }: { navigation:
 const TowDriverActiveJobScreenWrapper = ({ navigation, route }: { navigation: any; route: any }) => (
   <TowDriverActiveJobScreen
     requestId={route.params?.requestId ?? ''}
+    onMinimize={() => navigation.navigate('Home')}
     onDone={() => navigation.navigate('Home')}
   />
 );
@@ -116,6 +123,7 @@ const TowDriverActiveJobScreenWrapper = ({ navigation, route }: { navigation: an
 const MechanicActiveJobScreenWrapper = ({ navigation, route }: { navigation: any; route: any }) => (
   <MechanicActiveJobScreen
     requestId={route.params?.requestId ?? ''}
+    onMinimize={() => navigation.navigate('Home')}
     onDone={() => navigation.navigate('Home')}
     onOpenChat={(request) =>
       navigation.navigate('RequestChat', {
@@ -271,6 +279,7 @@ const TabBarIcon = ({ name, color }: { name: IconName; color: string }) => {
 };
 
 export const AppNavigator = () => {
+  const navigationRef = useNavigationContainerRef<RootStackParamList>();
   const [splashDone, setSplashDone] = useState(false);
   const { user, authReady } = useAuth();
 
@@ -287,7 +296,7 @@ export const AppNavigator = () => {
   }
 
   return (
-    <NavigationContainer>
+    <NavigationContainer ref={navigationRef}>
       <RootStack.Navigator screenOptions={{ headerShown: false }}>
         {!user ? (
           <RootStack.Screen name="Auth">
@@ -295,7 +304,14 @@ export const AppNavigator = () => {
           </RootStack.Screen>
         ) : (
           <RootStack.Screen name="Main">
-            {() => <MainTabNavigator />}
+            {() => (
+              <OngoingActivityProvider navigationRef={navigationRef}>
+                <View style={{ flex: 1 }}>
+                  <MainTabNavigator />
+                  <OngoingActivityMiniBar />
+                </View>
+              </OngoingActivityProvider>
+            )}
           </RootStack.Screen>
         )}
       </RootStack.Navigator>

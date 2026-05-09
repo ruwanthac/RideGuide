@@ -44,10 +44,10 @@ export async function getOrEnrichVehicleKnowledge(
 }> {
   const canonicalVehicleKey = buildCanonicalVehicleKey(input);
   const cached = await getCachedVehicleKnowledge(canonicalVehicleKey);
-  if (cached) {
+  if (cached?.enrichedData) {
     return {
       canonicalVehicleKey,
-      enrichedData: cached.enrichedData,
+      enrichedData: cached.enrichedData as VehicleEnrichedData,
       source: cached.source,
       verified: cached.verified,
     };
@@ -67,7 +67,7 @@ export async function getOrEnrichVehicleKnowledge(
 
   return {
     canonicalVehicleKey,
-    enrichedData: saved!.enrichedData,
+    enrichedData: (saved?.enrichedData ?? enrichedData) as VehicleEnrichedData,
     source: saved!.source,
     verified: saved!.verified,
   };

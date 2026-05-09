@@ -1,13 +1,17 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, Animated, Easing } from 'react-native';
 import { WebView } from 'react-native-webview';
+import * as Location from 'expo-location';
 import { Icon } from '../components';
 import { colors } from '../constants/theme';
 import { useResponsive } from '../hooks';
 import type { ServiceRequest } from '../backend/types';
 import { listServiceRequests, subscribeRequestById, updateServiceRequest } from '../backend/serviceRequestsService';
+import { updateUserProfile } from '../backend/userProfileService';
 import { extractApiError } from '../backend/apiClient';
 import { useUserRole } from '../context/UserRoleContext';
+import { useAuth } from '../context/AuthContext';
+import { useOngoingActivity } from '../context/OngoingActivityContext';
 
 const NEXT_STATUS: Record<string, 'driver_picked_hire' | 'driver_on_the_way' | 'driver_arrived' | 'vehicle_in_tow' | 'completed' | null> = {
   requested: 'driver_picked_hire',
@@ -36,18 +40,23 @@ const MAP_ATTRIBUTION = MAPBOX_TOKEN ? '© Mapbox © OpenStreetMap contributors'
 
 interface TowDriverActiveJobScreenProps {
   requestId: string;
+  onMinimize?: () => void;
   onDone: () => void;
 }
 
-export const TowDriverActiveJobScreen: React.FC<TowDriverActiveJobScreenProps> = ({ requestId, onDone }) => {
+export const TowDriverActiveJobScreen: React.FC<TowDriverActiveJobScreenProps> = ({ requestId, onMinimize, onDone }) => {
   const { spacing, fontSizes, borderRadius } = useResponsive();
   const { role } = useUserRole();
+  const { user } = useAuth();
+  const { syncFromServiceRequest } = useOngoingActivity();
   const [request, setRequest] = useState<ServiceRequest | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const pulse = useRef(new Animated.Value(1)).current;
   const completionTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hasRedirectedRef = useRef(false);
+  const watchRef = useRef<Location.LocationSubscription | null>(null);
+  const lastLocationPatchAtRef = useRef(0);
 
   const scheduleDoneOnce = () => {
     if (hasRedirectedRef.current) return;
@@ -77,6 +86,70 @@ export const TowDriverActiveJobScreen: React.FC<TowDriverActiveJobScreenProps> =
   }, [onDone, role]);
 
   useEffect(() => {
+    let cancelled = false;
+
+    const stopWatch = () => {
+      watchRef.current?.remove();
+      watchRef.current = null;
+    };
+
+    const syncLocationToServer = async (
+      latitude: number,
+      longitude: number,
+      options?: { force?: boolean }
+    ) => {
+      const now = Date.now();
+      if (!options?.force && now - lastLocationPatchAtRef.current < 5000) return;
+      lastLocationPatchAtRef.current = now;
+      try {
+        await updateUserProfile({ location: { lat: latitude, lng: longitude } });
+      } catch {
+        // non-fatal: job UI should continue even when location patch fails
+      }
+    };
+
+    void (async () => {
+      const perm = await Location.requestForegroundPermissionsAsync();
+      if (cancelled || perm.status !== 'granted') return;
+
+      try {
+        const current = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+        if (!cancelled) {
+          await syncLocationToServer(current.coords.latitude, current.coords.longitude, { force: true });
+        }
+      } catch {
+        // ignore one-shot GPS failures
+      }
+
+      try {
+        const sub = await Location.watchPositionAsync(
+          {
+            accuracy: Location.Accuracy.Balanced,
+            timeInterval: 3000,
+            distanceInterval: 5,
+          },
+          (pos) => {
+            if (cancelled) return;
+            void syncLocationToServer(pos.coords.latitude, pos.coords.longitude);
+          }
+        );
+        if (cancelled) {
+          sub.remove();
+          return;
+        }
+        watchRef.current = sub;
+      } catch {
+        // ignore watch failures; manual status GPS push still exists
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      stopWatch();
+    };
+  }, []);
+
+  useEffect(() => {
     let off: (() => void) | undefined;
     let alive = true;
     (async () => {
@@ -93,6 +166,11 @@ export const TowDriverActiveJobScreen: React.FC<TowDriverActiveJobScreenProps> =
     })();
     return () => { alive = false; off?.(); };
   }, [onDone, requestId]);
+
+  useEffect(() => {
+    if (!request || !user || user.role !== 'tow') return;
+    syncFromServiceRequest(request, user.role);
+  }, [request, syncFromServiceRequest, user]);
 
   const nextStatus = request ? NEXT_STATUS[request.status] : null;
 
@@ -122,7 +200,49 @@ export const TowDriverActiveJobScreen: React.FC<TowDriverActiveJobScreenProps> =
     if (!request || !nextStatus) return;
     setSaving(true);
     try {
+      let canUseGps = false;
+      try {
+        const perm = await Promise.race([
+          Location.requestForegroundPermissionsAsync(),
+          new Promise<{ status: 'denied' }>((resolve) => setTimeout(() => resolve({ status: 'denied' }), 2500)),
+        ]);
+        canUseGps = perm.status === 'granted';
+      } catch {
+        canUseGps = false;
+      }
+
+      if (canUseGps) {
+        try {
+          const pos = await Promise.race([
+            Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced }),
+            new Promise<null>((resolve) => setTimeout(() => resolve(null), 3000)),
+          ]);
+          if (pos) {
+            await updateUserProfile({
+              location: { lat: pos.coords.latitude, lng: pos.coords.longitude },
+            });
+          }
+        } catch {
+          // Do not block status transition when GPS fetch fails.
+        }
+      }
+
       const updated = await updateServiceRequest(request._id, nextStatus);
+      if (nextStatus === 'vehicle_in_tow' && canUseGps) {
+        try {
+          const posAfter = await Promise.race([
+            Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced }),
+            new Promise<null>((resolve) => setTimeout(() => resolve(null), 3000)),
+          ]);
+          if (posAfter) {
+            await updateUserProfile({
+              location: { lat: posAfter.coords.latitude, lng: posAfter.coords.longitude },
+            });
+          }
+        } catch {
+          // non-fatal
+        }
+      }
       setRequest(updated);
       if (updated.status === 'completed') scheduleDoneOnce();
     } catch (error) {
@@ -143,6 +263,18 @@ export const TowDriverActiveJobScreen: React.FC<TowDriverActiveJobScreenProps> =
     nextBtnText: { color: '#fff', fontWeight: '700' },
     statusPill: { flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start', borderRadius: borderRadius.full, backgroundColor: 'rgba(37,99,235,0.12)', paddingHorizontal: spacing.md, paddingVertical: spacing.xs },
     statusText: { marginLeft: spacing.xs, color: colors.primary, fontWeight: '600' },
+    topActions: { position: 'absolute', top: spacing.lg, left: spacing.lg, zIndex: 10 },
+    minimizeBtn: {
+      backgroundColor: colors.card,
+      borderRadius: borderRadius.full,
+      borderWidth: 1,
+      borderColor: colors.border,
+      paddingHorizontal: spacing.sm,
+      paddingVertical: spacing.xs,
+      flexDirection: 'row',
+      alignItems: 'center',
+    },
+    minimizeText: { marginLeft: spacing.xs, color: colors.text, fontSize: fontSizes.xs, fontWeight: '600' },
   }), [borderRadius.full, borderRadius.lg, borderRadius.md, fontSizes.lg, spacing.lg, spacing.md, spacing.sm, spacing.xs]);
 
   if (loading || !request) {
@@ -156,6 +288,19 @@ export const TowDriverActiveJobScreen: React.FC<TowDriverActiveJobScreenProps> =
   return (
     <View style={styles.container}>
       <WebView source={{ html: mapHtml }} style={styles.map} />
+      <View style={styles.topActions}>
+        <TouchableOpacity
+          style={styles.minimizeBtn}
+          onPress={() => {
+            if (request && user?.role === 'tow') syncFromServiceRequest(request, user.role);
+            onMinimize?.();
+          }}
+          activeOpacity={0.85}
+        >
+          <Icon name="chevron-back" size={16} color={colors.primary} />
+          <Text style={styles.minimizeText}>Continue in background</Text>
+        </TouchableOpacity>
+      </View>
       <View style={styles.panel}>
         <Text style={styles.title}>Tow active job</Text>
         <Text style={styles.subtitle}>{request.userName} · {request.vehicle}</Text>

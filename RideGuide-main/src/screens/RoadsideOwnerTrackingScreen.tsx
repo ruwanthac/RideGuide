@@ -15,9 +15,12 @@ import { Icon } from '../components';
 import { colors } from '../constants/theme';
 import { useResponsive } from '../hooks';
 import type { ServiceRequest } from '../backend/types';
-import { listServiceRequests, subscribeRequestById } from '../backend/serviceRequestsService';
+import { listServiceRequests, subscribeRequestById, updateServiceRequest } from '../backend/serviceRequestsService';
+import { extractApiError } from '../backend/apiClient';
 import { useUserRole } from '../context/UserRoleContext';
 import { useNavigation } from '@react-navigation/native';
+import { useAuth } from '../context/AuthContext';
+import { useOngoingActivity } from '../context/OngoingActivityContext';
 
 const ROAD_STATUS_LABELS: Record<string, string> = {
   pending: 'Pending',
@@ -45,6 +48,8 @@ export const RoadsideOwnerTrackingScreen: React.FC<RoadsideOwnerTrackingScreenPr
 }) => {
   const { spacing, fontSizes, borderRadius } = useResponsive();
   const { role } = useUserRole();
+  const { user } = useAuth();
+  const { syncFromServiceRequest, clearForRequest } = useOngoingActivity();
   const navigation = useNavigation<any>();
   const [request, setRequest] = useState<ServiceRequest | null>(null);
   const [loading, setLoading] = useState(true);
@@ -126,6 +131,11 @@ export const RoadsideOwnerTrackingScreen: React.FC<RoadsideOwnerTrackingScreenPr
       clearInterval(interval);
     };
   }, [onBackHome, requestId]);
+
+  useEffect(() => {
+    if (!request || !user || user.role !== 'owner') return;
+    syncFromServiceRequest(request, user.role);
+  }, [request, syncFromServiceRequest, user]);
 
   const mapHtml = useMemo(() => {
     const lat = request?.pickupLatitude ?? request?.latitude ?? 6.9271;
@@ -269,8 +279,40 @@ export const RoadsideOwnerTrackingScreen: React.FC<RoadsideOwnerTrackingScreenPr
           justifyContent: 'center',
           alignItems: 'center',
         },
+        topBar: {
+          position: 'absolute',
+          top: spacing.xl + spacing.sm,
+          left: spacing.md,
+          right: spacing.md,
+          zIndex: 10,
+          flexDirection: 'row',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: spacing.sm,
+        },
+        minimizePill: {
+          flexDirection: 'row',
+          alignItems: 'center',
+          backgroundColor: colors.card,
+          borderRadius: borderRadius.full,
+          borderWidth: 1,
+          borderColor: colors.border,
+          paddingHorizontal: spacing.sm,
+          paddingVertical: spacing.xs,
+          flexShrink: 1,
+        },
+        minimizePillText: { marginLeft: spacing.xs / 2, color: colors.text, fontSize: fontSizes.xs, fontWeight: '600' },
+        cancelOutline: {
+          borderWidth: 1,
+          borderColor: colors.error,
+          borderRadius: borderRadius.full,
+          backgroundColor: colors.card,
+          paddingHorizontal: spacing.md,
+          paddingVertical: spacing.xs,
+        },
+        cancelOutlineText: { color: colors.error, fontSize: fontSizes.xs, fontWeight: '700' },
       }),
-    [borderRadius.full, borderRadius.lg, fontSizes.lg, spacing.lg, spacing.md, spacing.sm, spacing.xl, spacing.xs]
+    [borderRadius.full, borderRadius.lg, fontSizes.lg, fontSizes.xs, spacing.lg, spacing.md, spacing.sm, spacing.xl, spacing.xs]
   );
 
   if (loading || !request) {
@@ -288,6 +330,7 @@ export const RoadsideOwnerTrackingScreen: React.FC<RoadsideOwnerTrackingScreenPr
     request.status === 'completed';
   const mechanicName = request.acceptedProviderDisplayName?.trim() || 'Your mechanic';
   const mechanicPhone = request.acceptedProviderPhone?.trim() ?? '';
+  const ownerCanCancel = request.status === 'pending';
 
   const openCall = () => {
     if (!mechanicPhone) {
@@ -306,12 +349,48 @@ export const RoadsideOwnerTrackingScreen: React.FC<RoadsideOwnerTrackingScreenPr
     });
   };
 
+  const handleMinimize = () => {
+    if (user?.role === 'owner') syncFromServiceRequest(request, user.role);
+    onBackHome();
+  };
+
+  const confirmCancel = () => {
+    Alert.alert('Cancel request?', 'This will stop your request.', [
+      { text: 'Not now', style: 'cancel' },
+      {
+        text: 'Cancel request',
+        style: 'destructive',
+        onPress: () => {
+          void (async () => {
+            try {
+              await updateServiceRequest(request._id, 'cancelled');
+              clearForRequest(request._id);
+              onBackHome();
+            } catch (e) {
+              Alert.alert('Unable to cancel', extractApiError(e, 'Please try again'));
+            }
+          })();
+        },
+      },
+    ]);
+  };
+
   return (
     <View style={styles.container}>
       <WebView source={{ html: mapHtml }} style={styles.map} />
-      <TouchableOpacity style={styles.backBtn} onPress={onBackHome} activeOpacity={0.8}>
-        <Icon name="close" size={20} color={colors.text} />
-      </TouchableOpacity>
+      <View style={styles.topBar}>
+        <TouchableOpacity style={styles.minimizePill} onPress={handleMinimize} activeOpacity={0.85}>
+          <Icon name="chevron-back" size={18} color={colors.primary} />
+          <Text style={styles.minimizePillText}>Continue in background</Text>
+        </TouchableOpacity>
+        {ownerCanCancel ? (
+          <TouchableOpacity style={styles.cancelOutline} onPress={confirmCancel} activeOpacity={0.85}>
+            <Text style={styles.cancelOutlineText}>Cancel request</Text>
+          </TouchableOpacity>
+        ) : (
+          <View />
+        )}
+      </View>
       <View style={styles.card}>
         <Text style={styles.title}>Roadside help tracking</Text>
         <Text style={styles.subtitle}>{request.pickupAddress || request.location}</Text>

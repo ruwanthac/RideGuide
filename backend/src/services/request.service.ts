@@ -17,7 +17,9 @@ type TowStatus =
 
 type RequestWithProviderLocation = Record<string, any> & {
   acceptedBy?: unknown;
+  requesterId?: unknown;
   acceptedProviderLocation?: { latitude: number; longitude: number } | null;
+  requesterLiveLocation?: { latitude: number; longitude: number } | null;
 };
 
 const TOW_TRANSITIONS: Record<string, TowStatus | null> = {
@@ -30,33 +32,66 @@ const TOW_TRANSITIONS: Record<string, TowStatus | null> = {
   cancelled: null,
 };
 
+/** Map user id → latest coordinates (batch lookup; avoids ~2 queries per row in list endpoints). */
+function coordinatesToGeoPoint(coords: unknown): { latitude: number; longitude: number } | null {
+  if (!Array.isArray(coords) || coords.length < 2) return null;
+  const [longitude, latitude] = coords;
+  if (typeof latitude !== 'number' || typeof longitude !== 'number') return null;
+  return { latitude, longitude };
+}
+
+async function enrichProviderLocations<T extends RequestWithProviderLocation>(rows: T[]): Promise<T[]> {
+  if (rows.length === 0) return [];
+
+  const idSet = new Set<string>();
+  for (const row of rows) {
+    if (row?.acceptedBy) idSet.add(String(row.acceptedBy));
+    if (row?.requesterId) idSet.add(String(row.requesterId));
+  }
+
+  let locByUserId = new Map<string, { latitude: number; longitude: number } | null>();
+  if (idSet.size > 0) {
+    const ids = [...idSet].map((id) => new Types.ObjectId(id));
+    const users = await UserModel.find({ _id: { $in: ids } }).select('location').lean();
+    locByUserId = new Map();
+    for (const u of users) {
+      const coords = u?.location?.coordinates;
+      locByUserId.set(String(u._id), coordinatesToGeoPoint(coords));
+    }
+  }
+
+  return rows.map((req) => {
+    let acceptedProviderLocation: { latitude: number; longitude: number } | null = null;
+    let requesterLiveLocation: { latitude: number; longitude: number } | null = null;
+    if (req?.acceptedBy) {
+      acceptedProviderLocation = locByUserId.get(String(req.acceptedBy)) ?? null;
+    }
+    if (req?.requesterId) {
+      requesterLiveLocation = locByUserId.get(String(req.requesterId)) ?? null;
+    }
+    return {
+      ...req,
+      acceptedProviderLocation,
+      requesterLiveLocation,
+    };
+  });
+}
+
 async function enrichProviderLocation<T extends RequestWithProviderLocation>(req: T): Promise<T> {
-  if (!req?.acceptedBy) return req;
-  const provider = await UserModel.findById(req.acceptedBy).select('location').lean();
-  const coordinates = provider?.location?.coordinates;
-  if (!Array.isArray(coordinates) || coordinates.length !== 2) {
-    return { ...req, acceptedProviderLocation: null };
-  }
-  const [longitude, latitude] = coordinates;
-  if (typeof latitude !== 'number' || typeof longitude !== 'number') {
-    return { ...req, acceptedProviderLocation: null };
-  }
-  return {
-    ...req,
-    acceptedProviderLocation: { latitude, longitude },
-  };
+  const [out] = await enrichProviderLocations([req]);
+  return out;
 }
 
 export async function listForRole(userId: string, role: Role, vehicleId?: string, historyOnly = false) {
   if (role === 'admin') {
     const rows = await ServiceRequestModel.find().sort({ createdAt: -1 }).limit(200).lean();
-    return Promise.all(rows.map((row) => enrichProviderLocation(row as RequestWithProviderLocation)));
+    return enrichProviderLocations(rows as RequestWithProviderLocation[]);
   }
   if (role === 'owner') {
     const filter: Record<string, unknown> = { requesterId: userId };
     if (vehicleId) filter.vehicleId = vehicleId;
     const rows = await ServiceRequestModel.find(filter).sort({ createdAt: -1 }).lean();
-    return Promise.all(rows.map((row) => enrichProviderLocation(row as RequestWithProviderLocation)));
+    return enrichProviderLocations(rows as RequestWithProviderLocation[]);
   }
   if (historyOnly) {
     if (role === 'tow') {
@@ -65,7 +100,7 @@ export async function listForRole(userId: string, role: Role, vehicleId?: string
         acceptedBy: new Types.ObjectId(userId),
         status: { $in: ['completed', 'cancelled'] },
       }).sort({ createdAt: -1 }).limit(100).lean();
-      return Promise.all(rows.map((row) => enrichProviderLocation(row as RequestWithProviderLocation)));
+      return enrichProviderLocations(rows as RequestWithProviderLocation[]);
     }
     if (role === 'mechanic') {
       const rows = await ServiceRequestModel.find({
@@ -73,7 +108,7 @@ export async function listForRole(userId: string, role: Role, vehicleId?: string
         acceptedBy: new Types.ObjectId(userId),
         status: { $in: ['completed', 'cancelled'] },
       }).sort({ createdAt: -1 }).limit(100).lean();
-      return Promise.all(rows.map((row) => enrichProviderLocation(row as RequestWithProviderLocation)));
+      return enrichProviderLocations(rows as RequestWithProviderLocation[]);
     }
     return [];
   }
@@ -89,7 +124,7 @@ export async function listForRole(userId: string, role: Role, vehicleId?: string
         },
       ],
     }).sort({ createdAt: -1 }).lean();
-    return Promise.all(rows.map((row) => enrichProviderLocation(row as RequestWithProviderLocation)));
+    return enrichProviderLocations(rows as RequestWithProviderLocation[]);
   }
   const mechanicUser = await UserModel.findById(userId).select('mechanicAvailable').lean();
   const mechanicReceiving = mechanicUser?.mechanicAvailable !== false;
@@ -99,7 +134,7 @@ export async function listForRole(userId: string, role: Role, vehicleId?: string
       acceptedBy: new Types.ObjectId(userId),
       status: { $nin: ['completed', 'cancelled'] },
     }).sort({ createdAt: -1 }).lean();
-    return Promise.all(rows.map((row) => enrichProviderLocation(row as RequestWithProviderLocation)));
+    return enrichProviderLocations(rows as RequestWithProviderLocation[]);
   }
   const rows = await ServiceRequestModel.find({
     type,
@@ -111,7 +146,7 @@ export async function listForRole(userId: string, role: Role, vehicleId?: string
       },
     ],
   }).sort({ createdAt: -1 }).lean();
-  return Promise.all(rows.map((row) => enrichProviderLocation(row as RequestWithProviderLocation)));
+  return enrichProviderLocations(rows as RequestWithProviderLocation[]);
 }
 
 export async function createRequest(userId: string, input: {

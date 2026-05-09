@@ -69,6 +69,7 @@ export interface ServiceRequest {
   acceptedProviderDisplayName?: string | null;
   acceptedProviderPhone?: string | null;
   acceptedProviderLocation?: { latitude: number; longitude: number } | null;
+  requesterLiveLocation?: { latitude: number; longitude: number } | null;
   vehicleId: string | null;
   userName: string;
   vehicle: string;

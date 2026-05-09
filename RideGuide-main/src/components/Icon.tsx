@@ -22,7 +22,9 @@ export type IconName =
   | 'call'
   | 'close'
   | 'image'
-  | 'chevron-back';
+  | 'chevron-back'
+  | 'chevron-forward'
+  | 'navigate';
 
 interface IconProps {
   name: IconName;

@@ -8,6 +8,8 @@ import type { ServiceRequest } from '../backend/types';
 import { listServiceRequests, subscribeRequestById, updateServiceRequest } from '../backend/serviceRequestsService';
 import { extractApiError } from '../backend/apiClient';
 import { useUserRole } from '../context/UserRoleContext';
+import { useAuth } from '../context/AuthContext';
+import { useOngoingActivity } from '../context/OngoingActivityContext';
 
 const NEXT_STATUS: Record<string, 'attending_to_location' | 'completed' | null> = {
   pending: null,
@@ -35,17 +37,21 @@ const MAP_ATTRIBUTION = MAPBOX_TOKEN ? '© Mapbox © OpenStreetMap contributors'
 
 interface MechanicActiveJobScreenProps {
   requestId: string;
+  onMinimize?: () => void;
   onDone: () => void;
   onOpenChat: (request: ServiceRequest) => void;
 }
 
 export const MechanicActiveJobScreen: React.FC<MechanicActiveJobScreenProps> = ({
   requestId,
+  onMinimize,
   onDone,
   onOpenChat,
 }) => {
   const { spacing, fontSizes, borderRadius } = useResponsive();
   const { role } = useUserRole();
+  const { user } = useAuth();
+  const { syncFromServiceRequest } = useOngoingActivity();
   const [request, setRequest] = useState<ServiceRequest | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -87,6 +93,11 @@ export const MechanicActiveJobScreen: React.FC<MechanicActiveJobScreenProps> = (
     })();
     return () => { alive = false; off?.(); };
   }, [onDone, requestId]);
+
+  useEffect(() => {
+    if (!request || !user || user.role !== 'mechanic') return;
+    syncFromServiceRequest(request, user.role);
+  }, [request, syncFromServiceRequest, user]);
 
   const mapHtml = useMemo(() => {
     const lat = request?.pickupLatitude ?? request?.latitude ?? 6.9271;
@@ -172,8 +183,20 @@ export const MechanicActiveJobScreen: React.FC<MechanicActiveJobScreenProps> = (
           marginTop: spacing.md,
         },
         nextBtnText: { color: '#fff', fontWeight: '700' },
+        topActions: { position: 'absolute', top: spacing.lg, left: spacing.lg, zIndex: 10 },
+        minimizeBtn: {
+          backgroundColor: colors.card,
+          borderRadius: borderRadius.full,
+          borderWidth: 1,
+          borderColor: colors.border,
+          paddingHorizontal: spacing.sm,
+          paddingVertical: spacing.xs,
+          flexDirection: 'row',
+          alignItems: 'center',
+        },
+        minimizeText: { marginLeft: spacing.xs, color: colors.text, fontSize: fontSizes.xs, fontWeight: '600' },
       }),
-    [borderRadius.full, borderRadius.lg, borderRadius.md, fontSizes.lg, spacing.lg, spacing.md, spacing.sm, spacing.xs]
+    [borderRadius.full, borderRadius.lg, borderRadius.md, fontSizes.lg, fontSizes.xs, spacing.lg, spacing.md, spacing.sm, spacing.xs]
   );
 
   if (loading || !request) {
@@ -187,6 +210,19 @@ export const MechanicActiveJobScreen: React.FC<MechanicActiveJobScreenProps> = (
   return (
     <View style={styles.container}>
       <WebView source={{ html: mapHtml }} style={styles.map} />
+      <View style={styles.topActions}>
+        <TouchableOpacity
+          style={styles.minimizeBtn}
+          onPress={() => {
+            if (request && user?.role === 'mechanic') syncFromServiceRequest(request, user.role);
+            onMinimize?.();
+          }}
+          activeOpacity={0.85}
+        >
+          <Icon name="chevron-back" size={16} color={colors.primary} />
+          <Text style={styles.minimizeText}>Continue in background</Text>
+        </TouchableOpacity>
+      </View>
       <View style={styles.panel}>
         <Text style={styles.title}>Roadside active job</Text>
         <Text style={styles.subtitle}>{request.userName} · {request.vehicle}</Text>

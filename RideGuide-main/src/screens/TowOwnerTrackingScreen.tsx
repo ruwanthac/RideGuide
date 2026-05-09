@@ -1,12 +1,16 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Animated, Easing, ActivityIndicator } from 'react-native';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, Animated, Easing, ActivityIndicator, Alert } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { WebView } from 'react-native-webview';
 import { Icon } from '../components';
 import { colors } from '../constants/theme';
 import { useResponsive } from '../hooks';
 import type { ServiceRequest } from '../backend/types';
-import { listServiceRequests, subscribeRequestById } from '../backend/serviceRequestsService';
+import { listServiceRequests, subscribeRequestById, updateServiceRequest } from '../backend/serviceRequestsService';
+import { extractApiError } from '../backend/apiClient';
 import { useUserRole } from '../context/UserRoleContext';
+import { useAuth } from '../context/AuthContext';
+import { useOngoingActivity } from '../context/OngoingActivityContext';
 
 const LABELS: Record<string, string> = {
   pending: 'Pending',
@@ -35,10 +39,14 @@ interface TowOwnerTrackingScreenProps {
 }
 
 export const TowOwnerTrackingScreen: React.FC<TowOwnerTrackingScreenProps> = ({ requestId, onBackHome }) => {
+  const insets = useSafeAreaInsets();
   const { spacing, fontSizes, borderRadius, iconSizes } = useResponsive();
   const { role } = useUserRole();
+  const { user } = useAuth();
+  const { syncFromServiceRequest, clearForRequest } = useOngoingActivity();
   const [request, setRequest] = useState<ServiceRequest | null>(null);
   const [loading, setLoading] = useState(true);
+  const [lastKnownDriverLocation, setLastKnownDriverLocation] = useState<{ latitude: number; longitude: number } | null>(null);
   const pulse = useRef(new Animated.Value(0.8)).current;
   const completionTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hasRedirectedRef = useRef(false);
@@ -90,6 +98,19 @@ export const TowOwnerTrackingScreen: React.FC<TowOwnerTrackingScreenProps> = ({ 
   }, [onBackHome, requestId]);
 
   useEffect(() => {
+    const lat = request?.acceptedProviderLocation?.latitude;
+    const lng = request?.acceptedProviderLocation?.longitude;
+    if (typeof lat === 'number' && typeof lng === 'number') {
+      setLastKnownDriverLocation({ latitude: lat, longitude: lng });
+    }
+  }, [request?.acceptedProviderLocation?.latitude, request?.acceptedProviderLocation?.longitude]);
+
+  useEffect(() => {
+    if (!request || !user || user.role !== 'owner') return;
+    syncFromServiceRequest(request, user.role);
+  }, [request, syncFromServiceRequest, user]);
+
+  useEffect(() => {
     let cancelled = false;
     const interval = setInterval(() => {
       void (async () => {
@@ -124,18 +145,24 @@ export const TowOwnerTrackingScreen: React.FC<TowOwnerTrackingScreenProps> = ({ 
   }, [onBackHome, requestId]);
 
   const mapHtml = useMemo(() => {
-    const ownerLat = request?.pickupLatitude ?? request?.latitude ?? 6.9271;
-    const ownerLng = request?.pickupLongitude ?? request?.longitude ?? 79.8612;
-    const driverLat = request?.acceptedProviderLocation?.latitude;
-    const driverLng = request?.acceptedProviderLocation?.longitude;
-    const showTowLiveRoute =
-      request?.status === 'driver_picked_hire' ||
-      request?.status === 'driver_on_the_way' ||
-      request?.status === 'driver_arrived' ||
-      request?.status === 'vehicle_in_tow';
-    const hasDriverLocation =
-      typeof driverLat === 'number' && typeof driverLng === 'number' && Boolean(showTowLiveRoute);
-    const isRequested = request?.status === 'requested';
+    const ownerLat = request?.requesterLiveLocation?.latitude ?? request?.pickupLatitude ?? request?.latitude ?? 6.9271;
+    const ownerLng = request?.requesterLiveLocation?.longitude ?? request?.pickupLongitude ?? request?.longitude ?? 79.8612;
+    const dropLat = request?.dropoffLatitude ?? request?.latitude ?? ownerLat;
+    const dropLng = request?.dropoffLongitude ?? request?.longitude ?? ownerLng;
+    const driverLat = request?.acceptedProviderLocation?.latitude ?? lastKnownDriverLocation?.latitude;
+    const driverLng = request?.acceptedProviderLocation?.longitude ?? lastKnownDriverLocation?.longitude;
+    const status = request?.status ?? 'requested';
+    const isRequested = status === 'requested';
+    const isDriverPicked = status === 'driver_picked_hire';
+    const isDriverOnTheWay = status === 'driver_on_the_way';
+    const isDriverArrived = status === 'driver_arrived';
+    const isVehicleInTow = status === 'vehicle_in_tow';
+    const isCompleted = status === 'completed';
+    const showOwnerMarker = isRequested || isDriverPicked || isDriverOnTheWay || isDriverArrived;
+    const showDropFlag = isVehicleInTow || isCompleted;
+    const showDriverMarker = isDriverPicked || isDriverOnTheWay || isDriverArrived || isVehicleInTow;
+    const routeMode = isVehicleInTow ? 'driver_to_drop' : (isDriverPicked || isDriverOnTheWay || isDriverArrived ? 'driver_to_owner' : 'none');
+    const hasDriverLocation = typeof driverLat === 'number' && typeof driverLng === 'number';
     return `
       <!DOCTYPE html><html><head>
       <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0"/>
@@ -146,29 +173,69 @@ export const TowOwnerTrackingScreen: React.FC<TowOwnerTrackingScreenProps> = ({ 
       <script>
         const ownerLat=${ownerLat};
         const ownerLng=${ownerLng};
+        const dropLat=${dropLat};
+        const dropLng=${dropLng};
+        const showOwnerMarker=${showOwnerMarker ? 'true' : 'false'};
+        const showDropFlag=${showDropFlag ? 'true' : 'false'};
+        const showDriverMarker=${showDriverMarker ? 'true' : 'false'};
         const hasDriverLocation=${hasDriverLocation ? 'true' : 'false'};
-        const showTowLiveRoute=${showTowLiveRoute ? 'true' : 'false'};
+        const routeMode='${routeMode}';
         const rawDriverLat=${typeof driverLat === 'number' ? driverLat : 'null'};
         const rawDriverLng=${typeof driverLng === 'number' ? driverLng : 'null'};
-        const fallbackDriverLat = ownerLat + 0.00035;
-        const fallbackDriverLng = ownerLng + 0.00035;
+        const allowDriverFallback = routeMode !== 'driver_to_drop';
+        const fallbackDriverLat = showDropFlag ? dropLat + 0.00035 : ownerLat + 0.00035;
+        const fallbackDriverLng = showDropFlag ? dropLng + 0.00035 : ownerLng + 0.00035;
+        const canRenderDriver = showDriverMarker && (hasDriverLocation || allowDriverFallback);
         const driverLat = hasDriverLocation ? rawDriverLat : fallbackDriverLat;
         const driverLng = hasDriverLocation ? rawDriverLng : fallbackDriverLng;
-        const bounds = hasDriverLocation
-          ? [[ownerLat, ownerLng], [driverLat, driverLng]]
-          : [[ownerLat, ownerLng]];
+        const haversineMeters = (lat1, lon1, lat2, lon2) => {
+          const R = 6371000;
+          const toRad = (v) => v * Math.PI / 180;
+          const dLat = toRad(lat2 - lat1);
+          const dLon = toRad(lon2 - lon1);
+          const a =
+            Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+            Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
+            Math.sin(dLon / 2) * Math.sin(dLon / 2);
+          return 2 * R * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        };
+        const ownerDriverGapMeters = haversineMeters(ownerLat, ownerLng, driverLat, driverLng);
+        const markersOverlapping = showOwnerMarker && canRenderDriver && ownerDriverGapMeters < 18;
+        const ownerMarkerLat = markersOverlapping ? ownerLat + 0.00018 : ownerLat;
+        const ownerMarkerLng = markersOverlapping ? ownerLng - 0.00018 : ownerLng;
+        const points = [];
+        if (showOwnerMarker) points.push([ownerMarkerLat, ownerMarkerLng]);
+        if (showDropFlag) points.push([dropLat, dropLng]);
+        if (canRenderDriver) points.push([driverLat, driverLng]);
+        if (points.length === 0) points.push([ownerLat, ownerLng]);
         const map=L.map('map');
-        map.fitBounds(bounds, { padding: [30, 30], maxZoom: 16 });
+        if (points.length === 1) {
+          map.setView(points[0], 15);
+        } else {
+          map.fitBounds(points, { padding: [30, 30], maxZoom: 16 });
+        }
         L.tileLayer('${MAP_TILE_URL}',{maxZoom:19, attribution:'${MAP_ATTRIBUTION}'}).addTo(map);
-        L.marker([ownerLat,ownerLng], {
-          icon: L.divIcon({
-            className: 'owner-car-marker',
-            html: '<div style="background:#2563EB;color:#fff;border-radius:999px;width:40px;height:40px;display:flex;align-items:center;justify-content:center;font-size:20px;border:3px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,0.35);">🚗</div>',
-            iconSize: [40, 40],
-            iconAnchor: [20, 20]
-          })
-        }).addTo(map).bindPopup('<span class="lbl">${isRequested ? 'Your current location' : 'Pickup location'}</span>');
-        if (showTowLiveRoute) {
+        if (showOwnerMarker) {
+          L.marker([ownerMarkerLat,ownerMarkerLng], {
+            icon: L.divIcon({
+              className: 'owner-car-marker',
+              html: '<div style="background:#2563EB;color:#fff;border-radius:999px;width:40px;height:40px;display:flex;align-items:center;justify-content:center;font-size:20px;border:3px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,0.35);">🚗</div>',
+              iconSize: [40, 40],
+              iconAnchor: [20, 20]
+            })
+          }).addTo(map).bindPopup('<span class="lbl">${isRequested ? 'Your current location' : 'Vehicle owner location'}</span>');
+        }
+        if (showDropFlag) {
+          L.marker([dropLat,dropLng], {
+            icon: L.divIcon({
+              className: 'drop-flag-marker',
+              html: '<div style="background:#DC2626;color:#fff;border-radius:8px;width:30px;height:30px;display:flex;align-items:center;justify-content:center;font-size:16px;border:2px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,0.35);">⚑</div>',
+              iconSize: [30, 30],
+              iconAnchor: [15, 24]
+            })
+          }).addTo(map).bindPopup('<span class="lbl">Drop location</span>');
+        }
+        if (canRenderDriver) {
           L.marker([driverLat,driverLng], {
             icon: L.divIcon({
               className: 'tow-truck-marker',
@@ -177,11 +244,57 @@ export const TowOwnerTrackingScreen: React.FC<TowOwnerTrackingScreenProps> = ({ 
               iconAnchor: [20, 20]
             })
           }).addTo(map).bindPopup('<span class="lbl">'+(hasDriverLocation ? 'Tow truck live location' : 'Tow truck location (waiting for live GPS)')+'</span>');
-          L.polyline([[driverLat,driverLng],[ownerLat,ownerLng]],{color:'#000000', weight:4, opacity:0.95}).addTo(map);
+        }
+
+        if (routeMode !== 'none' && canRenderDriver) {
+          let routeEndLat = ownerLat;
+          let routeEndLng = ownerLng;
+          if (routeMode === 'driver_to_drop') {
+            routeEndLat = dropLat;
+            routeEndLng = dropLng;
+          }
+          const distanceMeters = haversineMeters(driverLat, driverLng, routeEndLat, routeEndLng);
+          const hideThresholdMeters = routeMode === 'driver_to_owner' ? 0 : 35;
+          if (distanceMeters > hideThresholdMeters) {
+            const maxVisibleDistance = 1500;
+            const opacity = Math.max(0.15, Math.min(0.95, distanceMeters / maxVisibleDistance));
+            const drawStraightFallback = () => {
+              L.polyline(
+                [[driverLat,driverLng],[routeEndLat,routeEndLng]],
+                {color:'#000000', weight:4, opacity}
+              ).addTo(map);
+            };
+
+            if ('${MAPBOX_TOKEN}'.length > 0) {
+              const directionsUrl =
+                'https://api.mapbox.com/directions/v5/mapbox/driving/' +
+                driverLng + ',' + driverLat + ';' + routeEndLng + ',' + routeEndLat +
+                '?geometries=geojson&overview=full&access_token=' + '${MAPBOX_TOKEN}';
+
+              fetch(directionsUrl)
+                .then((res) => res.json())
+                .then((data) => {
+                  const coords = data?.routes?.[0]?.geometry?.coordinates;
+                  if (Array.isArray(coords) && coords.length > 1) {
+                    const latLngs = coords
+                      .filter((p) => Array.isArray(p) && p.length >= 2)
+                      .map((p) => [p[1], p[0]]);
+                    if (latLngs.length > 1) {
+                      L.polyline(latLngs, { color: '#000000', weight: 4, opacity }).addTo(map);
+                      return;
+                    }
+                  }
+                  drawStraightFallback();
+                })
+                .catch(() => drawStraightFallback());
+            } else {
+              drawStraightFallback();
+            }
+          }
         }
       </script></body></html>
     `;
-  }, [request]);
+  }, [lastKnownDriverLocation?.latitude, lastKnownDriverLocation?.longitude, request]);
 
   const styles = useMemo(() => StyleSheet.create({
     container: { flex: 1, backgroundColor: colors.background },
@@ -262,8 +375,44 @@ export const TowOwnerTrackingScreen: React.FC<TowOwnerTrackingScreenProps> = ({ 
     activePill: { flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start', paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: borderRadius.full, backgroundColor: 'rgba(37,99,235,0.12)' },
     activeText: { color: colors.primary, marginLeft: spacing.xs, fontWeight: '600' },
     amount: { marginTop: spacing.md, fontSize: fontSizes.md, color: colors.text, fontWeight: '700' },
-    backBtn: { position: 'absolute', top: spacing.xl + spacing.md, left: spacing.lg, backgroundColor: colors.card, width: 40, height: 40, borderRadius: 20, justifyContent: 'center', alignItems: 'center' },
-  }), [borderRadius.full, borderRadius.lg, fontSizes.lg, fontSizes.md, iconSizes.sm, spacing.lg, spacing.md, spacing.sm, spacing.xl, spacing.xs]);
+    topBar: {
+      position: 'absolute',
+      top: insets.top + spacing.sm,
+      left: spacing.md,
+      right: spacing.md,
+      zIndex: 10,
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      gap: spacing.sm,
+    },
+    minimizePill: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: colors.card,
+      borderRadius: borderRadius.full,
+      borderWidth: 1,
+      borderColor: colors.border,
+      paddingHorizontal: spacing.sm,
+      paddingVertical: spacing.xs,
+      flexShrink: 1,
+    },
+    minimizePillText: {
+      marginLeft: spacing.xs / 2,
+      color: colors.text,
+      fontSize: fontSizes.xs,
+      fontWeight: '600',
+    },
+    cancelOutline: {
+      borderWidth: 1,
+      borderColor: colors.error,
+      borderRadius: borderRadius.full,
+      backgroundColor: colors.card,
+      paddingHorizontal: spacing.md,
+      paddingVertical: spacing.xs,
+    },
+    cancelOutlineText: { color: colors.error, fontSize: fontSizes.xs, fontWeight: '700' },
+  }), [borderRadius.full, borderRadius.lg, fontSizes.lg, fontSizes.md, fontSizes.xs, iconSizes.sm, insets.top, spacing.lg, spacing.md, spacing.sm, spacing.xl, spacing.xs]);
 
   if (loading || !request) {
     return (
@@ -280,12 +429,49 @@ export const TowOwnerTrackingScreen: React.FC<TowOwnerTrackingScreenProps> = ({ 
     ? request.pickupAddress || request.location
     : `${request.pickupAddress || request.location} → ${request.dropoffAddress || request.location}`;
   const amountLabel = request.type === 'roadside' ? 'Estimated service' : 'Estimated fare';
+  const ownerCanCancel = request.type === 'tow' ? request.status === 'requested' : request.status === 'pending';
+
+  const handleMinimize = () => {
+    if (user?.role === 'owner') syncFromServiceRequest(request, user.role);
+    onBackHome();
+  };
+
+  const confirmCancel = () => {
+    Alert.alert('Cancel request?', 'This will stop your request.', [
+      { text: 'Not now', style: 'cancel' },
+      {
+        text: 'Cancel request',
+        style: 'destructive',
+        onPress: () => {
+          void (async () => {
+            try {
+              await updateServiceRequest(request._id, 'cancelled');
+              clearForRequest(request._id);
+              onBackHome();
+            } catch (e) {
+              Alert.alert('Unable to cancel', extractApiError(e, 'Please try again'));
+            }
+          })();
+        },
+      },
+    ]);
+  };
   return (
     <View style={styles.container}>
       <WebView source={{ html: mapHtml }} style={styles.map} />
-      <TouchableOpacity style={styles.backBtn} onPress={onBackHome} activeOpacity={0.8}>
-        <Icon name="close" size={20} color={colors.text} />
-      </TouchableOpacity>
+      <View style={styles.topBar}>
+        <TouchableOpacity style={styles.minimizePill} onPress={handleMinimize} activeOpacity={0.85}>
+          <Icon name="chevron-back" size={18} color={colors.primary} />
+          <Text style={styles.minimizePillText}>Continue in background</Text>
+        </TouchableOpacity>
+        {ownerCanCancel ? (
+          <TouchableOpacity style={styles.cancelOutline} onPress={confirmCancel} activeOpacity={0.85}>
+            <Text style={styles.cancelOutlineText}>Cancel request</Text>
+          </TouchableOpacity>
+        ) : (
+          <View />
+        )}
+      </View>
       <View style={styles.card}>
         <Text style={styles.title}>{heading}</Text>
         <Text style={styles.subtitle}>{subtitle}</Text>

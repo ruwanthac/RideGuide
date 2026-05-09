@@ -48,6 +48,8 @@ export function useResponsive() {
       md: Math.round(scale(12)),
       lg: Math.round(scale(16)),
       xl: Math.round(scale(24)),
+      /** Large enough for capsule / pill shapes */
+      full: 9999,
     };
 
     const isSmallScreen = width < 375;
