@@ -904,7 +904,10 @@ export const TowTruckAssistantScreen: React.FC<TowTruckAssistantScreenProps> = (
     try {
       const created = await createServiceRequest({
         type: tripType,
-        vehicle: `${selectedVehicle.label} — ${selectedVehicle.makeModel}`,
+        vehicle:
+          selectedVehicle.makeModel?.trim() ||
+          selectedVehicle.label?.trim() ||
+          'Vehicle',
         issue: tripType === 'roadside' ? 'Roadside help requested' : 'Tow requested',
         location: pickupLocation || currentLocationAddress || dropLocation,
         latitude: location?.latitude ?? 0,

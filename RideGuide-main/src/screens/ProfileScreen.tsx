@@ -99,7 +99,7 @@ export const ProfileScreen: React.FC = () => {
       Alert.alert('Invalid input', 'VIN is required.');
       return;
     }
-    void saveVehicle(currentVehicle._id, { makeModel, vin })
+    void saveVehicle(currentVehicle._id, { makeModel, vin, label: makeModel })
       .then(() => {
         setIsEditingVehicle(false);
         Alert.alert('Saved', 'Vehicle information has been updated.');
@@ -113,7 +113,7 @@ export const ProfileScreen: React.FC = () => {
     void (async () => {
       try {
         const created = await addVehicle({
-          label: 'New Vehicle',
+          label: DEFAULT_MAKE_MODEL,
           makeModel: DEFAULT_MAKE_MODEL,
           vin: DEFAULT_VIN,
         });
