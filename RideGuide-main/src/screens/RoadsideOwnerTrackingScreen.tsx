@@ -1,4 +1,5 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
+import * as Location from 'expo-location';
 import {
   View,
   Text,
@@ -21,6 +22,7 @@ import { useUserRole } from '../context/UserRoleContext';
 import { useNavigation } from '@react-navigation/native';
 import { useAuth } from '../context/AuthContext';
 import { useOngoingActivity } from '../context/OngoingActivityContext';
+import { updateUserProfile } from '../backend/userProfileService';
 
 const ROAD_STATUS_LABELS: Record<string, string> = {
   pending: 'Pending',
@@ -53,6 +55,13 @@ export const RoadsideOwnerTrackingScreen: React.FC<RoadsideOwnerTrackingScreenPr
   const navigation = useNavigation<any>();
   const [request, setRequest] = useState<ServiceRequest | null>(null);
   const [loading, setLoading] = useState(true);
+  /** Device GPS while pending / en route (owner live on map). */
+  const [deviceLive, setDeviceLive] = useState<{ latitude: number; longitude: number } | null>(null);
+  const [lastKnownMechanicLocation, setLastKnownMechanicLocation] = useState<{
+    latitude: number;
+    longitude: number;
+  } | null>(null);
+  const lastLocationPatchAtRef = useRef(0);
   const pulse = useRef(new Animated.Value(0.8)).current;
   const completionTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hasRedirectedRef = useRef(false);
@@ -84,6 +93,70 @@ export const RoadsideOwnerTrackingScreen: React.FC<RoadsideOwnerTrackingScreenPr
     if (role !== 'owner') onBackHome();
   }, [onBackHome, role]);
 
+  const syncRoadsidePendingLocationToServer = useCallback(
+    async (latitude: number, longitude: number, options?: { force?: boolean }) => {
+      const now = Date.now();
+      if (!options?.force && now - lastLocationPatchAtRef.current < 5000) return;
+      lastLocationPatchAtRef.current = now;
+      try {
+        await updateUserProfile({ location: { lat: latitude, lng: longitude } });
+      } catch {
+        // non-fatal
+      }
+    },
+    []
+  );
+
+  useEffect(() => {
+    const lat = request?.acceptedProviderLocation?.latitude;
+    const lng = request?.acceptedProviderLocation?.longitude;
+    if (typeof lat === 'number' && typeof lng === 'number') {
+      setLastKnownMechanicLocation({ latitude: lat, longitude: lng });
+    }
+  }, [request?.acceptedProviderLocation?.latitude, request?.acceptedProviderLocation?.longitude]);
+
+  useEffect(() => {
+    const ownerLiveStatuses = ['pending', 'accepted', 'attending_to_location'];
+    if (!request?.status || !ownerLiveStatuses.includes(request.status)) {
+      setDeviceLive(null);
+      return;
+    }
+    let cancelled = false;
+    let sub: Location.LocationSubscription | undefined;
+    void (async () => {
+      const perm = await Location.requestForegroundPermissionsAsync();
+      if (cancelled || perm.status !== 'granted') return;
+      try {
+        const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+        if (cancelled) return;
+        setDeviceLive({ latitude: pos.coords.latitude, longitude: pos.coords.longitude });
+        await syncRoadsidePendingLocationToServer(pos.coords.latitude, pos.coords.longitude, { force: true });
+      } catch {
+        /* ignore */
+      }
+      try {
+        sub = await Location.watchPositionAsync(
+          {
+            accuracy: Location.Accuracy.Balanced,
+            timeInterval: 3000,
+            distanceInterval: 5,
+          },
+          (pos) => {
+            if (cancelled) return;
+            setDeviceLive({ latitude: pos.coords.latitude, longitude: pos.coords.longitude });
+            void syncRoadsidePendingLocationToServer(pos.coords.latitude, pos.coords.longitude);
+          }
+        );
+      } catch {
+        /* ignore */
+      }
+    })();
+    return () => {
+      cancelled = true;
+      sub?.remove();
+    };
+  }, [request?.status, requestId, syncRoadsidePendingLocationToServer]);
+
   useEffect(() => {
     let off: (() => void) | undefined;
     let alive = true;
@@ -113,7 +186,21 @@ export const RoadsideOwnerTrackingScreen: React.FC<RoadsideOwnerTrackingScreenPr
           const latest = items.find((item) => item._id === requestId);
           if (!latest) return;
           setRequest((prev) => {
-            if (!prev || prev.status !== latest.status || prev.updatedAt !== latest.updatedAt) {
+            const prevLive = prev?.requesterLiveLocation;
+            const nextLive = latest.requesterLiveLocation;
+            const liveChanged =
+              prevLive?.latitude !== nextLive?.latitude || prevLive?.longitude !== nextLive?.longitude;
+            const prevProv = prev?.acceptedProviderLocation;
+            const nextProv = latest.acceptedProviderLocation;
+            const provChanged =
+              prevProv?.latitude !== nextProv?.latitude || prevProv?.longitude !== nextProv?.longitude;
+            if (
+              !prev ||
+              prev.status !== latest.status ||
+              prev.updatedAt !== latest.updatedAt ||
+              liveChanged ||
+              provChanged
+            ) {
               return latest;
             }
             return prev;
@@ -138,22 +225,171 @@ export const RoadsideOwnerTrackingScreen: React.FC<RoadsideOwnerTrackingScreenPr
   }, [request, syncFromServiceRequest, user]);
 
   const mapHtml = useMemo(() => {
-    const lat = request?.pickupLatitude ?? request?.latitude ?? 6.9271;
-    const lng = request?.pickupLongitude ?? request?.longitude ?? 79.8612;
+    const status = request?.status ?? 'pending';
+    const isPending = status === 'pending';
+    const isAttendingToLocation = status === 'attending_to_location';
+    const isAcceptedOrEnRoute = status === 'accepted' || isAttendingToLocation;
+    const isCompleted = status === 'completed';
+    const pickupLat = request?.pickupLatitude ?? request?.latitude ?? 6.9271;
+    const pickupLng = request?.pickupLongitude ?? request?.longitude ?? 79.8612;
+    const serverLiveLat = request?.requesterLiveLocation?.latitude;
+    const serverLiveLng = request?.requesterLiveLocation?.longitude;
+    const devLat = deviceLive?.latitude;
+    const devLng = deviceLive?.longitude;
+
+    let ownerLat = pickupLat;
+    let ownerLng = pickupLng;
+    if (isPending || isAcceptedOrEnRoute) {
+      if (typeof serverLiveLat === 'number' && typeof serverLiveLng === 'number') {
+        ownerLat = serverLiveLat;
+        ownerLng = serverLiveLng;
+      } else if (typeof devLat === 'number' && typeof devLng === 'number') {
+        ownerLat = devLat;
+        ownerLng = devLng;
+      }
+    }
+
+    const mechLatRaw = request?.acceptedProviderLocation?.latitude ?? lastKnownMechanicLocation?.latitude;
+    const mechLngRaw = request?.acceptedProviderLocation?.longitude ?? lastKnownMechanicLocation?.longitude;
+    const hasMechanicLocation = typeof mechLatRaw === 'number' && typeof mechLngRaw === 'number';
+
+    const showOwnerCar = isPending || isAcceptedOrEnRoute;
+    const canRenderMechanic = isAcceptedOrEnRoute || isCompleted;
+    const routeMode = isAcceptedOrEnRoute ? 'mechanic_to_owner' : 'none';
+
+    const fallbackMechLat = isCompleted ? pickupLat : ownerLat + 0.00035;
+    const fallbackMechLng = isCompleted ? pickupLng : ownerLng + 0.00035;
+    const mechLat = hasMechanicLocation ? mechLatRaw : fallbackMechLat;
+    const mechLng = hasMechanicLocation ? mechLngRaw : fallbackMechLng;
+
     return `
       <!DOCTYPE html><html><head>
       <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0"/>
       <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-      <style>html,body,#map{height:100%;margin:0;}</style></head>
+      <style>html,body,#map{height:100%;margin:0;} .lbl{font-size:11px;font-weight:bold;}</style></head>
       <body><div id="map"></div>
       <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
       <script>
-        const map=L.map('map').setView([${lat},${lng}],13);
+        const ownerLat=${ownerLat};
+        const ownerLng=${ownerLng};
+        const pickupLat=${pickupLat};
+        const pickupLng=${pickupLng};
+        const showOwnerCar=${showOwnerCar ? 'true' : 'false'};
+        const canRenderMechanic=${canRenderMechanic ? 'true' : 'false'};
+        const isCompleted=${isCompleted ? 'true' : 'false'};
+        const hasMechanicLocation=${hasMechanicLocation ? 'true' : 'false'};
+        const rawMechLat=${hasMechanicLocation ? mechLatRaw : 'null'};
+        const rawMechLng=${hasMechanicLocation ? mechLngRaw : 'null'};
+        const mechanicLat=${mechLat};
+        const mechanicLng=${mechLng};
+        const routeMode='${routeMode}';
+        const isAttendingToLocation=${isAttendingToLocation ? 'true' : 'false'};
+
+        const haversineMeters = (lat1, lon1, lat2, lon2) => {
+          const R = 6371000;
+          const toRad = (v) => v * Math.PI / 180;
+          const dLat = toRad(lat2 - lat1);
+          const dLon = toRad(lon2 - lon1);
+          const a =
+            Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+            Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
+            Math.sin(dLon / 2) * Math.sin(dLon / 2);
+          return 2 * R * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        };
+
+        const ownerMechGapMeters = haversineMeters(ownerLat, ownerLng, mechanicLat, mechanicLng);
+        const markersOverlapping = showOwnerCar && canRenderMechanic && !isCompleted && ownerMechGapMeters < 18;
+        const ownerMarkerLat = markersOverlapping ? ownerLat + 0.00018 : ownerLat;
+        const ownerMarkerLng = markersOverlapping ? ownerLng - 0.00018 : ownerLng;
+
+        const points = [];
+        if (showOwnerCar) points.push([ownerMarkerLat, ownerMarkerLng]);
+        if (canRenderMechanic) points.push([mechanicLat, mechanicLng]);
+        if (points.length === 0) points.push([pickupLat, pickupLng]);
+
+        const map=L.map('map');
+        if (points.length === 1) {
+          map.setView(points[0], 15);
+        } else {
+          map.fitBounds(points, { padding: [30, 30], maxZoom: 16 });
+        }
         L.tileLayer('${MAP_TILE_URL}',{maxZoom:19, attribution:'${MAP_ATTRIBUTION}'}).addTo(map);
-        L.marker([${lat},${lng}]).addTo(map).bindPopup('Your location');
+
+        if (showOwnerCar) {
+          L.marker([ownerMarkerLat, ownerMarkerLng], {
+            icon: L.divIcon({
+              className: 'owner-car-marker',
+              html: '<div style="background:#2563EB;color:#fff;border-radius:999px;width:40px;height:40px;display:flex;align-items:center;justify-content:center;font-size:20px;border:3px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,0.35);">🚗</div>',
+              iconSize: [40, 40],
+              iconAnchor: [20, 20]
+            })
+          }).addTo(map).bindPopup('<span class="lbl">Your location</span>');
+        } else if (!canRenderMechanic) {
+          L.marker([pickupLat, pickupLng]).addTo(map).bindPopup('<span class="lbl">Pickup location</span>');
+        }
+
+        if (canRenderMechanic) {
+          const mechPopup = isCompleted
+            ? (hasMechanicLocation ? 'Mechanic location' : 'Mechanic · service location')
+            : (hasMechanicLocation ? 'Mechanic live location' : 'Mechanic location (waiting for live GPS)');
+          L.marker([mechanicLat, mechanicLng], {
+            icon: L.divIcon({
+              className: 'mechanic-live-marker',
+              html: '<div style="background:#111;color:#fff;border-radius:999px;width:40px;height:40px;display:flex;align-items:center;justify-content:center;font-size:20px;border:3px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,0.35);">🔧</div>',
+              iconSize: [40, 40],
+              iconAnchor: [20, 20]
+            })
+          }).addTo(map).bindPopup('<span class="lbl">'+mechPopup+'</span>');
+        }
+
+        if (routeMode === 'mechanic_to_owner' && canRenderMechanic) {
+          const distanceMeters = haversineMeters(mechanicLat, mechanicLng, ownerLat, ownerLng);
+          // While mechanic is en route to you: hide the line once they're close (same idea as tow driver→drop).
+          const hideThresholdMeters = isAttendingToLocation ? 35 : 0;
+          if (distanceMeters > hideThresholdMeters) {
+            const maxVisibleDistance = 1500;
+            const opacity = Math.max(0.15, Math.min(0.95, distanceMeters / maxVisibleDistance));
+            const drawStraightFallback = () => {
+              L.polyline(
+                [[mechanicLat, mechanicLng], [ownerLat, ownerLng]],
+                { color: '#000000', weight: 4, opacity }
+              ).addTo(map);
+            };
+            if ('${MAPBOX_TOKEN}'.length > 0) {
+              const directionsUrl =
+                'https://api.mapbox.com/directions/v5/mapbox/driving/' +
+                mechanicLng + ',' + mechanicLat + ';' + ownerLng + ',' + ownerLat +
+                '?geometries=geojson&overview=full&access_token=' + '${MAPBOX_TOKEN}';
+              fetch(directionsUrl)
+                .then((res) => res.json())
+                .then((data) => {
+                  const coords = data?.routes?.[0]?.geometry?.coordinates;
+                  if (Array.isArray(coords) && coords.length > 1) {
+                    const latLngs = coords
+                      .filter((p) => Array.isArray(p) && p.length >= 2)
+                      .map((p) => [p[1], p[0]]);
+                    if (latLngs.length > 1) {
+                      L.polyline(latLngs, { color: '#000000', weight: 4, opacity }).addTo(map);
+                      return;
+                    }
+                  }
+                  drawStraightFallback();
+                })
+                .catch(() => drawStraightFallback());
+            } else {
+              drawStraightFallback();
+            }
+          }
+        }
       </script></body></html>
     `;
-  }, [request]);
+  }, [
+    deviceLive?.latitude,
+    deviceLive?.longitude,
+    lastKnownMechanicLocation?.latitude,
+    lastKnownMechanicLocation?.longitude,
+    request,
+  ]);
 
   const styles = useMemo(
     () =>

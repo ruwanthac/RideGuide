@@ -1,12 +1,14 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, Linking, Alert } from 'react-native';
 import { WebView } from 'react-native-webview';
+import * as Location from 'expo-location';
 import { Icon } from '../components';
 import { colors } from '../constants/theme';
 import { useResponsive } from '../hooks';
 import type { ServiceRequest } from '../backend/types';
 import { listServiceRequests, subscribeRequestById, updateServiceRequest } from '../backend/serviceRequestsService';
 import { extractApiError } from '../backend/apiClient';
+import { updateUserProfile } from '../backend/userProfileService';
 import { useUserRole } from '../context/UserRoleContext';
 import { useAuth } from '../context/AuthContext';
 import { useOngoingActivity } from '../context/OngoingActivityContext';
@@ -57,6 +59,8 @@ export const MechanicActiveJobScreen: React.FC<MechanicActiveJobScreenProps> = (
   const [saving, setSaving] = useState(false);
   const completionTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hasRedirectedRef = useRef(false);
+  const watchRef = useRef<Location.LocationSubscription | null>(null);
+  const lastLocationPatchAtRef = useRef(0);
 
   const scheduleDoneOnce = () => {
     if (hasRedirectedRef.current) return;
@@ -75,6 +79,76 @@ export const MechanicActiveJobScreen: React.FC<MechanicActiveJobScreenProps> = (
   useEffect(() => {
     if (role !== 'mechanic') onDone();
   }, [onDone, role]);
+
+  useEffect(() => {
+    if (role !== 'mechanic') return;
+    const active =
+      request?.status === 'accepted' || request?.status === 'attending_to_location';
+    if (!active) {
+      watchRef.current?.remove();
+      watchRef.current = null;
+      return;
+    }
+
+    let cancelled = false;
+    const stopWatch = () => {
+      watchRef.current?.remove();
+      watchRef.current = null;
+    };
+
+    const syncLocationToServer = async (
+      latitude: number,
+      longitude: number,
+      options?: { force?: boolean }
+    ) => {
+      const now = Date.now();
+      if (!options?.force && now - lastLocationPatchAtRef.current < 5000) return;
+      lastLocationPatchAtRef.current = now;
+      try {
+        await updateUserProfile({ location: { lat: latitude, lng: longitude } });
+      } catch {
+        /* non-fatal */
+      }
+    };
+
+    void (async () => {
+      const perm = await Location.requestForegroundPermissionsAsync();
+      if (cancelled || perm.status !== 'granted') return;
+      try {
+        const current = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+        if (!cancelled) {
+          await syncLocationToServer(current.coords.latitude, current.coords.longitude, { force: true });
+        }
+      } catch {
+        /* ignore */
+      }
+      try {
+        const sub = await Location.watchPositionAsync(
+          {
+            accuracy: Location.Accuracy.Balanced,
+            timeInterval: 3000,
+            distanceInterval: 5,
+          },
+          (pos) => {
+            if (cancelled) return;
+            void syncLocationToServer(pos.coords.latitude, pos.coords.longitude);
+          }
+        );
+        if (cancelled) {
+          sub.remove();
+          return;
+        }
+        watchRef.current = sub;
+      } catch {
+        /* ignore */
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      stopWatch();
+    };
+  }, [role, request?.status, requestId]);
 
   useEffect(() => {
     let off: (() => void) | undefined;

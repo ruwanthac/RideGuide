@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useRef, useEffect } from 'react';
+import React, { useMemo, useState, useRef, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -17,12 +17,17 @@ import { colors } from '../constants/theme';
 import type { IconName } from '../components';
 import { useResponsive } from '../hooks';
 import { useUserRole } from '../context/UserRoleContext';
-import { useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { useVehicles } from '../context/VehiclesContext';
 import { useAuth } from '../context/AuthContext';
 import { subscribeServiceRequests, updateServiceRequest } from '../backend/serviceRequestsService';
 import type { ServiceRequest } from '../backend/types';
 import { extractApiError } from '../backend/apiClient';
+import {
+  getLastAccessedFunctions,
+  recordHomeFunctionAccess,
+  type HomeFunctionId,
+} from '../utils/homeLastAccessed';
 
 interface MenuItem {
   id: string;
@@ -61,21 +66,6 @@ const BANNER_IMAGES = [
   require('../../assets/images/img3.gif'),
 ];
 
-interface ActivityItem {
-  id: string;
-  icon: IconName;
-  title: string;
-  subtitle: string;
-  onPress: () => void;
-}
-
-const LAST_ACTIVITIES: Omit<ActivityItem, 'onPress'>[] = [
-  { id: '1', icon: 'construct', title: 'Diagnosis completed', subtitle: 'Engine check' },
-  { id: '2', icon: 'chatbubble', title: 'AI chat', subtitle: 'Battery question' },
-  { id: '3', icon: 'car', title: 'Tow requested', subtitle: 'Quick Tow 24/7' },
-];
-
-
 export const HomeScreen: React.FC<HomeScreenProps> = ({
   onDiagnose,
   onTowTruckAssistant,
@@ -92,6 +82,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   const [requests, setRequests] = useState<ServiceRequest[]>([]);
   /** Bumped on pull-to-refresh so the service-request subscription reloads from the API (resets socket listener state). */
   const [requestReloadToken, setRequestReloadToken] = useState(0);
+  const [lastAccessedIds, setLastAccessedIds] = useState<HomeFunctionId[]>([]);
 
   useEffect(() => {
     let unsub: (() => void) | null = null;
@@ -199,11 +190,44 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
     });
   };
 
+  const loadLastAccessed = useCallback(async () => {
+    const uid = user?._id;
+    if (!uid) {
+      setLastAccessedIds([]);
+      return;
+    }
+    setLastAccessedIds(await getLastAccessedFunctions(uid));
+  }, [user?._id]);
+
+  useFocusEffect(
+    useCallback(() => {
+      void loadLastAccessed();
+    }, [loadLastAccessed])
+  );
+
+  const runHomeFunction = useCallback(
+    (id: HomeFunctionId) => {
+      if (id === 'diagnose') onDiagnose();
+      else if (id === 'chat') onChatAssistant();
+      else onTowTruckAssistant();
+    },
+    [onDiagnose, onChatAssistant, onTowTruckAssistant]
+  );
+
+  const recordAndAccess = useCallback(
+    (id: HomeFunctionId, fn: () => void) => () => {
+      const uid = user?._id;
+      if (uid) void recordHomeFunctionAccess(uid, id);
+      fn();
+    },
+    [user?._id]
+  );
+
   const onRefresh = async () => {
     setRefreshing(true);
     setBannerIndex(0);
     try {
-      await Promise.all([refreshProfile(), refreshVehicles()]);
+      await Promise.all([refreshProfile(), refreshVehicles(), loadLastAccessed()]);
       setRequestReloadToken((t) => t + 1);
     } catch {
       // non-fatal — individual contexts keep last good state
@@ -665,17 +689,23 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
     [spacing, fontSizes, iconSizes, isSmallScreen, scale, width]
   );
 
-  const items: MenuItem[] = [
-    { ...MENU_ITEMS[0], onPress: onDiagnose },
-    { ...MENU_ITEMS[1], onPress: onChatAssistant },
-    { ...MENU_ITEMS[2], onPress: onTowTruckAssistant },
-  ];
+  const items: MenuItem[] = useMemo(
+    () => [
+      { ...MENU_ITEMS[0], onPress: recordAndAccess('diagnose', onDiagnose) },
+      { ...MENU_ITEMS[1], onPress: recordAndAccess('chat', onChatAssistant) },
+      { ...MENU_ITEMS[2], onPress: recordAndAccess('tow', onTowTruckAssistant) },
+    ],
+    [recordAndAccess, onDiagnose, onChatAssistant, onTowTruckAssistant]
+  );
 
-  const activityHandlers: Record<string, () => void> = {
-    '1': onDiagnose,
-    '2': onChatAssistant,
-    '3': onTowTruckAssistant,
-  };
+  const recentRows = useMemo(() => {
+    const rows: { id: HomeFunctionId; icon: IconName; title: string }[] = [];
+    for (const id of lastAccessedIds) {
+      const meta = MENU_ITEMS.find((m) => m.id === id);
+      if (meta) rows.push({ id, icon: meta.icon, title: meta.title });
+    }
+    return rows;
+  }, [lastAccessedIds]);
 
   const formatTowBookingType = (bookingType?: ServiceRequest['bookingType']) => {
     if (bookingType === 'scheduled') return 'Scheduled';
@@ -920,31 +950,37 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
         ))}
       </View>
 
-      <View style={styles.activitiesSection}>
-        <Text style={styles.activitiesTitle}>Last Activities</Text>
-        <View style={styles.activitiesList}>
-          {LAST_ACTIVITIES.map((activity, i) => (
-            <TouchableOpacity
-              key={activity.id}
-              style={[
-                styles.activityRow,
-                i === LAST_ACTIVITIES.length - 1 && styles.activityRowLast,
-              ]}
-              onPress={activityHandlers[activity.id]}
-              activeOpacity={0.7}
-            >
-              <View style={styles.activityIcon}>
-                <Icon name={activity.icon} size={20} color={colors.primary} />
-              </View>
-              <View style={styles.activityContent}>
-                <Text style={styles.activityTitle}>{activity.title}</Text>
-                <Text style={styles.activitySubtitle}>{activity.subtitle}</Text>
-              </View>
-              <Text style={styles.activityArrow}>›</Text>
-            </TouchableOpacity>
-          ))}
+      {recentRows.length > 0 ? (
+        <View style={styles.activitiesSection}>
+          <Text style={styles.activitiesTitle}>Recently used</Text>
+          <View style={styles.activitiesList}>
+            {recentRows.map((row, i) => (
+              <TouchableOpacity
+                key={row.id}
+                style={[
+                  styles.activityRow,
+                  i === recentRows.length - 1 && styles.activityRowLast,
+                ]}
+                onPress={() => {
+                  const uid = user?._id;
+                  if (uid) void recordHomeFunctionAccess(uid, row.id);
+                  runHomeFunction(row.id);
+                }}
+                activeOpacity={0.7}
+              >
+                <View style={styles.activityIcon}>
+                  <Icon name={row.icon} size={20} color={colors.primary} />
+                </View>
+                <View style={styles.activityContent}>
+                  <Text style={styles.activityTitle}>{row.title}</Text>
+                  <Text style={styles.activitySubtitle}>Quick access</Text>
+                </View>
+                <Text style={styles.activityArrow}>›</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
         </View>
-      </View>
+      ) : null}
 
       <View style={styles.bannerSection}>
         <Text style={styles.bannerSectionTitle}>News & Tips</Text>
