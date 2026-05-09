@@ -1,7 +1,8 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { View, Text, StyleSheet, ScrollView, Alert, Platform } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Header, InputField, PrimaryButton, Card } from '../components';
-import { colors } from '../constants/theme';
+import { colors, shadows } from '../constants/theme';
 import { useResponsive } from '../hooks';
 import { useVehicles } from '../context/VehiclesContext';
 import { runDiagnosis } from '../backend/diagnosisService';
@@ -11,6 +12,8 @@ import type { DiagnosisEntry } from '../backend/types';
 interface DiagnoseScreenProps {
   onBack: () => void;
 }
+
+const SEVERITY_MODERATE = '#D97706';
 
 export const DiagnoseScreen: React.FC<DiagnoseScreenProps> = ({ onBack }) => {
   const { selectedVehicle, vehicles, selectedVehicleId } = useVehicles();
@@ -30,16 +33,43 @@ export const DiagnoseScreen: React.FC<DiagnoseScreenProps> = ({ onBack }) => {
   const [result, setResult] = useState<DiagnosisEntry | null>(null);
   const [loading, setLoading] = useState(false);
   const [inlineError, setInlineError] = useState<string | null>(null);
-  const { spacing, fontSizes, verticalScale } = useResponsive();
+  const { spacing, fontSizes, verticalScale, borderRadius } = useResponsive();
+  const insets = useSafeAreaInsets();
 
   const styles = useMemo(
     () =>
       StyleSheet.create({
         container: { flex: 1, backgroundColor: colors.background },
+        headerShell: {
+          backgroundColor: colors.card,
+          borderBottomWidth: 1,
+          borderBottomColor: colors.border,
+          ...shadows.sm,
+        },
         scroll: { flex: 1 },
         content: {
           padding: spacing.lg,
-          paddingBottom: spacing.xl * 2,
+        },
+        vehiclePanel: {
+          backgroundColor: colors.card,
+          borderRadius: borderRadius.md,
+          padding: spacing.md,
+          marginBottom: spacing.md,
+          borderWidth: 1,
+          borderColor: colors.border,
+          ...shadows.sm,
+        },
+        vehiclePanelText: {
+          fontSize: fontSizes.md,
+          fontWeight: '600',
+          color: colors.text,
+          lineHeight: Math.round(fontSizes.md * 1.45),
+        },
+        vehiclePanelMuted: {
+          fontSize: fontSizes.md,
+          fontWeight: '500',
+          color: colors.textSecondary,
+          lineHeight: Math.round(fontSizes.md * 1.45),
         },
         textArea: {
           minHeight: verticalScale(100),
@@ -52,33 +82,37 @@ export const DiagnoseScreen: React.FC<DiagnoseScreenProps> = ({ onBack }) => {
         resultCard: { marginTop: spacing.md },
         resultTitle: {
           fontSize: fontSizes.lg,
-          fontWeight: '600',
+          fontWeight: '700',
           color: colors.text,
           marginBottom: spacing.md,
+          letterSpacing: 0.2,
         },
         resultText: {
           fontSize: fontSizes.md,
           color: colors.textSecondary,
-          lineHeight: fontSizes.md * 1.4,
+          lineHeight: Math.round(fontSizes.md * 1.45),
         },
         severityBadge: {
           alignSelf: 'flex-start',
-          borderRadius: 4,
-          paddingHorizontal: spacing.sm,
-          paddingVertical: spacing.xs / 2,
+          borderRadius: borderRadius.full,
+          paddingHorizontal: spacing.md,
+          paddingVertical: spacing.xs,
           marginBottom: spacing.md,
+          borderWidth: 1,
         },
         severityText: {
           fontSize: fontSizes.xs,
           fontWeight: '700',
           textTransform: 'uppercase',
+          letterSpacing: 0.5,
         },
         sectionTitle: {
           fontSize: fontSizes.md,
-          fontWeight: '600',
+          fontWeight: '700',
           color: colors.text,
-          marginTop: spacing.md,
-          marginBottom: spacing.xs,
+          marginTop: spacing.lg,
+          marginBottom: spacing.sm,
+          letterSpacing: 0.15,
         },
         bulletRow: {
           flexDirection: 'row',
@@ -93,7 +127,7 @@ export const DiagnoseScreen: React.FC<DiagnoseScreenProps> = ({ onBack }) => {
           flex: 1,
           fontSize: fontSizes.sm,
           color: colors.textSecondary,
-          lineHeight: fontSizes.sm * 1.4,
+          lineHeight: Math.round(fontSizes.sm * 1.45),
         },
         inlineError: {
           fontSize: fontSizes.sm,
@@ -102,7 +136,7 @@ export const DiagnoseScreen: React.FC<DiagnoseScreenProps> = ({ onBack }) => {
           lineHeight: fontSizes.sm * 1.35,
         },
       }),
-    [spacing, fontSizes, verticalScale]
+    [spacing, fontSizes, verticalScale, borderRadius]
   );
 
   useEffect(() => {
@@ -113,9 +147,9 @@ export const DiagnoseScreen: React.FC<DiagnoseScreenProps> = ({ onBack }) => {
   const hasSymptomOrCode = !!(symptoms.trim() || obdCode.trim());
 
   const severityColor = (severity: DiagnosisEntry['severity']) => {
-    if (severity === 'critical') return '#FF3B30';
-    if (severity === 'moderate') return '#FF9500';
-    return '#34C759';
+    if (severity === 'critical') return colors.error;
+    if (severity === 'moderate') return SEVERITY_MODERATE;
+    return colors.success;
   };
 
   const alertMaybe = (title: string, message: string) => {
@@ -165,31 +199,37 @@ export const DiagnoseScreen: React.FC<DiagnoseScreenProps> = ({ onBack }) => {
     }
   };
 
+  const scrollBottomPad = spacing.xl * 2 + Math.max(insets.bottom, spacing.md);
+
   return (
     <View style={styles.container}>
-      <Header
-        title="Diagnose Issue"
-        showBack
-        onBackPress={onBack}
-        style={{ paddingTop: spacing.xl + spacing.md }}
-      />
+      <View style={styles.headerShell}>
+        <Header
+          title="Diagnose Issue"
+          showBack
+          onBackPress={onBack}
+          style={{ paddingTop: insets.top + spacing.sm }}
+        />
+      </View>
 
       <ScrollView
         style={styles.scroll}
-        contentContainerStyle={styles.content}
+        contentContainerStyle={[styles.content, { paddingBottom: scrollBottomPad }]}
         keyboardShouldPersistTaps="always"
       >
-        {effectiveVehicle ? (
-          <Text style={[styles.resultText, { marginBottom: spacing.sm }]}>
-            Vehicle: {effectiveVehicle.makeModel}
-            {effectiveVehicle.vin ? ` · VIN ${effectiveVehicle.vin}` : ''}
-          </Text>
-        ) : (
-          <Text style={[styles.resultText, { marginBottom: spacing.md }]}>
-            No vehicle saved on this account. Enter the customer vehicle below, or add one in Profile for faster
-            reuse.
-          </Text>
-        )}
+        <View style={styles.vehiclePanel}>
+          {effectiveVehicle ? (
+            <Text style={styles.vehiclePanelText}>
+              Vehicle: {effectiveVehicle.makeModel}
+              {effectiveVehicle.vin ? ` · VIN ${effectiveVehicle.vin}` : ''}
+            </Text>
+          ) : (
+            <Text style={styles.vehiclePanelMuted}>
+              No vehicle saved on this account. Enter the customer vehicle below, or add one in Profile for faster
+              reuse.
+            </Text>
+          )}
+        </View>
 
         {!effectiveVehicle ? (
           <>
@@ -244,7 +284,10 @@ export const DiagnoseScreen: React.FC<DiagnoseScreenProps> = ({ onBack }) => {
             <View
               style={[
                 styles.severityBadge,
-                { backgroundColor: severityColor(result.severity) + '22' },
+                {
+                  backgroundColor: severityColor(result.severity) + '22',
+                  borderColor: severityColor(result.severity) + '55',
+                },
               ]}
             >
               <Text style={[styles.severityText, { color: severityColor(result.severity) }]}>

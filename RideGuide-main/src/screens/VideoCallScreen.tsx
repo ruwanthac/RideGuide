@@ -26,10 +26,11 @@ import { File as FSFile, Paths } from 'expo-file-system';
 import * as Speech from 'expo-speech';
 import * as Haptics from 'expo-haptics';
 import { Icon } from '../components';
-import { colors } from '../constants/theme';
+import { colors, shadows } from '../constants/theme';
 import { useResponsive } from '../hooks';
 import { joinLiveAiCall } from '../backend/liveAiCallService';
 import { useVehicles } from '../context/VehiclesContext';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const RINGTONE_SOURCE = require('../../assets/call.mp3');
 const SEND_TONE_SOURCE = require('../../assets/send_tone.wav');
@@ -56,6 +57,29 @@ const RECORDING_OPTIONS: RecordingOptions = {
     bitsPerSecond: 128000,
   },
 };
+
+/** Dark call chrome — neutrals + app primary / error for accents */
+const call = {
+  bg: '#0B1220',
+  cameraArea: '#0F172A',
+  overlayPill: 'rgba(15,23,42,0.82)',
+  panel: 'rgba(15,23,42,0.58)',
+  border: 'rgba(248,250,252,0.12)',
+  borderStrong: 'rgba(248,250,252,0.24)',
+  text: '#F8FAFC',
+  textMuted: 'rgba(248,250,252,0.78)',
+  textSubtle: 'rgba(248,250,252,0.52)',
+  textCaption: 'rgba(248,250,252,0.5)',
+  micIdleBg: 'rgba(15,23,42,0.65)',
+  micActiveBg: 'rgba(37,99,235,0.9)',
+  micActiveBorder: 'rgba(191,219,254,0.95)',
+  ripple: 'rgba(96,165,250,0.55)',
+  userBubble: 'rgba(37,99,235,0.82)',
+  aiBubble: 'rgba(248,250,252,0.11)',
+  inputBg: 'rgba(248,250,252,0.1)',
+  controlIdle: 'rgba(248,250,252,0.14)',
+  errorSoft: '#FECACA',
+} as const;
 
 function normalizeAgentText(text: string): string {
   return text
@@ -141,7 +165,8 @@ export const VideoCallScreen: React.FC<VideoCallScreenProps> = ({
   priorConversationSummary,
   vehicleIdOverride,
 }) => {
-  const { spacing, fontSizes, scale } = useResponsive();
+  const { spacing, fontSizes, scale, borderRadius } = useResponsive();
+  const insets = useSafeAreaInsets();
   const [status, setStatus] = useState<
     'calling' | 'connecting' | 'connected' | 'error' | 'ended'
   >('calling');
@@ -775,7 +800,7 @@ export const VideoCallScreen: React.FC<VideoCallScreenProps> = ({
         setSessionError(
           e instanceof Error
             ? e.message
-            : 'Failed to connect to AI assistant. Ensure backend is running and you are logged in.'
+            : 'Failed to connect. Ensure the backend is running and you are logged in.'
         );
       }
     })();
@@ -945,230 +970,257 @@ export const VideoCallScreen: React.FC<VideoCallScreenProps> = ({
     status === 'calling'
       ? 'Calling...'
       : status === 'connecting'
-      ? 'Connecting to AI...'
+      ? 'Connecting...'
       : status === 'connected'
       ? isHoldingMic
         ? 'Listening to you...'
         : aiState === 'thinking' || waitingForReply
         ? 'Processing...'
         : aiState === 'speaking'
-        ? 'AI is responding...'
-        : 'Connected to AI'
+        ? 'Responding...'
+        : 'Connected'
       : status === 'ended'
       ? 'Call ended'
       : 'Connection issue';
 
-  const styles = useMemo(
-    () =>
-      StyleSheet.create({
-        container: {
-          flex: 1,
-          backgroundColor: '#1a1a2e',
-        },
-        remoteVideo: {
-          flex: 1,
-          backgroundColor: '#16213e',
-          overflow: 'hidden',
-        },
-        camera: {
-          flex: 1,
-        },
-        remotePlaceholder: {
-          flex: 1,
-          alignItems: 'center',
-          justifyContent: 'center',
-        },
-        avatarLarge: {
-          width: scale(100),
-          height: scale(100),
-          borderRadius: scale(50),
-          backgroundColor: colors.primary,
-          alignItems: 'center',
-          justifyContent: 'center',
-          marginBottom: spacing.md,
-        },
-        remoteName: {
-          fontSize: fontSizes.xl,
-          fontWeight: '600',
-          color: '#FFFFFF',
-        },
-        localLabel: {
-          fontSize: fontSizes.xs,
-          color: 'rgba(255,255,255,0.8)',
-          marginTop: spacing.xs,
-        },
-        enableCameraButton: {
-          flexDirection: 'row',
-          alignItems: 'center',
-          marginTop: spacing.lg,
-          paddingVertical: spacing.sm,
-          paddingHorizontal: spacing.lg,
-          backgroundColor: colors.primary,
-          borderRadius: 12,
-        },
-        statusBar: {
-          position: 'absolute',
-          top: spacing.xl * 2,
-          left: 0,
-          right: 0,
-          alignItems: 'center',
-        },
-        statusText: {
-          fontSize: fontSizes.lg,
-          fontWeight: '600',
-          color: '#FFFFFF',
-          paddingHorizontal: spacing.lg,
-          paddingVertical: spacing.sm,
-          backgroundColor: 'rgba(0,0,0,0.4)',
-          borderRadius: 20,
-        },
-        controls: {
-          position: 'absolute',
-          bottom: scale(250),
-          left: 0,
-          right: 0,
-          flexDirection: 'row',
-          justifyContent: 'center',
-          alignItems: 'center',
-          zIndex: 20,
-          elevation: 20,
-        },
-        controlButton: {
-          width: 56,
-          height: 56,
-          borderRadius: 28,
-          backgroundColor: 'rgba(255,255,255,0.2)',
-          alignItems: 'center',
-          justifyContent: 'center',
-        },
-        holdMicButton: {
-          width: 82,
-          height: 82,
-          borderRadius: 41,
-          borderWidth: 2,
-          borderColor: 'rgba(255,255,255,0.32)',
-          backgroundColor: 'rgba(15,23,42,0.45)',
-          alignItems: 'center',
-          justifyContent: 'center',
-          overflow: 'visible',
-        },
-        holdMicButtonActive: {
-          backgroundColor: 'rgba(37,99,235,0.85)',
-          borderColor: 'rgba(191,219,254,0.95)',
-        },
-        rippleContainer: {
-          ...StyleSheet.absoluteFillObject,
-          alignItems: 'center',
-          justifyContent: 'center',
-          overflow: 'visible',
-        },
-        rippleRing: {
-          position: 'absolute',
-          width: 82,
-          height: 82,
-          borderRadius: 41,
-          borderWidth: 2,
-          borderColor: 'rgba(96,165,250,0.6)',
-        },
-        endCallButton: {
-          width: 64,
-          height: 64,
-          borderRadius: 32,
-          backgroundColor: '#DC2626',
-          alignItems: 'center',
-          justifyContent: 'center',
-        },
-        chatPanel: {
-          position: 'absolute',
-          left: spacing.md,
-          right: spacing.md,
-          bottom: spacing.md,
-          maxHeight: scale(280),
-          backgroundColor: 'rgba(0,0,0,0.55)',
-          borderRadius: 16,
-          padding: spacing.sm,
-          zIndex: 5,
-          elevation: 5,
-        },
-        chatList: {
-          flex: 1,
-          marginBottom: spacing.xs,
-        },
-        holdHintText: {
-          color: 'rgba(255,255,255,0.8)',
-          fontSize: fontSizes.xs,
-          marginBottom: spacing.xs,
-        },
-        holdHintActive: {
-          color: '#BFDBFE',
-        },
-        chatBubble: {
-          marginBottom: spacing.xs,
-          maxWidth: '80%',
-          paddingHorizontal: spacing.sm,
-          paddingVertical: spacing.xs + 2,
-          borderRadius: 14,
-        },
-        chatBubbleUser: {
-          alignSelf: 'flex-end',
-          backgroundColor: 'rgba(37,99,235,0.7)',
-          borderBottomRightRadius: 4,
-        },
-        chatBubbleAi: {
-          alignSelf: 'flex-start',
-          backgroundColor: 'rgba(255,255,255,0.15)',
-          borderBottomLeftRadius: 4,
-        },
-        chatBubbleLabel: {
-          color: 'rgba(255,255,255,0.6)',
-          fontSize: fontSizes.xs - 1,
-          marginBottom: 2,
-          fontWeight: '600',
-        },
-        chatBubbleText: {
-          color: '#FFFFFF',
-          fontSize: fontSizes.sm,
-          lineHeight: fontSizes.sm * 1.4,
-        },
-        chatEmptyText: {
-          color: 'rgba(255,255,255,0.5)',
-          fontSize: fontSizes.sm,
-          textAlign: 'center',
-          paddingVertical: spacing.lg,
-        },
-        chatInputRow: {
-          flexDirection: 'row',
-          alignItems: 'center',
-        },
-        chatInput: {
-          flex: 1,
-          borderRadius: 999,
-          backgroundColor: 'rgba(255,255,255,0.14)',
-          color: '#FFFFFF',
-          fontSize: fontSizes.sm,
-          paddingHorizontal: spacing.md,
-          paddingVertical: spacing.sm,
-        },
-        chatSendBtn: {
-          marginLeft: spacing.sm,
-          width: scale(40),
-          height: scale(40),
-          borderRadius: scale(20),
-          backgroundColor: colors.primary,
-          alignItems: 'center',
-          justifyContent: 'center',
-        },
-        chatSendBtnDisabled: {
-          opacity: 0.5,
-        },
-        errorText: {
-          color: '#FECACA',
-          fontSize: fontSizes.xs,
-          marginBottom: spacing.xs,
-        },
-      }),
-    [spacing, fontSizes, scale]
-  );
+  const styles = useMemo(() => {
+    const micSize = Math.round(scale(82));
+    const micR = micSize / 2;
+    const controlMd = Math.round(scale(56));
+    const controlR = controlMd / 2;
+    const endSz = Math.round(scale(64));
+    const endR = endSz / 2;
+
+    return StyleSheet.create({
+      container: {
+        flex: 1,
+        backgroundColor: call.bg,
+      },
+      remoteVideo: {
+        flex: 1,
+        backgroundColor: call.cameraArea,
+        overflow: 'hidden',
+      },
+      camera: {
+        flex: 1,
+      },
+      remotePlaceholder: {
+        flex: 1,
+        alignItems: 'center',
+        justifyContent: 'center',
+      },
+      avatarLarge: {
+        width: scale(100),
+        height: scale(100),
+        borderRadius: scale(50),
+        backgroundColor: colors.primary,
+        alignItems: 'center',
+        justifyContent: 'center',
+        marginBottom: spacing.md,
+        ...shadows.lg,
+      },
+      remoteName: {
+        fontSize: fontSizes.xl,
+        fontWeight: '700',
+        color: call.text,
+        letterSpacing: 0.2,
+      },
+      localLabel: {
+        fontSize: fontSizes.xs,
+        color: call.textMuted,
+        marginTop: spacing.xs,
+      },
+      enableCameraButton: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        marginTop: spacing.lg,
+        paddingVertical: spacing.sm + 2,
+        paddingHorizontal: spacing.lg,
+        backgroundColor: colors.primary,
+        borderRadius: borderRadius.md,
+        ...shadows.md,
+      },
+      statusBar: {
+        position: 'absolute',
+        left: 0,
+        right: 0,
+        alignItems: 'center',
+      },
+      statusText: {
+        fontSize: fontSizes.lg,
+        fontWeight: '700',
+        color: call.text,
+        letterSpacing: 0.35,
+        paddingHorizontal: spacing.lg,
+        paddingVertical: spacing.sm + 2,
+        backgroundColor: call.overlayPill,
+        borderRadius: borderRadius.full,
+        borderWidth: 1,
+        borderColor: call.border,
+        overflow: 'hidden',
+        ...shadows.md,
+      },
+      controls: {
+        position: 'absolute',
+        bottom: scale(250),
+        left: 0,
+        right: 0,
+        flexDirection: 'row',
+        justifyContent: 'center',
+        alignItems: 'center',
+        zIndex: 20,
+        elevation: 20,
+      },
+      controlButton: {
+        width: controlMd,
+        height: controlMd,
+        borderRadius: controlR,
+        backgroundColor: call.controlIdle,
+        borderWidth: 1,
+        borderColor: call.border,
+        alignItems: 'center',
+        justifyContent: 'center',
+        ...shadows.md,
+      },
+      holdMicButton: {
+        width: micSize,
+        height: micSize,
+        borderRadius: micR,
+        borderWidth: 2,
+        borderColor: call.borderStrong,
+        backgroundColor: call.micIdleBg,
+        alignItems: 'center',
+        justifyContent: 'center',
+        overflow: 'visible',
+        ...shadows.lg,
+      },
+      holdMicButtonActive: {
+        backgroundColor: call.micActiveBg,
+        borderColor: call.micActiveBorder,
+      },
+      rippleContainer: {
+        ...StyleSheet.absoluteFillObject,
+        alignItems: 'center',
+        justifyContent: 'center',
+        overflow: 'visible',
+      },
+      rippleRing: {
+        position: 'absolute',
+        width: micSize,
+        height: micSize,
+        borderRadius: micR,
+        borderWidth: 2,
+        borderColor: call.ripple,
+      },
+      endCallButton: {
+        width: endSz,
+        height: endSz,
+        borderRadius: endR,
+        backgroundColor: colors.error,
+        alignItems: 'center',
+        justifyContent: 'center',
+        borderWidth: 1,
+        borderColor: 'rgba(254,202,202,0.35)',
+        ...shadows.lg,
+      },
+      chatPanel: {
+        position: 'absolute',
+        left: spacing.md,
+        right: spacing.md,
+        bottom: spacing.md,
+        maxHeight: scale(280),
+        backgroundColor: call.panel,
+        borderRadius: borderRadius.lg,
+        padding: spacing.md,
+        zIndex: 5,
+        elevation: 8,
+        borderWidth: 1,
+        borderColor: call.border,
+        ...shadows.lg,
+      },
+      chatList: {
+        flex: 1,
+        marginBottom: spacing.xs,
+      },
+      chatBubble: {
+        marginBottom: spacing.sm,
+        maxWidth: '82%',
+        paddingHorizontal: spacing.md,
+        paddingVertical: spacing.sm,
+        borderRadius: borderRadius.md,
+      },
+      chatBubbleUser: {
+        alignSelf: 'flex-end',
+        backgroundColor: call.userBubble,
+        borderBottomRightRadius: borderRadius.sm,
+        borderWidth: 1,
+        borderColor: 'rgba(191,219,254,0.22)',
+      },
+      chatBubbleAi: {
+        alignSelf: 'flex-start',
+        backgroundColor: call.aiBubble,
+        borderBottomLeftRadius: borderRadius.sm,
+        borderWidth: 1,
+        borderColor: call.border,
+      },
+      chatBubbleLabel: {
+        color: call.textCaption,
+        fontSize: fontSizes.xs,
+        marginBottom: 3,
+        fontWeight: '700',
+        letterSpacing: 0.4,
+        textTransform: 'uppercase',
+      },
+      chatBubbleText: {
+        color: call.text,
+        fontSize: fontSizes.sm,
+        lineHeight: Math.round(fontSizes.sm * 1.45),
+        fontWeight: '500',
+      },
+      chatEmptyText: {
+        color: call.textSubtle,
+        fontSize: fontSizes.sm,
+        textAlign: 'center',
+        paddingVertical: spacing.lg,
+        fontWeight: '500',
+      },
+      chatInputRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+      },
+      chatInput: {
+        flex: 1,
+        borderRadius: borderRadius.full,
+        backgroundColor: call.inputBg,
+        borderWidth: 1,
+        borderColor: call.border,
+        color: call.text,
+        fontSize: fontSizes.sm,
+        fontWeight: '500',
+        paddingHorizontal: spacing.md,
+        paddingVertical: spacing.sm + 2,
+      },
+      chatSendBtn: {
+        marginLeft: spacing.sm,
+        width: scale(40),
+        height: scale(40),
+        borderRadius: scale(20),
+        backgroundColor: colors.primary,
+        alignItems: 'center',
+        justifyContent: 'center',
+        ...shadows.sm,
+      },
+      chatSendBtnDisabled: {
+        opacity: 0.5,
+      },
+      errorText: {
+        color: call.errorSoft,
+        fontSize: fontSizes.xs,
+        fontWeight: '600',
+        marginBottom: spacing.xs,
+      },
+    });
+  }, [spacing, fontSizes, scale, borderRadius]);
 
   const showCamera = permission?.granted;
 
@@ -1185,7 +1237,7 @@ export const VideoCallScreen: React.FC<VideoCallScreenProps> = ({
                 { transform: [{ scale: status === 'calling' ? pulseAnim : 1 }] },
               ]}
             >
-              <Icon name="person" size={scale(50)} color="#FFFFFF" />
+              <Icon name="person" size={scale(50)} color={call.text} />
             </Animated.View>
             <Text style={styles.remoteName}>Vehicle Expert</Text>
             {!permission?.granted && (
@@ -1194,7 +1246,7 @@ export const VideoCallScreen: React.FC<VideoCallScreenProps> = ({
                 onPress={requestPermission}
                 activeOpacity={0.8}
               >
-                <Icon name="camera" size={24} color="#FFFFFF" />
+                <Icon name="camera" size={24} color={call.text} />
                 <Text
                   style={StyleSheet.flatten([
                     styles.remoteName,
@@ -1209,14 +1261,17 @@ export const VideoCallScreen: React.FC<VideoCallScreenProps> = ({
         )}
       </View>
 
-      <View style={styles.statusBar}>
+      <View style={[styles.statusBar, { top: insets.top + spacing.sm }]}>
         <Text style={styles.statusText}>{statusText}</Text>
       </View>
 
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? scale(24) : 0}
-        style={styles.chatPanel}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? scale(24) + insets.top : 0}
+        style={[
+          styles.chatPanel,
+          { bottom: spacing.md + Math.max(insets.bottom, spacing.sm) },
+        ]}
       >
         {sessionError ? <Text style={styles.errorText}>{sessionError}</Text> : null}
         <FlatList
@@ -1235,26 +1290,17 @@ export const VideoCallScreen: React.FC<VideoCallScreenProps> = ({
               ]}
             >
               <Text style={styles.chatBubbleLabel}>
-                {item.role === 'user' ? 'You' : 'AI'}
+                {item.role === 'user' ? 'You' : 'Agent'}
               </Text>
               <Text style={styles.chatBubbleText}>{item.content}</Text>
             </View>
           )}
           ListEmptyComponent={
             <Text style={styles.chatEmptyText}>
-              Hold the mic button and speak to start...
+              Hold the mic button and speak or type to start.
             </Text>
           }
         />
-        <Text style={[styles.holdHintText, isHoldingMic && styles.holdHintActive]}>
-          {isHoldingMic
-            ? 'Listening... release to send'
-            : waitingForReply
-            ? 'Processing your voice...'
-            : aiState === 'speaking'
-            ? 'AI is responding...'
-            : 'Hold mic button to speak'}
-        </Text>
         <View style={styles.chatInputRow}>
           <TextInput
             style={styles.chatInput}
@@ -1262,7 +1308,7 @@ export const VideoCallScreen: React.FC<VideoCallScreenProps> = ({
             onChangeText={setInputText}
             editable={status === 'connected' && !isSending}
             placeholder="Type a message..."
-            placeholderTextColor="rgba(255,255,255,0.5)"
+            placeholderTextColor={call.textCaption}
             maxLength={1000}
           />
           <TouchableOpacity
@@ -1275,12 +1321,12 @@ export const VideoCallScreen: React.FC<VideoCallScreenProps> = ({
             onPress={handleSendQuestion}
             activeOpacity={0.8}
           >
-            <Icon name="send" size={18} color="#FFFFFF" />
+            <Icon name="send" size={18} color={call.text} />
           </TouchableOpacity>
         </View>
       </KeyboardAvoidingView>
 
-      <View style={styles.controls}>
+      <View style={[styles.controls, { bottom: scale(250) + Math.max(insets.bottom, spacing.sm) }]}>
         <View
           style={[
             styles.holdMicButton,
@@ -1327,22 +1373,26 @@ export const VideoCallScreen: React.FC<VideoCallScreenProps> = ({
               ]}
             />
           </View>
-          <Icon name="mic" size={30} color="#FFFFFF" />
+          <Icon name="mic" size={30} color={call.text} />
         </View>
         <TouchableOpacity
           style={styles.endCallButton}
           onPress={handleEndCall}
           activeOpacity={0.7}
         >
-          <Icon name="close" size={28} color="#FFFFFF" />
+          <Icon name="close" size={28} color={call.text} />
         </TouchableOpacity>
         <TouchableOpacity
-          style={[styles.controlButton, { marginLeft: spacing.xl }]}
+          style={[
+            styles.controlButton,
+            { marginLeft: spacing.xl },
+            !showCamera && { opacity: 0.42 },
+          ]}
           onPress={toggleCamera}
           activeOpacity={0.7}
           disabled={!showCamera}
         >
-          <Icon name="camera-reverse" size={24} color="#FFFFFF" />
+          <Icon name="camera-reverse" size={24} color={call.text} />
         </TouchableOpacity>
       </View>
     </View>

@@ -13,8 +13,9 @@ import {
   StatusBar,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ChatBubble, Icon, TypingIndicator } from '../components';
-import { colors } from '../constants/theme';
+import { colors, shadows } from '../constants/theme';
 import { useResponsive } from '../hooks';
 import { askAssistant, AssistantMsg } from '../backend/assistantService';
 import { getAssistantChatSession } from '../backend/assistantChatHistoryService';
@@ -41,6 +42,7 @@ export const ChatAssistantScreen: React.FC<ChatAssistantScreenProps> = ({
   initialSessionId,
 }) => {
   const { spacing, fontSizes, iconSizes, scale, borderRadius } = useResponsive();
+  const insets = useSafeAreaInsets();
   const [messages, setMessages] = useState<Message[]>([
     {
       id: '1',
@@ -151,48 +153,50 @@ export const ChatAssistantScreen: React.FC<ChatAssistantScreenProps> = ({
       StyleSheet.create({
         container: {
           flex: 1,
-          backgroundColor: '#F0F2F5',
+          backgroundColor: colors.background,
         },
         header: {
-          backgroundColor: '#FFFFFF',
-          paddingTop: Platform.OS === 'ios' ? spacing.xl + spacing.md : StatusBar.currentHeight || spacing.lg,
+          backgroundColor: colors.card,
           paddingBottom: spacing.md,
           paddingHorizontal: spacing.md,
           borderBottomWidth: 1,
-          borderBottomColor: '#E4E6EB',
+          borderBottomColor: colors.border,
           flexDirection: 'row',
           alignItems: 'center',
-          elevation: 1,
-          shadowColor: '#000',
-          shadowOffset: { width: 0, height: 1 },
-          shadowOpacity: 0.05,
-          shadowRadius: 2,
+          ...shadows.sm,
         },
         backButton: {
           width: scale(40),
           height: scale(40),
-          borderRadius: scale(20),
+          borderRadius: borderRadius.full,
           alignItems: 'center',
           justifyContent: 'center',
           marginRight: spacing.md,
+          backgroundColor: colors.background,
+          borderWidth: 1,
+          borderColor: colors.border,
         },
         headerTitle: {
           fontSize: fontSizes.lg,
-          fontWeight: '600',
-          color: '#111B21',
+          fontWeight: '700',
+          color: colors.text,
           flex: 1,
+          letterSpacing: 0.15,
         },
         videoCallButton: {
           width: scale(40),
           height: scale(40),
-          borderRadius: scale(20),
+          borderRadius: borderRadius.full,
           alignItems: 'center',
           justifyContent: 'center',
           marginLeft: spacing.md,
+          backgroundColor: colors.background,
+          borderWidth: 1,
+          borderColor: colors.border,
         },
         chatContainer: {
           flex: 1,
-          backgroundColor: '#F0F2F5',
+          backgroundColor: colors.background,
         },
         messageList: {
           padding: spacing.md,
@@ -201,16 +205,20 @@ export const ChatAssistantScreen: React.FC<ChatAssistantScreenProps> = ({
         inputBar: {
           flexDirection: 'row',
           alignItems: 'flex-end',
-          padding: spacing.md,
+          paddingHorizontal: spacing.md,
+          paddingTop: spacing.md,
           backgroundColor: colors.card,
           borderTopWidth: 1,
           borderTopColor: colors.border,
+          ...shadows.sm,
         },
         attachButton: {
           width: scale(44),
           height: scale(44),
-          borderRadius: scale(22),
+          borderRadius: borderRadius.full,
           backgroundColor: colors.background,
+          borderWidth: 1,
+          borderColor: colors.border,
           alignItems: 'center',
           justifyContent: 'center',
           marginRight: spacing.sm,
@@ -218,7 +226,9 @@ export const ChatAssistantScreen: React.FC<ChatAssistantScreenProps> = ({
         input: {
           flex: 1,
           backgroundColor: colors.background,
-          borderRadius: scale(24),
+          borderRadius: borderRadius.full,
+          borderWidth: 1,
+          borderColor: colors.border,
           paddingVertical: spacing.sm + 4,
           paddingHorizontal: spacing.lg,
           fontSize: fontSizes.md,
@@ -233,14 +243,17 @@ export const ChatAssistantScreen: React.FC<ChatAssistantScreenProps> = ({
           backgroundColor: colors.border,
           marginRight: spacing.sm,
           overflow: 'hidden',
+          borderWidth: 1,
+          borderColor: colors.border,
         },
         sendButton: {
           width: scale(44),
           height: scale(44),
-          borderRadius: scale(22),
+          borderRadius: borderRadius.full,
           backgroundColor: colors.primary,
           alignItems: 'center',
           justifyContent: 'center',
+          ...shadows.sm,
         },
         sendDisabled: { opacity: 0.5 },
       }),
@@ -324,7 +337,7 @@ export const ChatAssistantScreen: React.FC<ChatAssistantScreenProps> = ({
   return (
     <View style={styles.container}>
       <StatusBar barStyle="dark-content" />
-      <View style={styles.header}>
+      <View style={[styles.header, { paddingTop: insets.top + spacing.sm }]}>
         <TouchableOpacity
           style={styles.backButton}
           onPress={onBack}
@@ -347,7 +360,7 @@ export const ChatAssistantScreen: React.FC<ChatAssistantScreenProps> = ({
       <KeyboardAvoidingView
         style={styles.chatContainer}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        keyboardVerticalOffset={0}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? insets.top + spacing.sm : 0}
       >
         <FlatList
           ref={flatListRef}
@@ -367,7 +380,12 @@ export const ChatAssistantScreen: React.FC<ChatAssistantScreenProps> = ({
           keyboardShouldPersistTaps="handled"
         />
 
-        <View style={styles.inputBar}>
+        <View
+          style={[
+            styles.inputBar,
+            { paddingBottom: Math.max(insets.bottom, spacing.md) },
+          ]}
+        >
           <TouchableOpacity
             style={styles.attachButton}
             onPress={handleAttachPress}

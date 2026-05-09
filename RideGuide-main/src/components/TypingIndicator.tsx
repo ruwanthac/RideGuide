@@ -1,6 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 import { View, StyleSheet, Animated } from 'react-native';
-import { colors } from '../constants/theme';
+import { colors, shadows } from '../constants/theme';
 import { useResponsive } from '../hooks';
 
 export const TypingIndicator: React.FC = () => {
@@ -55,18 +55,16 @@ export const TypingIndicator: React.FC = () => {
     bubble: {
       backgroundColor: colors.card,
       borderRadius: borderRadius.lg,
-      borderBottomLeftRadius: 4,
+      borderBottomLeftRadius: borderRadius.sm,
+      borderWidth: 1,
+      borderColor: colors.border,
       paddingVertical: spacing.md,
       paddingHorizontal: spacing.lg,
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'space-between',
       minWidth: 60,
-      shadowColor: '#000',
-      shadowOffset: { width: 0, height: 1 },
-      shadowOpacity: 0.05,
-      shadowRadius: 2,
-      elevation: 2,
+      ...shadows.sm,
     },
     dot: {
       width: 8,

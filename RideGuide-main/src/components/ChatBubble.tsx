@@ -1,6 +1,6 @@
 import React, { useMemo } from 'react';
 import { View, Text, StyleSheet, Image } from 'react-native';
-import { colors } from '../constants/theme';
+import { colors, shadows } from '../constants/theme';
 import { useResponsive } from '../hooks';
 
 interface ChatBubbleProps {
@@ -38,18 +38,19 @@ export const ChatBubble: React.FC<ChatBubbleProps> = ({
         },
         userBubble: {
           backgroundColor: colors.primary,
-          borderBottomRightRadius: 4,
+          borderBottomRightRadius: borderRadius.sm,
         },
         aiBubble: {
           backgroundColor: colors.card,
-          borderBottomLeftRadius: 4,
-          shadowColor: '#000',
-          shadowOffset: { width: 0, height: 1 },
-          shadowOpacity: 0.05,
-          shadowRadius: 2,
-          elevation: 2,
+          borderBottomLeftRadius: borderRadius.sm,
+          borderWidth: 1,
+          borderColor: colors.border,
+          ...shadows.sm,
         },
-        message: { fontSize: fontSizes.md },
+        message: {
+          fontSize: fontSizes.md,
+          lineHeight: Math.round(fontSizes.md * 1.45),
+        },
         userText: { color: colors.card },
         aiText: { color: colors.text },
         timestamp: {
