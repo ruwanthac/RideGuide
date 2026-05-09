@@ -12,6 +12,7 @@ import type { NavigationContainerRefWithCurrent } from '@react-navigation/native
 import { listServiceRequests } from '../backend/serviceRequestsService';
 import type { AuthUser, ServiceRequest, UserRole } from '../backend/types';
 import { useAuth } from './AuthContext';
+import { useVehicles } from './VehiclesContext';
 import type { HomeStackParamList, RootStackParamList } from '../types/navigation';
 
 export type OngoingActivityKind =
@@ -278,6 +279,7 @@ export const OngoingActivityProvider: React.FC<{
   navigationRef: NavigationContainerRefWithCurrent<RootStackParamList>;
 }> = ({ children, navigationRef }) => {
   const { user, authReady } = useAuth();
+  const { selectedVehicleId } = useVehicles();
   const [activity, setActivity] = useState<OngoingActivitySnapshot | null>(null);
   const hydrationInFlightRef = useRef(false);
   const [focusedRouteName, setFocusedRouteName] = useState<string | undefined>(undefined);
@@ -387,7 +389,7 @@ export const OngoingActivityProvider: React.FC<{
       return;
     }
     void refreshHydration();
-  }, [authReady, user?._id, user?.role, refreshHydration, clearAll]);
+  }, [authReady, user?._id, user?.role, selectedVehicleId, refreshHydration, clearAll]);
 
   useEffect(() => {
     if (!authReady || !user) return;
