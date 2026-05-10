@@ -25,6 +25,7 @@ const createSchema = z.object({
   finalAmount: z.number().nonnegative().optional(),
   currency: z.string().min(1).optional(),
   pricingVersion: z.string().min(1).optional(),
+  idempotencyKey: z.string().min(1).max(64).optional(),
 });
 const patchSchema = z.object({
   status: z.enum([
@@ -61,7 +62,7 @@ export async function create(req: Request, res: Response, next: NextFunction) {
     const body = createSchema.parse(req.body);
     const r = await svc.createRequest(req.user!.userId, body);
     res.status(201).json(r);
-    try { emitRequestNew(r.toObject ? r.toObject() : r); } catch { /* no-io during tests */ }
+    try { emitRequestNew(r); } catch { /* no-io during tests */ }
   } catch (e) { next(e); }
 }
 export async function towEstimate(req: Request, res: Response, next: NextFunction) {

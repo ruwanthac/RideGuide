@@ -11,6 +11,7 @@ afterEach(clearDb);
 describe('mechanics nearby', () => {
   it('returns mechanics within radius', async () => {
     const app = buildApp();
+    await UserModel.createIndexes();
     const { token } = await registerUser({ email: 'o@b.com', password: 'secret12', displayName: 'O' });
     const m = await UserModel.create({
       email: 'm@b.com', passwordHash: 'x', displayName: 'M', role: 'mechanic',

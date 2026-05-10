@@ -11,6 +11,7 @@ const registerSchema = z.object({
   displayName: z.string().min(1).max(120),
   /** Public sign-up only allows provider/owner roles; admin is created separately. */
   role: z.enum(REGISTER_ROLES).optional(),
+  phoneNumber: z.string().max(40).optional(),
 });
 
 const loginSchema = z.object({
@@ -39,6 +40,7 @@ export async function me(req: Request, res: Response, next: NextFunction) {
     const user = await UserModel.findById(req.user!.userId).lean();
     if (!user) return res.status(404).json({ error: 'not found' });
     const { passwordHash, __v, ...rest } = user as any;
-    res.json(rest);
+    const id = String(rest._id);
+    res.json({ ...rest, _id: id, id });
   } catch (e) { next(e); }
 }

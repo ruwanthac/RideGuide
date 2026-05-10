@@ -39,4 +39,23 @@ describe('auth.service', () => {
     expect(payload.userId).toBe(String(r.user._id));
     expect(payload.role).toBe('owner');
   });
+
+  it('registers with optional phone number', async () => {
+    const r = await registerUser({
+      email: 'phone@b.com',
+      password: 'secret12',
+      displayName: 'P',
+      phoneNumber: '+94123456789',
+    });
+    expect(r.user.phoneNumber).toBe('+94123456789');
+  });
+
+  it('rejects login for suspended accounts', async () => {
+    await registerUser({ email: 'sus@b.com', password: 'secret12', displayName: 'S' });
+    const { UserModel } = await import('../../src/models/User');
+    await UserModel.updateOne({ email: 'sus@b.com' }, { $set: { status: 'suspended' } });
+    await expect(loginUser({ email: 'sus@b.com', password: 'secret12' })).rejects.toMatchObject({
+      status: 403,
+    });
+  });
 });

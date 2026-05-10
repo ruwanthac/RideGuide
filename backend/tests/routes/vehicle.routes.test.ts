@@ -21,6 +21,7 @@ describe('vehicle routes', () => {
     const create = await request(app).post('/api/vehicles').set(h)
       .send({ label: 'Daily', makeModel: 'Toyota Camry 2020', vin: '1HGBH41JXMN109186' });
     expect(create.status).toBe(201);
+    expect(create.body.ownerName).toBe('A');
     const id = create.body._id;
 
     const list = await request(app).get('/api/vehicles').set(h);

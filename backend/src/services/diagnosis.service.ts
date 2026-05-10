@@ -1,5 +1,6 @@
 import { Types } from 'mongoose';
 import { VehicleModel } from '../models/Vehicle';
+import { UserModel } from '../models/User';
 import { DiagnosisHistoryModel } from '../models/DiagnosisHistory';
 import { analyzeDiagnosis } from './gemini.client';
 import { HttpError } from './auth.service';
@@ -15,6 +16,9 @@ export type RunDiagnosisInput = {
 export async function runDiagnosis(userId: string, input: RunDiagnosisInput) {
   const symptoms = input.symptoms ?? '';
   const obdCode = input.obdCode ?? '';
+
+  const account = await UserModel.findById(userId).select('displayName').lean();
+  const userName = (account?.displayName ?? '').trim();
 
   let makeModel: string;
   let vin: string;
@@ -46,6 +50,7 @@ export async function runDiagnosis(userId: string, input: RunDiagnosisInput) {
 
   const doc = await DiagnosisHistoryModel.create({
     userId: new Types.ObjectId(userId),
+    userName,
     ...(vehicleId ? { vehicleId } : {}),
     vehicleLabel,
     symptoms,

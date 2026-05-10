@@ -5,8 +5,10 @@ export async function fetchAdminStats(): Promise<{ userCount: number; vehicleCou
   const { data } = await api.get('/admin/stats');
   return data;
 }
-export async function listAdminUsers(role?: string): Promise<AuthUser[]> {
-  const { data } = await api.get<AuthUser[]>('/admin/users', { params: role ? { role } : undefined });
+export type Paginated<T> = { items: T[]; total: number; page: number; limit: number };
+
+export async function listAdminUsers(role?: string): Promise<Paginated<AuthUser>> {
+  const { data } = await api.get<Paginated<AuthUser>>('/admin/users', { params: role ? { role } : undefined });
   return data;
 }
 export async function setAdminUserRole(id: string, role: AuthUser['role']): Promise<AuthUser> {

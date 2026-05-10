@@ -1,5 +1,6 @@
 import { Types } from 'mongoose';
 import { VehicleModel } from '../models/Vehicle';
+import { UserModel } from '../models/User';
 import { HttpError } from './auth.service';
 import {
   buildCanonicalVehicleKey,
@@ -28,15 +29,20 @@ export async function createVehicle(
     engine?: string;
   }
 ) {
+  const owner = await UserModel.findById(userId).select('displayName').lean();
+  const ownerName = (owner?.displayName ?? '').trim();
   const canonicalVehicleKey = buildCanonicalVehicleKey(input);
   const created = await VehicleModel.create({
     ownerId: new Types.ObjectId(userId),
+    ownerName,
     ...input,
     canonicalVehicleKey,
   });
-  void getOrEnrichVehicleKnowledge(input).catch((error) => {
-    console.warn('[vehicle-service] enrichment failed after create:', error);
-  });
+  if (process.env.NODE_ENV !== 'test') {
+    void getOrEnrichVehicleKnowledge(input).catch((error) => {
+      console.warn('[vehicle-service] enrichment failed after create:', error);
+    });
+  }
   return created;
 }
 
@@ -67,16 +73,18 @@ export async function updateVehicle(
   });
   v!.canonicalVehicleKey = nextCanonicalVehicleKey;
   await v!.save();
-  void getOrEnrichVehicleKnowledge({
-    make: v!.make,
-    model: v!.model,
-    year: v!.year,
-    trim: v!.trim,
-    engine: v!.engine,
-    makeModel: v!.makeModel,
-  }).catch((error) => {
-    console.warn('[vehicle-service] enrichment failed after update:', error);
-  });
+  if (process.env.NODE_ENV !== 'test') {
+    void getOrEnrichVehicleKnowledge({
+      make: v!.make,
+      model: v!.model,
+      year: v!.year,
+      trim: v!.trim,
+      engine: v!.engine,
+      makeModel: v!.makeModel,
+    }).catch((error) => {
+      console.warn('[vehicle-service] enrichment failed after update:', error);
+    });
+  }
   return v!.toObject();
 }
 

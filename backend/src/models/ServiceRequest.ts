@@ -46,11 +46,20 @@ const ServiceRequestSchema = new Schema(
     latitude: { type: Number, required: true },
     longitude: { type: Number, required: true },
     phoneNumber: { type: String, required: true },
+    /** Optional client idempotency key: duplicate POST with same key returns the same request. */
+    idempotencyKey: { type: String, default: null },
   },
   { timestamps: true }
 );
 
 ServiceRequestSchema.index({ status: 1, createdAt: -1 });
+ServiceRequestSchema.index(
+  { requesterId: 1, idempotencyKey: 1 },
+  {
+    unique: true,
+    partialFilterExpression: { idempotencyKey: { $exists: true, $type: 'string', $ne: '' } },
+  }
+);
 ServiceRequestSchema.index({ requesterId: 1, vehicleId: 1, createdAt: -1 });
 export type ServiceRequestDoc = InferSchemaType<typeof ServiceRequestSchema> & { _id: Types.ObjectId };
 export const ServiceRequestModel = model('ServiceRequest', ServiceRequestSchema);

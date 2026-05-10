@@ -13,7 +13,8 @@ interface AuthContextValue {
     displayName: string,
     email: string,
     password: string,
-    role?: 'owner' | 'mechanic' | 'tow'
+    role?: 'owner' | 'mechanic' | 'tow',
+    phoneNumber?: string
   ) => Promise<void>;
   signOutUser: () => Promise<void>;
   refreshProfile: () => Promise<void>;
@@ -57,10 +58,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       displayName: string,
       email: string,
       password: string,
-      role?: 'owner' | 'mechanic' | 'tow'
+      role?: 'owner' | 'mechanic' | 'tow',
+      phoneNumber?: string
     ) => {
       try {
-        const u = await registerWithApi({ email, password, displayName, role });
+        const u = await registerWithApi({
+          email,
+          password,
+          displayName,
+          role,
+          ...(phoneNumber?.trim() ? { phoneNumber: phoneNumber.trim() } : {}),
+        });
         setUser(u);
       } catch (e) {
         throw new Error(formatAuthError(e));

@@ -41,6 +41,7 @@ describe('diagnosis', () => {
       .send({ symptoms: 'slow crank', obdCode: '', vehicleId: v.body._id });
     expect(diag.status).toBe(201);
     expect(diag.body.severity).toBe('minor');
+    expect(diag.body.userName).toBe('A');
 
     const hist = await request(app).get('/api/diagnosis-history').set(h);
     expect(hist.status).toBe(200);

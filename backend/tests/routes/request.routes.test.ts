@@ -8,6 +8,30 @@ afterAll(stopInMemoryMongo);
 afterEach(clearDb);
 
 describe('service requests', () => {
+  it('dedupes create when idempotencyKey repeats', async () => {
+    const app = buildApp();
+    const owner = await registerUser({ email: 'idem@b.com', password: 'secret12', displayName: 'Owner' });
+    const h = { Authorization: `Bearer ${owner.token}` };
+    const body = {
+      type: 'roadside' as const,
+      vehicle: 'Toyota',
+      issue: 'Flat tyre',
+      location: 'Main St',
+      latitude: 1,
+      longitude: 2,
+      phoneNumber: '123',
+      idempotencyKey: 'same-key-abc',
+    };
+    const a = await request(app).post('/api/requests').set(h).send(body);
+    const b = await request(app).post('/api/requests').set(h).send(body);
+    expect(a.status).toBe(201);
+    expect(b.status).toBe(201);
+    expect(a.body._id).toBe(b.body._id);
+
+    const list = await request(app).get('/api/requests').set(h);
+    expect(list.body).toHaveLength(1);
+  });
+
   it('owner posts, mechanic lists pending and accepts', async () => {
     const app = buildApp();
     const owner = await registerUser({ email: 'o@b.com', password: 'secret12', displayName: 'Owner' });
@@ -39,10 +63,25 @@ describe('service requests — vehicleId scoping', () => {
     const v1 = await request(app).post('/api/vehicles').set(h).send({ label: 'A', makeModel: 'A', vin: 'A' });
     const v2 = await request(app).post('/api/vehicles').set(h).send({ label: 'B', makeModel: 'B', vin: 'B' });
 
-    await request(app).post('/api/requests').set(h)
-      .send({ type: 'tow', vehicle: 'A', vehicleId: v1.body._id, issue: 'x', location: 'y', latitude: 0, longitude: 0, phoneNumber: '1' });
-    await request(app).post('/api/requests').set(h)
-      .send({ type: 'tow', vehicle: 'B', vehicleId: v2.body._id, issue: 'x', location: 'y', latitude: 0, longitude: 0, phoneNumber: '1' });
+    const towPayload = (vehicleId: string, vehicle: string) => ({
+      type: 'tow' as const,
+      vehicle,
+      vehicleId,
+      issue: 'x',
+      location: 'Pickup',
+      latitude: 0,
+      longitude: 0,
+      pickupAddress: 'Pickup',
+      dropoffAddress: 'Dropoff',
+      dropoffLatitude: 0.01,
+      dropoffLongitude: 0.01,
+      phoneNumber: '1',
+    });
+
+    const r1 = await request(app).post('/api/requests').set(h).send(towPayload(v1.body._id, 'A'));
+    const r2 = await request(app).post('/api/requests').set(h).send(towPayload(v2.body._id, 'B'));
+    expect(r1.status).toBe(201);
+    expect(r2.status).toBe(201);
 
     const all = await request(app).get('/api/requests').set(h);
     expect(all.body).toHaveLength(2);

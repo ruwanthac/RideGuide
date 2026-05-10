@@ -17,6 +17,7 @@ interface Props { onBack: () => void }
 export const AdminScreen: React.FC<Props> = ({ onBack }) => {
   const [stats, setStats] = useState<{ userCount: number; vehicleCount: number; requestCount: number; pendingCount: number } | null>(null);
   const [users, setUsers] = useState<AuthUser[]>([]);
+  const [usersTotal, setUsersTotal] = useState(0);
   const [towPerKmDraft, setTowPerKmDraft] = useState('320');
   const [savingPricing, setSavingPricing] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -26,7 +27,10 @@ export const AdminScreen: React.FC<Props> = ({ onBack }) => {
     setLoading(true);
     try {
       const [s, u, pricing] = await Promise.all([fetchAdminStats(), listAdminUsers(), fetchTowPricing()]);
-      setStats(s); setUsers(u); setError(null);
+      setStats(s);
+      setUsers(u.items);
+      setUsersTotal(u.total);
+      setError(null);
       setTowPerKmDraft(String(pricing.towPerKmLkr));
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load');
@@ -94,7 +98,7 @@ export const AdminScreen: React.FC<Props> = ({ onBack }) => {
               </TouchableOpacity>
             </View>
           </View>
-          <Text style={styles.section}>Users</Text>
+          <Text style={styles.section}>Users ({usersTotal})</Text>
           {users.map((u) => (
             <View key={u._id} style={styles.userRow}>
               <View style={{ flex: 1 }}>

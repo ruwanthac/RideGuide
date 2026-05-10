@@ -3,6 +3,8 @@ import { Schema, model, InferSchemaType, Types } from 'mongoose';
 const DiagnosisHistorySchema = new Schema(
   {
     userId: { type: Schema.Types.ObjectId, ref: 'User', required: true, index: true },
+    /** Denormalized displayName at time of diagnosis for admin listings. */
+    userName: { type: String, required: true, default: '', trim: true },
     /** Omitted when the user ran diagnosis with manual vehicle text (e.g. mechanic/tow with no garage profile). */
     vehicleId: { type: Schema.Types.ObjectId, ref: 'Vehicle', required: false },
     vehicleLabel: { type: String, required: true },

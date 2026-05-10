@@ -17,6 +17,7 @@ import { TowDashboard } from '../components/dashboards/TowDashboard';
 import { useUserRole } from '../context/UserRoleContext';
 import { useVehicles } from '../context/VehiclesContext';
 import { useAuth } from '../context/AuthContext';
+import { updateUserProfile } from '../backend/userProfileService';
 import { useNavigation } from '@react-navigation/native';
 import { extractApiError } from '../backend/apiClient';
 
@@ -24,7 +25,7 @@ const DEFAULT_MAKE_MODEL = 'Toyota Camry 2020';
 const DEFAULT_VIN = '1HGBH41JXMN109186';
 
 export const ProfileScreen: React.FC = () => {
-  const { signOutUser, user } = useAuth();
+  const { signOutUser, user, refreshProfile } = useAuth();
   const userName = user?.displayName ?? '';
   const { spacing, fontSizes, borderRadius, buttonHeight, iconSizes, scale } =
     useResponsive();
@@ -41,6 +42,14 @@ export const ProfileScreen: React.FC = () => {
   const [editMakeModel, setEditMakeModel] = useState(DEFAULT_MAKE_MODEL);
   const [editVin, setEditVin] = useState(DEFAULT_VIN);
   const [isEditingVehicle, setIsEditingVehicle] = useState(false);
+  const [accountDisplayName, setAccountDisplayName] = useState('');
+  const [accountPhone, setAccountPhone] = useState('');
+  const [accountSaving, setAccountSaving] = useState(false);
+
+  useEffect(() => {
+    setAccountDisplayName(user?.displayName ?? '');
+    setAccountPhone(user?.phoneNumber ?? '');
+  }, [user?.displayName, user?.phoneNumber]);
 
   /** Profile may point at a deleted/missing vehicle; UI falls back to first car — save must use the same id. */
   const resolvedSelectedVehicleId = useMemo(() => {
@@ -107,6 +116,27 @@ export const ProfileScreen: React.FC = () => {
       .catch((error) => {
         Alert.alert('Could not save', extractApiError(error, 'Please try again.'));
       });
+  };
+
+  const handleSaveAccount = () => {
+    const dn = accountDisplayName.trim();
+    if (!dn) {
+      Alert.alert('Display name required', 'Please enter how you want your name to appear.');
+      return;
+    }
+    setAccountSaving(true);
+    void updateUserProfile({
+      displayName: dn,
+      phoneNumber: accountPhone.trim() ? accountPhone.trim() : null,
+    })
+      .then(async () => {
+        await refreshProfile();
+        Alert.alert('Saved', 'Your account details were updated.');
+      })
+      .catch((error) => {
+        Alert.alert('Could not save', extractApiError(error, 'Please try again.'));
+      })
+      .finally(() => setAccountSaving(false));
   };
 
   const handleAddVehicle = () => {
@@ -423,6 +453,39 @@ export const ProfileScreen: React.FC = () => {
         showsVerticalScrollIndicator={false}
       >
         {renderDashboard()}
+
+        <Card style={styles.section} padded>
+          <Text style={styles.sectionTitle}>Account & contact</Text>
+          <Text style={[styles.currentProfileText, { marginBottom: spacing.md }]}>
+            Saved to your account on the server (same data the admin dashboard reads).
+          </Text>
+          <View style={styles.infoRow}>
+            <Text style={styles.infoLabel}>Display name</Text>
+            <TextInput
+              style={styles.vehicleInput}
+              value={accountDisplayName}
+              onChangeText={setAccountDisplayName}
+              placeholder="Your name"
+              placeholderTextColor={colors.textSecondary}
+            />
+          </View>
+          <View style={styles.infoRow}>
+            <Text style={styles.infoLabel}>Phone (E.164 recommended)</Text>
+            <TextInput
+              style={styles.vehicleInput}
+              value={accountPhone}
+              onChangeText={setAccountPhone}
+              placeholder="+94771234567"
+              placeholderTextColor={colors.textSecondary}
+              keyboardType="phone-pad"
+            />
+          </View>
+          <PrimaryButton
+            title={accountSaving ? 'Saving…' : 'Save account'}
+            onPress={handleSaveAccount}
+            disabled={accountSaving}
+          />
+        </Card>
 
         {userRole === 'owner' && (
           <Card style={styles.section} padded>

@@ -61,6 +61,11 @@ export const TowTruckAssistantScreen: React.FC<TowTruckAssistantScreenProps> = (
   const { user } = useAuth();
   const { selectedVehicle } = useVehicles();
   const [tripType, setTripType] = useState<TripType>('tow');
+  const bookingIdempotencyKeyRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    bookingIdempotencyKeyRef.current = null;
+  }, [tripType, selectedVehicle?._id]);
   const [pickupLocation, setPickupLocation] = useState('');
   const [pickupManuallyEdited, setPickupManuallyEdited] = useState(false);
   const [pickupQuery, setPickupQuery] = useState('');
@@ -902,6 +907,12 @@ export const TowTruckAssistantScreen: React.FC<TowTruckAssistantScreenProps> = (
     }
     setSubmitting(true);
     try {
+      if (!bookingIdempotencyKeyRef.current) {
+        const c = globalThis.crypto as { randomUUID?: () => string } | undefined;
+        bookingIdempotencyKeyRef.current =
+          c?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
+      }
+      const idempotencyKey = bookingIdempotencyKeyRef.current;
       const created = await createServiceRequest({
         type: tripType,
         vehicle:
@@ -925,7 +936,9 @@ export const TowTruckAssistantScreen: React.FC<TowTruckAssistantScreenProps> = (
         estimatedAmount: estimate?.estimatedAmount,
         currency: estimate?.currency,
         pricingVersion: estimate?.pricingVersion,
+        idempotencyKey,
       });
+      bookingIdempotencyKeyRef.current = null;
       Alert.alert(
         'Booked',
         tripType === 'roadside'

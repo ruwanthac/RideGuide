@@ -21,5 +21,81 @@ describe('admin', () => {
     const res = await request(app).get('/api/admin/stats').set('Authorization', `Bearer ${token}`);
     expect(res.status).toBe(200);
     expect(res.body).toHaveProperty('userCount');
+    expect(res.body).toHaveProperty('requestsToday');
+  });
+
+  it('admin users list is paginated', async () => {
+    const app = buildApp();
+    const { token } = await registerUser({ email: 'adm@b.com', password: 'secret12', displayName: 'Adm', role: 'admin' });
+    const res = await request(app).get('/api/admin/users').set('Authorization', `Bearer ${token}`);
+    expect(res.status).toBe(200);
+    expect(res.body).toHaveProperty('items');
+    expect(res.body).toHaveProperty('total');
+    expect(Array.isArray(res.body.items)).toBe(true);
+  });
+
+  it('admin users list filters by status', async () => {
+    const app = buildApp();
+    const { token } = await registerUser({ email: 'adm4@b.com', password: 'secret12', displayName: 'Adm4', role: 'admin' });
+    const active = await registerUser({ email: 'act@b.com', password: 'secret12', displayName: 'Act' });
+    const suspended = await registerUser({ email: 'sus@b.com', password: 'secret12', displayName: 'Sus' });
+    await request(app)
+      .patch(`/api/admin/users/${suspended.user.id}`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ status: 'suspended' });
+
+    const suspendedOnly = await request(app)
+      .get('/api/admin/users?status=suspended')
+      .set('Authorization', `Bearer ${token}`);
+    expect(suspendedOnly.status).toBe(200);
+    expect(suspendedOnly.body.total).toBe(1);
+    expect(suspendedOnly.body.items[0].email).toBe('sus@b.com');
+
+    const activeOnly = await request(app).get('/api/admin/users?status=active').set('Authorization', `Bearer ${token}`);
+    expect(activeOnly.status).toBe(200);
+    const emails = activeOnly.body.items.map((u: { email: string }) => u.email);
+    expect(emails).toContain('adm4@b.com');
+    expect(emails).toContain('act@b.com');
+    expect(emails).not.toContain('sus@b.com');
+  });
+
+  it('admin users search matches phoneNumber', async () => {
+    const app = buildApp();
+    const { token } = await registerUser({ email: 'adm5@b.com', password: 'secret12', displayName: 'Adm5', role: 'admin' });
+    await registerUser({
+      email: 'phone@b.com',
+      password: 'secret12',
+      displayName: 'PhoneUser',
+      phoneNumber: '+94771234567',
+    });
+
+    const res = await request(app).get('/api/admin/users?search=771234').set('Authorization', `Bearer ${token}`);
+    expect(res.status).toBe(200);
+    expect(res.body.total).toBe(1);
+    expect(res.body.items[0].email).toBe('phone@b.com');
+  });
+
+  it('admin can list requests', async () => {
+    const app = buildApp();
+    const { token } = await registerUser({ email: 'adm2@b.com', password: 'secret12', displayName: 'Adm2', role: 'admin' });
+    const res = await request(app).get('/api/admin/requests').set('Authorization', `Bearer ${token}`);
+    expect(res.status).toBe(200);
+    expect(res.body.items).toEqual([]);
+    expect(res.body.total).toBe(0);
+  });
+
+  it('admin can suspend a user and they cannot log in', async () => {
+    const app = buildApp();
+    const admin = await registerUser({ email: 'adm3@b.com', password: 'secret12', displayName: 'Adm3', role: 'admin' });
+    const victim = await registerUser({ email: 'vic@b.com', password: 'secret12', displayName: 'Vic' });
+
+    const patch = await request(app)
+      .patch(`/api/admin/users/${victim.user._id}`)
+      .set('Authorization', `Bearer ${admin.token}`)
+      .send({ status: 'suspended' });
+    expect(patch.status).toBe(200);
+
+    const login = await request(app).post('/api/auth/login').send({ email: 'vic@b.com', password: 'secret12' });
+    expect(login.status).toBe(403);
   });
 });

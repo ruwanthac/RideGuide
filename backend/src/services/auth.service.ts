@@ -19,6 +19,8 @@ export interface RegisterInput {
   password: string;
   displayName: string;
   role?: UserRole;
+  /** E.164 or consistent string; optional at signup. */
+  phoneNumber?: string | null;
 }
 
 export interface LoginInput {
@@ -27,8 +29,10 @@ export interface LoginInput {
 }
 
 function sanitize(u: any) {
-  const { passwordHash, __v, ...rest } = u.toObject ? u.toObject() : u;
-  return rest;
+  const raw = u.toObject ? u.toObject() : { ...u };
+  const { passwordHash, __v, ...rest } = raw;
+  const id = rest._id != null ? String(rest._id) : undefined;
+  return { ...rest, _id: id, id };
 }
 
 function signToken(userId: string, role: UserRole) {
@@ -39,11 +43,16 @@ export async function registerUser(input: RegisterInput): Promise<AuthResult> {
   const exists = await UserModel.findOne({ email: input.email.toLowerCase() }).lean();
   if (exists) throw new HttpError(409, 'email already registered');
   const passwordHash = await bcrypt.hash(input.password, 10);
+  const phone =
+    typeof input.phoneNumber === 'string' && input.phoneNumber.trim()
+      ? input.phoneNumber.trim()
+      : undefined;
   const user = await UserModel.create({
     email: input.email.toLowerCase(),
     passwordHash,
     displayName: input.displayName,
     role: input.role ?? 'owner',
+    ...(phone ? { phoneNumber: phone } : {}),
   });
   return { user: sanitize(user), token: signToken(String(user._id), user.role) };
 }
@@ -53,6 +62,9 @@ export async function loginUser(input: LoginInput): Promise<AuthResult> {
   if (!user) throw new HttpError(401, 'invalid credentials');
   const ok = await bcrypt.compare(input.password, user.passwordHash);
   if (!ok) throw new HttpError(401, 'invalid credentials');
+  if ((user as { status?: string }).status === 'suspended') {
+    throw new HttpError(403, 'account suspended');
+  }
   return { user: sanitize(user), token: signToken(String(user._id), user.role) };
 }
 

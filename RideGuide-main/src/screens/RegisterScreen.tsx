@@ -28,6 +28,7 @@ export const RegisterScreen: React.FC<RegisterScreenProps> = ({ onNavigateToLogi
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [phone, setPhone] = useState('');
   const [accountType, setAccountType] = useState<'owner' | 'mechanic' | 'tow'>('owner');
   const [imageError, setImageError] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -169,7 +170,7 @@ export const RegisterScreen: React.FC<RegisterScreenProps> = ({ onNavigateToLogi
       return;
     }
     setSubmitting(true);
-    void registerWithEmail(name, email, password, accountType)
+    void registerWithEmail(name, email, password, accountType, phone.trim() || undefined)
       .catch((e) => setError(formatAuthError(e)))
       .finally(() => setSubmitting(false));
   };
@@ -271,6 +272,13 @@ export const RegisterScreen: React.FC<RegisterScreenProps> = ({ onNavigateToLogi
                   value={password}
                   onChangeText={setPassword}
                   secureTextEntry
+                />
+                <InputField
+                  label="Phone (optional)"
+                  placeholder="+94771234567"
+                  value={phone}
+                  onChangeText={setPhone}
+                  keyboardType="phone-pad"
                 />
 
                 {error ? <Text style={styles.errorText}>{error}</Text> : null}

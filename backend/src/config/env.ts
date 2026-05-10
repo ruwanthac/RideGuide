@@ -10,6 +10,10 @@ const schema = z.object({
   GEMINI_MODEL_LIVE: z.string().default('gemini-2.5-flash-native-audio-latest'),
   CORS_ORIGIN: z.string().default('*'),
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
+  /** Set to `true` to allow POST /api/admin/seed-demo (use with care). */
+  ALLOW_ADMIN_SEED: z.string().default('false'),
+  /** When seed-demo runs: if `true`, delete non-admin users and related data before seeding. */
+  ADMIN_SEED_CLEAR: z.string().default('false'),
 });
 
 function load() {

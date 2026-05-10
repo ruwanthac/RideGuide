@@ -20,4 +20,16 @@ describe('users routes', () => {
     expect(res.body.businessName).toBe('A-Auto');
     expect(res.body.location.coordinates).toEqual([2.5, 1.5]);
   });
+
+  it('updates vehicle ownerName when display name changes', async () => {
+    const app = buildApp();
+    const { token } = await registerUser({ email: 'o@b.com', password: 'secret12', displayName: 'OldName' });
+    const h = { Authorization: `Bearer ${token}` };
+    const v = await request(app).post('/api/vehicles').set(h).send({ label: 'X', makeModel: 'X', vin: 'X' });
+    expect(v.body.ownerName).toBe('OldName');
+
+    await request(app).patch('/api/users/me').set(h).send({ displayName: 'NewName' });
+    const list = await request(app).get('/api/vehicles').set(h);
+    expect(list.body[0].ownerName).toBe('NewName');
+  });
 });

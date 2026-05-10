@@ -2,6 +2,8 @@ export type UserRole = 'owner' | 'mechanic' | 'tow' | 'admin';
 
 export interface AuthUser {
   _id: string;
+  /** Same value as `_id`; included for clients that expect `id` from the API. */
+  id?: string;
   email: string;
   displayName: string;
   role: UserRole;
@@ -14,6 +16,7 @@ export interface AuthUser {
   /** Mechanics only: when false, pending roadside pool is hidden and accept is blocked server-side. */
   mechanicAvailable?: boolean;
   location?: { type: 'Point'; coordinates: [number, number] } | null;
+  status?: 'active' | 'suspended';
   createdAt: string;
   updatedAt: string;
 }
@@ -21,6 +24,7 @@ export interface AuthUser {
 export interface Vehicle {
   _id: string;
   ownerId: string;
+  ownerName?: string;
   label: string;
   makeModel: string;
   make?: string | null;
@@ -37,6 +41,7 @@ export interface Vehicle {
 export interface DiagnosisEntry {
   _id: string;
   userId: string;
+  userName?: string;
   /** Present when diagnosis was tied to a saved garage vehicle. */
   vehicleId?: string | null;
   vehicleLabel: string;

@@ -32,6 +32,8 @@ export async function createServiceRequest(input: {
   finalAmount?: number;
   currency?: string;
   pricingVersion?: string;
+  /** Same key + same owner returns the same request (server dedupes). */
+  idempotencyKey?: string;
 }): Promise<ServiceRequest> {
   const { data } = await api.post<ServiceRequest>('/requests', input);
   return data;

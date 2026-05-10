@@ -170,7 +170,19 @@ export async function createRequest(userId: string, input: {
   finalAmount?: number;
   currency?: string;
   pricingVersion?: string;
+  /** When set, duplicate POSTs with the same key return the existing row (per requester). */
+  idempotencyKey?: string;
 }) {
+  const trimmedKey =
+    typeof input.idempotencyKey === 'string' ? input.idempotencyKey.trim().slice(0, 64) : '';
+  if (trimmedKey) {
+    const dup = await ServiceRequestModel.findOne({
+      requesterId: new Types.ObjectId(userId),
+      idempotencyKey: trimmedKey,
+    }).lean();
+    if (dup) return enrichProviderLocation(dup as RequestWithProviderLocation);
+  }
+
   const user = await UserModel.findById(userId).lean();
   if (!user) throw new HttpError(401, 'no user');
   // ownership check if vehicleId provided
@@ -190,11 +202,17 @@ export async function createRequest(userId: string, input: {
       }
     }
   }
-  return ServiceRequestModel.create({
+  const payload = {
     requesterId: new Types.ObjectId(userId),
     userName: user.displayName,
-    ...input,
-    status: isTow ? 'requested' : 'pending',
+    type: input.type,
+    vehicle: input.vehicle,
+    issue: input.issue,
+    location: input.location,
+    latitude: input.latitude,
+    longitude: input.longitude,
+    phoneNumber: input.phoneNumber,
+    status: isTow ? ('requested' as const) : ('pending' as const),
     pickupAddress: input.pickupAddress ?? input.location,
     pickupLatitude: input.pickupLatitude ?? input.latitude,
     pickupLongitude: input.pickupLongitude ?? input.longitude,
@@ -207,10 +225,24 @@ export async function createRequest(userId: string, input: {
     finalAmount: input.finalAmount ?? null,
     currency: input.currency ?? 'LKR',
     pricingVersion: input.pricingVersion ?? 'v1',
-    paymentMethod: 'cash_manual',
-    paymentState: 'unpaid',
+    paymentMethod: 'cash_manual' as const,
+    paymentState: 'unpaid' as const,
     vehicleId: input.vehicleId ? new Types.ObjectId(input.vehicleId) : null,
-  });
+    ...(trimmedKey ? { idempotencyKey: trimmedKey } : {}),
+  };
+  try {
+    const row = await ServiceRequestModel.create(payload);
+    return enrichProviderLocation(row.toObject() as RequestWithProviderLocation);
+  } catch (e: any) {
+    if (e?.code === 11000 && trimmedKey) {
+      const dup = await ServiceRequestModel.findOne({
+        requesterId: new Types.ObjectId(userId),
+        idempotencyKey: trimmedKey,
+      }).lean();
+      if (dup) return enrichProviderLocation(dup as RequestWithProviderLocation);
+    }
+    throw e;
+  }
 }
 
 export async function transition(

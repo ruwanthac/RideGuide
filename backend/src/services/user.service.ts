@@ -1,4 +1,6 @@
+import { Types } from 'mongoose';
 import { UserModel, USER_ROLES } from '../models/User';
+import { VehicleModel } from '../models/Vehicle';
 import { HttpError } from './auth.service';
 
 export interface ProfilePatch {
@@ -24,6 +26,13 @@ export async function updateProfile(userId: string, patch: ProfilePatch) {
   }
   const u = await UserModel.findByIdAndUpdate(userId, { $set: update }, { new: true }).lean();
   if (!u) throw new HttpError(404, 'user not found');
+  if (typeof patch.displayName === 'string' && patch.displayName.trim()) {
+    await VehicleModel.updateMany(
+      { ownerId: new Types.ObjectId(userId) },
+      { $set: { ownerName: patch.displayName.trim() } }
+    );
+  }
   const { passwordHash, __v, ...rest } = u as any;
-  return rest;
+  const id = String(rest._id);
+  return { ...rest, _id: id, id };
 }
