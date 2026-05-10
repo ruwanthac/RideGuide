@@ -51,7 +51,7 @@ describe('provider registration', () => {
     expect(res.body.token).toBeUndefined();
 
     const login = await request(app).post('/api/auth/login').send({ email: 'mech@b.com', password: 'secret1234' });
-    expect(login.status).toBe(403);
+    expect(login.status).toBe(401);
   });
 
   it('admin verify enables login with OTP', async () => {

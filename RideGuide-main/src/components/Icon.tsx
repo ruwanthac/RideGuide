@@ -22,6 +22,8 @@ export type IconName =
   | 'call'
   | 'close'
   | 'image'
+  | 'eye'
+  | 'eye-off'
   | 'chevron-back'
   | 'chevron-forward'
   | 'navigate';

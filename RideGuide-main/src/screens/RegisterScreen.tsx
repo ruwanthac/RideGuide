@@ -295,11 +295,15 @@ export const RegisterScreen: React.FC<RegisterScreenProps> = ({ onNavigateToLogi
 
   const handleRegister = () => {
     setError(null);
-    if (!name.trim() || !email.trim() || !password) {
-      setError('Fill in name, email, and password.');
+    if (!name.trim() || !email.trim()) {
+      setError('Fill in name and email.');
       return;
     }
-    if (password.length < 8) {
+    if (accountType === 'owner' && !password) {
+      setError('Owner accounts need a password.');
+      return;
+    }
+    if (accountType === 'owner' && password.length < 8) {
       setError('Password must be at least 8 characters.');
       return;
     }
@@ -357,7 +361,7 @@ export const RegisterScreen: React.FC<RegisterScreenProps> = ({ onNavigateToLogi
     void registerWithEmail(
       name.trim(),
       email.trim(),
-      password,
+      accountType === 'owner' ? password : undefined,
       accountType,
       phone.trim() || undefined,
       provider
@@ -463,13 +467,15 @@ export const RegisterScreen: React.FC<RegisterScreenProps> = ({ onNavigateToLogi
                   keyboardType="email-address"
                   autoCapitalize="none"
                 />
-                <InputField
-                  label="Password"
-                  placeholder="At least 8 characters"
-                  value={password}
-                  onChangeText={setPassword}
-                  secureTextEntry
-                />
+                {accountType === 'owner' ? (
+                  <InputField
+                    label="Password"
+                    placeholder="At least 8 characters"
+                    value={password}
+                    onChangeText={setPassword}
+                    secureTextEntry
+                  />
+                ) : null}
                 <InputField
                   label="Phone (optional)"
                   placeholder="+94771234567"

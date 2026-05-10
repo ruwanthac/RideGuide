@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -8,6 +8,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   ActivityIndicator,
+  TextInput,
 } from 'react-native';
 import { PrimaryButton, InputField, Icon } from '../components';
 import { colors } from '../constants/theme';
@@ -27,6 +28,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onNavigateToRegister }
   const { signInWithEmail } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showLoginPassword, setShowLoginPassword] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const { spacing, fontSizes, width, scale, verticalScale } = useResponsive();
@@ -153,8 +155,32 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onNavigateToRegister }
           marginBottom: spacing.sm,
           textAlign: 'center',
         },
+        passwordRow: {
+          position: 'relative',
+          marginBottom: spacing.sm,
+        },
+        passwordInput: {
+          borderWidth: 1,
+          borderColor: colors.border,
+          borderRadius: scale(12),
+          backgroundColor: colors.background,
+          color: colors.text,
+          paddingVertical: spacing.md,
+          paddingHorizontal: spacing.md,
+          paddingRight: scale(46),
+          fontSize: fontSizes.md,
+        },
+        eyeBtn: {
+          position: 'absolute',
+          right: spacing.sm,
+          top: 0,
+          bottom: 0,
+          justifyContent: 'center',
+          alignItems: 'center',
+          width: scale(32),
+        },
       }),
-    [spacing, fontSizes, width, scale, verticalScale]
+    [spacing, fontSizes, width, scale, verticalScale],
   );
 
   const handleSignIn = () => {
@@ -209,14 +235,28 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onNavigateToRegister }
                   autoComplete="email"
                   containerStyle={{ marginBottom: spacing.sm }}
                 />
-                <InputField
-                  label="Password"
-                  placeholder="Enter your password"
-                  value={password}
-                  onChangeText={setPassword}
-                  secureTextEntry
-                  autoComplete="password"
-                />
+
+                <View style={styles.passwordRow}>
+                  <TextInput
+                    style={styles.passwordInput}
+                    placeholder="Enter your password"
+                    placeholderTextColor={colors.textSecondary}
+                    value={password}
+                    onChangeText={setPassword}
+                    secureTextEntry={!showLoginPassword}
+                    autoCapitalize="none"
+                    autoComplete="password"
+                  />
+                  <TouchableOpacity
+                    style={styles.eyeBtn}
+                    onPress={() => setShowLoginPassword((v) => !v)}
+                    activeOpacity={0.7}
+                    accessibilityLabel={showLoginPassword ? 'Hide password' : 'Show password'}
+                  >
+                    <Icon name={showLoginPassword ? 'eye-off' : 'eye'} size={20} color={colors.textSecondary} />
+                  </TouchableOpacity>
+                </View>
+
                 <TouchableOpacity style={styles.forgotRow} activeOpacity={0.7}>
                   <Text style={styles.forgotText}>Forgot Password?</Text>
                 </TouchableOpacity>
@@ -243,8 +283,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onNavigateToRegister }
               activeOpacity={0.7}
             >
               <Text style={styles.registerText}>
-                Create an account{' '}
-                <Text style={styles.registerLink}>Sign Up</Text>
+                Create an account <Text style={styles.registerLink}>Sign Up</Text>
               </Text>
             </TouchableOpacity>
           </View>

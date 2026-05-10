@@ -4,15 +4,20 @@ import { loginWithApi, registerWithApi, fetchMe, logoutWithApi, type RegisterPro
 import { formatAuthError } from '../backend/authErrors';
 import type { AuthUser } from '../backend/types';
 
+export type PasswordChangePrompt = null | 'optional';
+
 interface AuthContextValue {
   user: AuthUser | null;
   profile: AuthUser | null;
   authReady: boolean;
-  signInWithEmail: (email: string, password: string) => Promise<void>;
+  /** Mechanic/tow: after login, offer optional password change (`PasswordChangePromptGate`). */
+  passwordChangePrompt: PasswordChangePrompt;
+  clearPasswordChangePrompt: () => void;
+  signInWithEmail: (email: string, password: string) => Promise<AuthUser>;
   registerWithEmail: (
     displayName: string,
     email: string,
-    password: string,
+    password: string | undefined,
     role?: 'owner' | 'mechanic' | 'tow',
     phoneNumber?: string,
     provider?: RegisterProviderPayload
@@ -25,8 +30,13 @@ const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<AuthUser | null>(null);
+  const [passwordChangePrompt, setPasswordChangePrompt] = useState<PasswordChangePrompt>(null);
   const [authReady, setAuthReady] = useState(false);
   const mounted = useRef(true);
+
+  const clearPasswordChangePrompt = useCallback(() => {
+    setPasswordChangePrompt(null);
+  }, []);
 
   useEffect(() => {
     mounted.current = true;
@@ -50,7 +60,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const signInWithEmail = useCallback(async (email: string, password: string) => {
     try {
       const u = await loginWithApi({ email, password });
+      if (!u.mustChangePassword && (u.role === 'mechanic' || u.role === 'tow')) {
+        setPasswordChangePrompt('optional');
+      } else {
+        setPasswordChangePrompt(null);
+      }
       setUser(u);
+      return u;
     } catch (e) { throw new Error(formatAuthError(e)); }
   }, []);
 
@@ -58,7 +74,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     async (
       displayName: string,
       email: string,
-      password: string,
+      password: string | undefined,
       role?: 'owner' | 'mechanic' | 'tow',
       phoneNumber?: string,
       provider?: RegisterProviderPayload
@@ -85,6 +101,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const signOutUser = useCallback(async () => {
     await logoutWithApi();
+    setPasswordChangePrompt(null);
     setUser(null);
   }, []);
 
@@ -92,11 +109,22 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     user,
     profile: user,
     authReady,
+    passwordChangePrompt,
+    clearPasswordChangePrompt,
     signInWithEmail,
     registerWithEmail,
     signOutUser,
     refreshProfile,
-  }), [user, authReady, signInWithEmail, registerWithEmail, signOutUser, refreshProfile]);
+  }), [
+    user,
+    authReady,
+    passwordChangePrompt,
+    clearPasswordChangePrompt,
+    signInWithEmail,
+    registerWithEmail,
+    signOutUser,
+    refreshProfile,
+  ]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 };

@@ -13,6 +13,7 @@ import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { useAuth } from '../context/AuthContext';
 import { OngoingActivityProvider } from '../context/OngoingActivityContext';
 import { OngoingActivityMiniBar } from '../components/OngoingActivityMiniBar';
+import { PasswordChangePromptGate } from '../components/PasswordChangePromptGate';
 
 import {
   SplashScreen,
@@ -307,6 +308,7 @@ export const AppNavigator = () => {
             {() => (
               <OngoingActivityProvider navigationRef={navigationRef}>
                 <View style={{ flex: 1 }}>
+                  <PasswordChangePromptGate />
                   <MainTabNavigator />
                   <OngoingActivityMiniBar />
                 </View>

@@ -1,5 +1,17 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Animated, Easing, ActivityIndicator, Alert } from 'react-native';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  Animated,
+  Easing,
+  ActivityIndicator,
+  Alert,
+  Dimensions,
+  PanResponder,
+  ScrollView,
+} from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { WebView } from 'react-native-webview';
 import { Icon } from '../components';
@@ -40,7 +52,7 @@ interface TowOwnerTrackingScreenProps {
 
 export const TowOwnerTrackingScreen: React.FC<TowOwnerTrackingScreenProps> = ({ requestId, onBackHome }) => {
   const insets = useSafeAreaInsets();
-  const { spacing, fontSizes, borderRadius, iconSizes } = useResponsive();
+  const { spacing, fontSizes, borderRadius, iconSizes, width: windowWidth } = useResponsive();
   const { role } = useUserRole();
   const { user } = useAuth();
   const { syncFromServiceRequest, clearForRequest } = useOngoingActivity();
@@ -50,6 +62,52 @@ export const TowOwnerTrackingScreen: React.FC<TowOwnerTrackingScreenProps> = ({ 
   const pulse = useRef(new Animated.Value(0.8)).current;
   const completionTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hasRedirectedRef = useRef(false);
+
+  const screenHeight = Dimensions.get('window').height;
+  /** Collapsed peek height (mostly map visible). */
+  const sheetCollapsedHeight = Math.round(screenHeight * 0.26) + insets.bottom;
+  /** Expanded detail height (similar to prior fixed layout). */
+  const sheetExpandedHeight = Math.round(screenHeight * 0.74);
+  const maxSheetTranslate = Math.max(16, sheetExpandedHeight - sheetCollapsedHeight);
+  const sheetTranslateY = useRef(new Animated.Value(0)).current;
+  const sheetDragStartY = useRef(0);
+
+  const sheetPanResponder = useMemo(
+    () =>
+      PanResponder.create({
+        onStartShouldSetPanResponder: () => true,
+        onMoveShouldSetPanResponder: (_e, g) => Math.abs(g.dy) > 6 && Math.abs(g.dy) > Math.abs(g.dx) * 1.05,
+        onPanResponderTerminationRequest: () => false,
+        onPanResponderGrant: () => {
+          sheetTranslateY.stopAnimation((v) => {
+            sheetDragStartY.current = typeof v === 'number' ? v : 0;
+          });
+        },
+        onPanResponderMove: (_e, g) => {
+          const next = Math.min(
+            maxSheetTranslate,
+            Math.max(0, sheetDragStartY.current + g.dy),
+          );
+          sheetTranslateY.setValue(next);
+        },
+        onPanResponderRelease: (_e, g) => {
+          const raw = sheetDragStartY.current + g.dy;
+          const mid = maxSheetTranslate / 2;
+          const vy = typeof g.vy === 'number' ? g.vy : 0;
+          let snap: number;
+          if (vy > 0.6) snap = maxSheetTranslate;
+          else if (vy < -0.6) snap = 0;
+          else snap = raw > mid ? maxSheetTranslate : 0;
+          Animated.spring(sheetTranslateY, {
+            toValue: snap,
+            useNativeDriver: false,
+            friction: 8,
+            tension: 65,
+          }).start();
+        },
+      }),
+    [maxSheetTranslate, sheetTranslateY],
+  );
 
   const scheduleBackHomeOnce = () => {
     if (hasRedirectedRef.current) return;
@@ -298,8 +356,45 @@ export const TowOwnerTrackingScreen: React.FC<TowOwnerTrackingScreenProps> = ({ 
 
   const styles = useMemo(() => StyleSheet.create({
     container: { flex: 1, backgroundColor: colors.background },
-    map: { height: '48%' },
-    card: { margin: spacing.lg, marginTop: spacing.md, padding: spacing.lg, backgroundColor: colors.card, borderRadius: borderRadius.lg },
+    map: { ...StyleSheet.absoluteFillObject },
+    sheet: {
+      position: 'absolute',
+      left: 0,
+      right: 0,
+      bottom: 0,
+      backgroundColor: colors.card,
+      borderTopLeftRadius: borderRadius.xl,
+      borderTopRightRadius: borderRadius.xl,
+      paddingBottom: Math.max(spacing.sm, insets.bottom),
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: -2 },
+      shadowOpacity: 0.12,
+      shadowRadius: 10,
+      elevation: 14,
+      overflow: 'hidden',
+    },
+    sheetGrabArea: {
+      paddingTop: spacing.sm,
+      paddingBottom: spacing.sm,
+      alignItems: 'center',
+    },
+    sheetGrabIndicator: {
+      width: Math.min(160, windowWidth * 0.38),
+      height: 5,
+      borderRadius: 3,
+      backgroundColor: colors.border,
+      marginBottom: spacing.xs,
+    },
+    sheetGrabHint: {
+      fontSize: fontSizes.xs,
+      color: colors.textSecondary,
+      fontWeight: '600',
+    },
+    sheetInner: {
+      paddingHorizontal: spacing.lg,
+      paddingBottom: spacing.md,
+      flexShrink: 0,
+    },
     title: { fontSize: fontSizes.lg, fontWeight: '700', color: colors.text, marginBottom: spacing.sm },
     subtitle: { color: colors.textSecondary, marginBottom: spacing.md },
     timelineContainer: {
@@ -412,7 +507,23 @@ export const TowOwnerTrackingScreen: React.FC<TowOwnerTrackingScreenProps> = ({ 
       paddingVertical: spacing.xs,
     },
     cancelOutlineText: { color: colors.error, fontSize: fontSizes.xs, fontWeight: '700' },
-  }), [borderRadius.full, borderRadius.lg, fontSizes.lg, fontSizes.md, fontSizes.xs, iconSizes.sm, insets.top, spacing.lg, spacing.md, spacing.sm, spacing.xl, spacing.xs]);
+  }), [
+    borderRadius.full,
+    borderRadius.lg,
+    borderRadius.xl,
+    fontSizes.lg,
+    fontSizes.md,
+    fontSizes.xs,
+    iconSizes.sm,
+    insets.top,
+    insets.bottom,
+    spacing.lg,
+    spacing.md,
+    spacing.sm,
+    spacing.xl,
+    spacing.xs,
+    windowWidth,
+  ]);
 
   if (loading || !request) {
     return (
@@ -458,7 +569,13 @@ export const TowOwnerTrackingScreen: React.FC<TowOwnerTrackingScreenProps> = ({ 
   };
   return (
     <View style={styles.container}>
-      <WebView source={{ html: mapHtml }} style={styles.map} />
+      <WebView
+        source={{ html: mapHtml }}
+        style={styles.map}
+        scrollEnabled={false}
+        scalesPageToFit={false}
+        androidLayerType="hardware"
+      />
       <View style={styles.topBar}>
         <TouchableOpacity style={styles.minimizePill} onPress={handleMinimize} activeOpacity={0.85}>
           <Icon name="chevron-back" size={18} color={colors.primary} />
@@ -472,53 +589,75 @@ export const TowOwnerTrackingScreen: React.FC<TowOwnerTrackingScreenProps> = ({ 
           <View />
         )}
       </View>
-      <View style={styles.card}>
-        <Text style={styles.title}>{heading}</Text>
-        <Text style={styles.subtitle}>{subtitle}</Text>
-        <Animated.View style={[styles.activePill, { transform: [{ scale: pulse }] }]}>
-          <Icon name={request.type === 'roadside' ? 'construct' : 'car'} size={16} color={colors.primary} />
-          <Text style={styles.activeText}>{LABELS[request.status] ?? request.status}</Text>
-        </Animated.View>
-        <Text style={styles.amount}>
-          {amountLabel}: {request.currency ?? 'LKR'} {Math.round(request.estimatedAmount ?? 0)}
-        </Text>
-        <View style={styles.timelineContainer}>
-          {flow.map((step, index) => {
-            const isDone = index <= activeIndex;
-            const isActive = index === activeIndex;
-            const showConnector = index < flow.length - 1;
-            return (
-              <View key={step} style={styles.timelineRow}>
-                <View style={styles.timelineRailWrap}>
-                  {showConnector ? (
-                    <View
-                      style={[
-                        styles.timelineConnector,
-                        index < activeIndex && styles.timelineConnectorDone,
-                      ]}
-                    />
-                  ) : null}
-                  <Animated.View
-                    style={[
-                      styles.timelineNodeOuter,
-                      isDone && styles.timelineNodeOuterDone,
-                      isActive ? { transform: [{ scale: pulse }] } : null,
-                    ]}
-                  >
-                    <View style={[styles.timelineNodeInner, isDone && styles.timelineNodeInnerDone]} />
-                  </Animated.View>
-                </View>
-                <View style={styles.timelineContent}>
-                  <Text style={[styles.timelineTitle, isDone && styles.timelineTitleDone]}>{LABELS[step]}</Text>
-                  <Text style={styles.timelineSubtitle}>
-                    {isActive ? 'Current step' : isDone ? 'Completed step' : 'Upcoming step'}
-                  </Text>
-                </View>
-              </View>
-            );
-          })}
+
+      <Animated.View
+        style={[
+          styles.sheet,
+          {
+            height: sheetExpandedHeight,
+            transform: [{ translateY: sheetTranslateY }],
+          },
+        ]}
+      >
+        <View {...sheetPanResponder.panHandlers} style={styles.sheetGrabArea}>
+          <View style={styles.sheetGrabIndicator} />
+          <Text style={styles.sheetGrabHint}>Drag up/down to show map or details</Text>
         </View>
-      </View>
+        <ScrollView
+          style={{ flex: 1 }}
+          contentContainerStyle={styles.sheetInner}
+          nestedScrollEnabled
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator
+          bounces
+        >
+          <Text style={styles.title}>{heading}</Text>
+          <Text style={styles.subtitle}>{subtitle}</Text>
+          <Animated.View style={[styles.activePill, { transform: [{ scale: pulse }] }]}>
+            <Icon name={request.type === 'roadside' ? 'construct' : 'car'} size={16} color={colors.primary} />
+            <Text style={styles.activeText}>{LABELS[request.status] ?? request.status}</Text>
+          </Animated.View>
+          <Text style={styles.amount}>
+            {amountLabel}: {request.currency ?? 'LKR'} {Math.round(request.estimatedAmount ?? 0)}
+          </Text>
+          <View style={styles.timelineContainer}>
+            {flow.map((step, index) => {
+              const isDone = index <= activeIndex;
+              const isActive = index === activeIndex;
+              const showConnector = index < flow.length - 1;
+              return (
+                <View key={step} style={styles.timelineRow}>
+                  <View style={styles.timelineRailWrap}>
+                    {showConnector ? (
+                      <View
+                        style={[
+                          styles.timelineConnector,
+                          index < activeIndex && styles.timelineConnectorDone,
+                        ]}
+                      />
+                    ) : null}
+                    <Animated.View
+                      style={[
+                        styles.timelineNodeOuter,
+                        isDone && styles.timelineNodeOuterDone,
+                        isActive ? { transform: [{ scale: pulse }] } : null,
+                      ]}
+                    >
+                      <View style={[styles.timelineNodeInner, isDone && styles.timelineNodeInnerDone]} />
+                    </Animated.View>
+                  </View>
+                  <View style={styles.timelineContent}>
+                    <Text style={[styles.timelineTitle, isDone && styles.timelineTitleDone]}>{LABELS[step]}</Text>
+                    <Text style={styles.timelineSubtitle}>
+                      {isActive ? 'Current step' : isDone ? 'Completed step' : 'Upcoming step'}
+                    </Text>
+                  </View>
+                </View>
+              );
+            })}
+          </View>
+        </ScrollView>
+      </Animated.View>
     </View>
   );
 };
