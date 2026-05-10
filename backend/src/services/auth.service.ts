@@ -1,6 +1,6 @@
 import bcrypt from 'bcryptjs';
 import jwt, { JwtPayload } from 'jsonwebtoken';
-import { UserModel, UserRole } from '../models/User';
+import { UserModel, UserRole, effectiveProviderVerificationStatus } from '../models/User';
 import { env } from '../config/env';
 
 export class HttpError extends Error {
@@ -10,7 +10,7 @@ export class HttpError extends Error {
 }
 
 export interface AuthResult {
-  user: ReturnType<typeof sanitize>;
+  user: ReturnType<typeof sanitizeForClient>;
   token: string;
 }
 
@@ -35,11 +35,21 @@ function sanitize(u: any) {
   return { ...rest, _id: id, id };
 }
 
+/** Strips verification file paths from API responses for clients. */
+export function sanitizeForClient(u: any) {
+  const s = sanitize(u);
+  const { providerVerification: _pv, ...rest } = s;
+  return rest;
+}
+
 function signToken(userId: string, role: UserRole) {
   return jwt.sign({ userId, role }, env.JWT_SECRET, { expiresIn: '7d' });
 }
 
 export async function registerUser(input: RegisterInput): Promise<AuthResult> {
+  if (input.role === 'mechanic' || input.role === 'tow') {
+    throw new HttpError(400, 'Use POST /api/auth/register-provider for mechanic and tow sign-up');
+  }
   const exists = await UserModel.findOne({ email: input.email.toLowerCase() }).lean();
   if (exists) throw new HttpError(409, 'email already registered');
   const passwordHash = await bcrypt.hash(input.password, 10);
@@ -52,9 +62,32 @@ export async function registerUser(input: RegisterInput): Promise<AuthResult> {
     passwordHash,
     displayName: input.displayName,
     role: input.role ?? 'owner',
+    providerVerificationStatus: 'none',
     ...(phone ? { phoneNumber: phone } : {}),
   });
-  return { user: sanitize(user), token: signToken(String(user._id), user.role) };
+  return { user: sanitizeForClient(user), token: signToken(String(user._id), user.role) };
+}
+
+/** Creates mechanic/tow user already approved (for tests / fixtures). Not exposed via public JSON register. */
+export async function registerApprovedProvider(
+  input: RegisterInput & { role: 'mechanic' | 'tow' }
+): Promise<AuthResult> {
+  const exists = await UserModel.findOne({ email: input.email.toLowerCase() }).lean();
+  if (exists) throw new HttpError(409, 'email already registered');
+  const passwordHash = await bcrypt.hash(input.password, 10);
+  const phone =
+    typeof input.phoneNumber === 'string' && input.phoneNumber.trim()
+      ? input.phoneNumber.trim()
+      : undefined;
+  const user = await UserModel.create({
+    email: input.email.toLowerCase(),
+    passwordHash,
+    displayName: input.displayName,
+    role: input.role,
+    providerVerificationStatus: 'approved',
+    ...(phone ? { phoneNumber: phone } : {}),
+  });
+  return { user: sanitizeForClient(user), token: signToken(String(user._id), user.role) };
 }
 
 export async function loginUser(input: LoginInput): Promise<AuthResult> {
@@ -65,7 +98,22 @@ export async function loginUser(input: LoginInput): Promise<AuthResult> {
   if ((user as { status?: string }).status === 'suspended') {
     throw new HttpError(403, 'account suspended');
   }
-  return { user: sanitize(user), token: signToken(String(user._id), user.role) };
+  const eff = effectiveProviderVerificationStatus(user.role, user.providerVerificationStatus as any);
+  if ((user.role === 'mechanic' || user.role === 'tow') && eff === 'pending') {
+    throw new HttpError(403, 'Awaiting admin approval for your account. You will receive an email when approved.');
+  }
+  if ((user.role === 'mechanic' || user.role === 'tow') && eff === 'rejected') {
+    throw new HttpError(403, 'Your provider application was not approved.');
+  }
+  return { user: sanitizeForClient(user), token: signToken(String(user._id), user.role) };
+}
+
+export async function changePassword(userId: string, nextPassword: string): Promise<void> {
+  const user = await UserModel.findById(userId);
+  if (!user) throw new HttpError(404, 'user not found');
+  user.passwordHash = await bcrypt.hash(nextPassword, 10);
+  (user as any).mustChangePassword = false;
+  await user.save();
 }
 
 export interface TokenPayload extends JwtPayload {

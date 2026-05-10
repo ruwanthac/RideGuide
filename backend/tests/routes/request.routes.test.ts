@@ -1,6 +1,6 @@
 import request from 'supertest';
 import { buildApp } from '../../src/app';
-import { registerUser } from '../../src/services/auth.service';
+import { registerUser, registerApprovedProvider } from '../../src/services/auth.service';
 import { startInMemoryMongo, stopInMemoryMongo, clearDb } from '../helpers/mongo';
 
 beforeAll(startInMemoryMongo);
@@ -35,7 +35,12 @@ describe('service requests', () => {
   it('owner posts, mechanic lists pending and accepts', async () => {
     const app = buildApp();
     const owner = await registerUser({ email: 'o@b.com', password: 'secret12', displayName: 'Owner' });
-    const mech = await registerUser({ email: 'm@b.com', password: 'secret12', displayName: 'Mech', role: 'mechanic' });
+    const mech = await registerApprovedProvider({
+      email: 'm@b.com',
+      password: 'secret12',
+      displayName: 'Mech',
+      role: 'mechanic',
+    });
 
     const create = await request(app).post('/api/requests').set('Authorization', `Bearer ${owner.token}`)
       .send({ type: 'roadside', vehicle: 'Toyota', issue: 'Flat tyre', location: 'Main St', latitude: 1, longitude: 2, phoneNumber: '123' });
@@ -96,7 +101,12 @@ describe('service requests — tow lifecycle and estimate', () => {
   it('owner gets estimate and tow follows strict status order', async () => {
     const app = buildApp();
     const owner = await registerUser({ email: 'tow-owner@b.com', password: 'secret12', displayName: 'Tow Owner' });
-    const tow = await registerUser({ email: 'tow-driver@b.com', password: 'secret12', displayName: 'Tow Driver', role: 'tow' });
+    const tow = await registerApprovedProvider({
+      email: 'tow-driver@b.com',
+      password: 'secret12',
+      displayName: 'Tow Driver',
+      role: 'tow',
+    });
 
     const estimate = await request(app)
       .post('/api/requests/tow-estimate')

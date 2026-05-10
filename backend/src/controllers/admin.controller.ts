@@ -35,6 +35,41 @@ export async function users(req: Request, res: Response, next: NextFunction) {
   }
 }
 
+export async function getAdminUser(req: Request, res: Response, next: NextFunction) {
+  try {
+    res.json(await svc.getUserByIdForAdmin(req.params.id));
+  } catch (e) {
+    next(e);
+  }
+}
+
+export async function verifyProvider(req: Request, res: Response, next: NextFunction) {
+  try {
+    res.json(await svc.verifyProviderApplication(req.params.id, req.user!.userId));
+  } catch (e) {
+    next(e);
+  }
+}
+
+export async function rejectProvider(req: Request, res: Response, next: NextFunction) {
+  try {
+    res.json(await svc.rejectProviderApplication(req.params.id, req.user!.userId));
+  } catch (e) {
+    next(e);
+  }
+}
+
+export async function verificationFile(req: Request, res: Response, next: NextFunction) {
+  try {
+    const abs = await svc.getVerificationFileAbsolutePath(req.params.id, req.params.field);
+    res.sendFile(abs, (err) => {
+      if (err) next(err);
+    });
+  } catch (e) {
+    next(e);
+  }
+}
+
 export async function patchUser(req: Request, res: Response, next: NextFunction) {
   try {
     const body = patchUserSchema.parse(req.body);

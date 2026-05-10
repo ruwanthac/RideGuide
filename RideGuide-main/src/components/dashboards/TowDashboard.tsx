@@ -1,25 +1,10 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useFocusEffect } from '@react-navigation/native';
-import {
-  View,
-  Text,
-  StyleSheet,
-  Switch,
-  Animated,
-  Easing,
-  TouchableOpacity,
-  TextInput,
-  Modal,
-  Alert,
-  Image,
-  Platform,
-} from 'react-native';
-import * as ImagePicker from 'expo-image-picker';
+import { View, Text, StyleSheet, Switch, Animated, Easing, Platform } from 'react-native';
 import * as Location from 'expo-location';
-import { Card, PrimaryButton } from '../';
+import { Card } from '../';
 import { colors } from '../../constants/theme';
 import { useResponsive } from '../../hooks';
-import { Icon } from '../Icon';
 import { updateUserProfile } from '../../backend/userProfileService';
 import { fetchMe } from '../../backend/authService';
 import { listServiceRequests } from '../../backend/serviceRequestsService';
@@ -50,54 +35,39 @@ function buildGeocodeLabel(results: Location.LocationGeocodedAddress[]): string 
   return uniq.slice(0, 4).join(' · ');
 }
 
-type AddMode = 'company' | 'truck';
-type VerificationStatus = 'submitted' | 'approved' | 'rejected';
-type VerificationDocField =
-  | 'businessRegistrationCopy'
-  | 'companyNicCopy'
-  | 'vehicleRegistrationCopy'
-  | 'truckNicCopy';
-
-interface CompanyProfile {
-  name: string;
-  businessRegistrationCopy: string;
-  nicCopy: string;
-  verificationStatus: VerificationStatus;
-}
-
-interface TowTruck {
-  id: string;
-  name: string;
-  plate?: string;
-  isActive: boolean;
-  vehicleRegistrationCopy: string;
-  nicCopy: string;
-  verificationStatus: VerificationStatus;
+function verificationCopy(status: string | undefined, company: string) {
+  if (status === 'pending') {
+    return {
+      title: 'Verification pending',
+      detail:
+        'Your company and truck documents are under review. You cannot sign in until approved; you will receive an email with a one-time password when approved.',
+      tone: 'warn' as const,
+    };
+  }
+  if (status === 'rejected') {
+    return {
+      title: 'Verification not approved',
+      detail: 'Your tow provider application was rejected. Contact support if you need help.',
+      tone: 'bad' as const,
+    };
+  }
+  return {
+    title: 'Profile',
+    detail: `Company and truck details are on file for “${company}”. Use availability to go live for requests.`,
+    tone: 'ok' as const,
+  };
 }
 
 export const TowDashboard: React.FC<TowDashboardProps> = ({ driverName }) => {
   const { user } = useAuth();
-  const { spacing, fontSizes, borderRadius, scale, iconSizes } = useResponsive();
+  const { spacing, fontSizes, borderRadius, scale } = useResponsive();
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const [activeRequestsCount, setActiveRequestsCount] = useState(0);
   const [completedJobs30Count, setCompletedJobs30Count] = useState(0);
-
-  const [companyProfile, setCompanyProfile] = useState<CompanyProfile | null>(null);
-  const [towTrucks, setTowTrucks] = useState<TowTruck[]>([]);
-  const [isAddModalOpen, setIsAddModalOpen] = useState(false);
-  const [addMode, setAddMode] = useState<AddMode>('truck');
-  const [truckNameDraft, setTruckNameDraft] = useState('');
-  const [truckPlateDraft, setTruckPlateDraft] = useState('');
-  const [companyNameDraft, setCompanyNameDraft] = useState('');
-  const [businessRegistrationDraft, setBusinessRegistrationDraft] = useState<string | null>(null);
-  const [companyNicDraft, setCompanyNicDraft] = useState<string | null>(null);
-  const [vehicleRegistrationDraft, setVehicleRegistrationDraft] = useState<string | null>(null);
-  const [truckNicDraft, setTruckNicDraft] = useState<string | null>(null);
-  const [truckActiveDraft, setTruckActiveDraft] = useState(true);
   const [isAvailable, setIsAvailable] = useState(true);
 
   const [liveLocationLabel, setLiveLocationLabel] = useState<string>(
-    'Turn on availability to share live GPS with the network.'
+    'Turn on availability to share live GPS with the network.',
   );
   const [liveCoordsText, setLiveCoordsText] = useState<string | null>(null);
   const [locationPermissionHint, setLocationPermissionHint] = useState<string | null>(null);
@@ -105,12 +75,13 @@ export const TowDashboard: React.FC<TowDashboardProps> = ({ driverName }) => {
   const lastServerPatchAt = useRef(0);
   const hasSentLocationOnce = useRef(false);
 
+  const companyLabel = user?.businessName?.trim() || 'Your company';
+  const pvStatus = user?.providerVerificationStatus;
+  const v = verificationCopy(pvStatus, companyLabel);
+
   const styles = useMemo(
     () =>
       StyleSheet.create({
-        container: {
-          marginBottom: spacing.lg,
-        },
         sectionTitle: {
           fontSize: fontSizes.lg,
           fontWeight: '600',
@@ -196,11 +167,6 @@ export const TowDashboard: React.FC<TowDashboardProps> = ({ driverName }) => {
           color: colors.text,
           marginTop: 2,
         },
-        locationMeta: {
-          fontSize: fontSizes.xs,
-          color: colors.textSecondary,
-          marginTop: spacing.xs,
-        },
         locationPermissionError: {
           fontSize: fontSizes.xs,
           color: colors.error,
@@ -222,207 +188,30 @@ export const TowDashboard: React.FC<TowDashboardProps> = ({ driverName }) => {
           fontSize: fontSizes.xs,
           color: colors.textSecondary,
         },
-        switchTrackColor: {
-          false: 'rgba(156,163,175,0.32)',
-          true: 'rgba(37,99,235,0.32)',
-        } as { false: string; true: string },
-        switchThumbColor: {
-          false: '#FFFFFF',
-          true: colors.primary,
-        } as { false: string; true: string },
-
-        fleetCardTitleRow: {
-          flexDirection: 'row',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          marginBottom: spacing.md,
-        },
-        fleetCardTitle: {
-          fontSize: fontSizes.lg,
-          fontWeight: '600',
-          color: colors.text,
-        },
-        fleetSection: {
-          marginBottom: spacing.lg,
-        },
-        fleetSectionLabel: {
-          fontSize: fontSizes.xs,
-          color: colors.textSecondary,
-          fontWeight: '600',
-          marginBottom: spacing.xs,
-          textTransform: 'uppercase',
-        },
-        fleetValue: {
+        profileTitle: {
           fontSize: fontSizes.md,
-          color: colors.text,
           fontWeight: '600',
+          color: colors.text,
+          marginBottom: spacing.xs,
         },
-        verificationBadge: {
+        profileLine: {
+          fontSize: fontSizes.sm,
+          color: colors.textSecondary,
           marginTop: spacing.xs,
+        },
+        verifyBadge: {
+          marginTop: spacing.sm,
           alignSelf: 'flex-start',
           paddingHorizontal: spacing.sm,
           paddingVertical: spacing.xs / 2,
           borderRadius: borderRadius.full,
-          backgroundColor: 'rgba(245,158,11,0.16)',
         },
-        verificationBadgeText: {
+        verifyBadgeText: {
           fontSize: fontSizes.xs,
           fontWeight: '600',
-          color: '#B45309',
-        },
-        docCopyText: {
-          fontSize: fontSizes.xs,
-          color: colors.textSecondary,
-          marginTop: 2,
-        },
-        docUploadCard: {
-          borderWidth: 1,
-          borderColor: colors.border,
-          borderRadius: borderRadius.lg,
-          backgroundColor: colors.background,
-          padding: spacing.sm,
-          marginBottom: spacing.md,
-        },
-        docUploadLabel: {
-          fontSize: fontSizes.xs,
-          fontWeight: '600',
-          color: colors.textSecondary,
-          textTransform: 'uppercase',
-          marginBottom: spacing.xs,
-        },
-        docPreviewImage: {
-          width: '100%',
-          height: scale(120),
-          borderRadius: borderRadius.md,
-          backgroundColor: colors.card,
-        },
-        docPreviewText: {
-          fontSize: fontSizes.xs,
-          color: colors.textSecondary,
-          marginTop: spacing.xs,
-        },
-        docUploadActions: {
-          flexDirection: 'row',
-          marginTop: spacing.sm,
-          alignItems: 'stretch',
-        },
-        docUploadActionBtn: {
-          flex: 1,
-          flexDirection: 'row',
-          alignItems: 'center',
-          justifyContent: 'center',
-          minHeight: scale(44),
-          paddingVertical: spacing.sm,
-          paddingHorizontal: spacing.sm,
-          borderRadius: borderRadius.md,
-          borderWidth: 1,
-          borderColor: colors.primary,
-          backgroundColor: 'rgba(37,99,235,0.06)',
-        },
-        docUploadActionBtnSpacer: {
-          width: spacing.sm,
-        },
-        docUploadActionIcon: {
-          marginRight: spacing.xs,
-        },
-        docUploadActionText: {
-          fontSize: fontSizes.sm,
-          fontWeight: '600',
-          color: colors.primary,
-          textAlign: 'center',
-        },
-        fleetEmptyText: {
-          fontSize: fontSizes.sm,
-          color: colors.textSecondary,
-        },
-        fleetTruckList: {
-          marginTop: spacing.sm,
-        },
-        fleetTruckRow: {
-          flexDirection: 'row',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          paddingVertical: spacing.xs,
-          borderBottomWidth: 1,
-          borderBottomColor: colors.border,
-        },
-        fleetTruckRowLast: {
-          borderBottomWidth: 0,
-        },
-        fleetTruckName: {
-          fontSize: fontSizes.sm,
-          fontWeight: '600',
-          color: colors.text,
-        },
-        fleetTruckPlate: {
-          fontSize: fontSizes.xs,
-          color: colors.textSecondary,
-          marginTop: 2,
-        },
-        modalOverlay: {
-          flex: 1,
-          backgroundColor: 'rgba(0,0,0,0.45)',
-          alignItems: 'center',
-          justifyContent: 'center',
-          padding: spacing.lg,
-        },
-        modalSheet: {
-          width: '100%',
-          backgroundColor: colors.card,
-          borderRadius: borderRadius.xl,
-          padding: spacing.lg,
-        },
-        modalTitle: {
-          fontSize: fontSizes.lg,
-          fontWeight: '700',
-          color: colors.text,
-          marginBottom: spacing.xs,
-        },
-        modalSubtitle: {
-          fontSize: fontSizes.sm,
-          color: colors.textSecondary,
-          marginBottom: spacing.md,
-        },
-        modalFieldLabel: {
-          fontSize: fontSizes.xs,
-          color: colors.textSecondary,
-          fontWeight: '600',
-          marginBottom: spacing.xs,
-          textTransform: 'uppercase',
-        },
-        modalInput: {
-          backgroundColor: colors.background,
-          borderRadius: borderRadius.lg,
-          borderWidth: 1,
-          borderColor: colors.border,
-          paddingVertical: spacing.sm,
-          paddingHorizontal: spacing.md,
-          fontSize: fontSizes.md,
-          fontWeight: '500',
-          color: colors.text,
-          marginBottom: spacing.md,
-        },
-        modalActions: {
-          flexDirection: 'row',
-          justifyContent: 'space-between',
-          marginTop: spacing.md,
-        },
-        modalCancelBtn: {
-          paddingVertical: spacing.sm,
-          paddingHorizontal: spacing.lg,
-          borderRadius: borderRadius.lg,
-          borderWidth: 1,
-          borderColor: colors.border,
-          backgroundColor: colors.background,
-        },
-        modalCancelText: {
-          fontSize: fontSizes.md,
-          fontWeight: '600',
-          color: colors.text,
-          textAlign: 'center',
         },
       }),
-    [borderRadius, fontSizes, scale, spacing, iconSizes]
+    [borderRadius, fontSizes, scale, spacing],
   );
 
   useEffect(() => {
@@ -442,10 +231,7 @@ export const TowDashboard: React.FC<TowDashboardProps> = ({ driverName }) => {
       return;
     }
     try {
-      const [live, history] = await Promise.all([
-        listServiceRequests(),
-        listServiceRequests({ history: true }),
-      ]);
+      const [live, history] = await Promise.all([listServiceRequests(), listServiceRequests({ history: true })]);
       const active = live.filter((r) => isActiveTowForDriver(r, uid));
       setActiveRequestsCount(active.length);
 
@@ -454,7 +240,7 @@ export const TowDashboard: React.FC<TowDashboardProps> = ({ driverName }) => {
         (r) =>
           r.type === 'tow' &&
           r.status === 'completed' &&
-          new Date(r.updatedAt ?? r.createdAt).getTime() >= cutoff
+          new Date(r.updatedAt ?? r.createdAt).getTime() >= cutoff,
       );
       setCompletedJobs30Count(completed30.length);
     } catch {
@@ -468,7 +254,7 @@ export const TowDashboard: React.FC<TowDashboardProps> = ({ driverName }) => {
       void loadTowMetrics();
       const id = setInterval(() => void loadTowMetrics(), METRICS_POLL_MS);
       return () => clearInterval(id);
-    }, [loadTowMetrics])
+    }, [loadTowMetrics]),
   );
 
   useEffect(() => {
@@ -538,7 +324,6 @@ export const TowDashboard: React.FC<TowDashboardProps> = ({ driverName }) => {
         setLocationPermissionHint(null);
       }
 
-      // Hydrate from API first so the card reflects server-side live location state.
       try {
         const me = await fetchMe();
         const serverCoords = me?.location?.coordinates;
@@ -549,7 +334,7 @@ export const TowDashboard: React.FC<TowDashboardProps> = ({ driverName }) => {
           }
         }
       } catch {
-        /* ignore API hydration failures */
+        /* ignore */
       }
 
       const { status } = await Location.requestForegroundPermissionsAsync();
@@ -560,7 +345,7 @@ export const TowDashboard: React.FC<TowDashboardProps> = ({ driverName }) => {
           setLocationPermissionHint(
             Platform.OS === 'web'
               ? 'Allow location for this site in the browser to share live GPS.'
-              : 'Allow location access in system settings to share your live position.'
+              : 'Allow location access in system settings to share your live position.',
           );
           setLiveLocationLabel('Location permission needed');
         }
@@ -580,7 +365,7 @@ export const TowDashboard: React.FC<TowDashboardProps> = ({ driverName }) => {
             setLiveCoordsText(
               `${latitude.toFixed(5)}, ${longitude.toFixed(5)}${
                 accuracy != null ? ` · ±${Math.round(accuracy)} m` : ''
-              }`
+              }`,
             );
             void syncLocationToServer(latitude, longitude);
 
@@ -591,11 +376,11 @@ export const TowDashboard: React.FC<TowDashboardProps> = ({ driverName }) => {
                 const built = buildGeocodeLabel(geo);
                 if (built) label = built;
               } catch {
-                /* keep generic label */
+                /* keep generic */
               }
               if (!cancelled) setLiveLocationLabel(label);
             })();
-          }
+          },
         );
         if (cancelled) {
           sub.remove();
@@ -616,188 +401,15 @@ export const TowDashboard: React.FC<TowDashboardProps> = ({ driverName }) => {
     };
   }, [isAvailable]);
 
-  const openAddModal = (mode: AddMode) => {
-    setAddMode(mode);
-    setIsAddModalOpen(true);
-    setTruckNameDraft('');
-    setTruckPlateDraft('');
-    setCompanyNameDraft('');
-    setBusinessRegistrationDraft(null);
-    setCompanyNicDraft(null);
-    setVehicleRegistrationDraft(null);
-    setTruckNicDraft(null);
-    setTruckActiveDraft(true);
-  };
+  const badgeColors =
+    v.tone === 'warn'
+      ? { bg: 'rgba(245,158,11,0.16)', fg: '#B45309' }
+      : v.tone === 'bad'
+      ? { bg: 'rgba(239,68,68,0.12)', fg: colors.error }
+      : { bg: 'rgba(16,185,129,0.12)', fg: colors.success };
 
-  const closeAddModal = () => {
-    setIsAddModalOpen(false);
-  };
-
-  const saveDraft = () => {
-    if (addMode === 'company') {
-      const cleanedName = companyNameDraft.trim();
-      const cleanedBusinessReg = (businessRegistrationDraft ?? '').trim();
-      const cleanedNicCopy = (companyNicDraft ?? '').trim();
-      if (!cleanedName || !cleanedBusinessReg || !cleanedNicCopy) return;
-      setCompanyProfile({
-        name: cleanedName,
-        businessRegistrationCopy: cleanedBusinessReg,
-        nicCopy: cleanedNicCopy,
-        verificationStatus: 'submitted',
-      });
-      closeAddModal();
-      return;
-    }
-
-    const cleanedName = truckNameDraft.trim();
-    const cleanedVehicleReg = (vehicleRegistrationDraft ?? '').trim();
-    const cleanedNicCopy = (truckNicDraft ?? '').trim();
-    if (!cleanedName) return;
-    if (!cleanedVehicleReg || !cleanedNicCopy) return;
-    const cleanedPlate = truckPlateDraft.trim() || undefined;
-    setTowTrucks((prev) => [
-      ...prev,
-      {
-        id: `truck-${Date.now()}`,
-        name: cleanedName,
-        plate: cleanedPlate,
-        isActive: truckActiveDraft,
-        vehicleRegistrationCopy: cleanedVehicleReg,
-        nicCopy: cleanedNicCopy,
-        verificationStatus: 'submitted',
-      },
-    ]);
-    closeAddModal();
-  };
-
-  const activeTowTrucks = towTrucks.filter((t) => t.isActive);
-  const inactiveTowTrucks = towTrucks.filter((t) => !t.isActive);
-
-  const setTruckActive = (truckId: string, nextActive: boolean) => {
-    setTowTrucks((prev) =>
-      prev.map((t) => (t.id === truckId ? { ...t, isActive: nextActive } : t))
-    );
-  };
-
-  const renderDocUploadField = (
-    label: string,
-    field: VerificationDocField,
-    value: string | null
-  ) => (
-    <View style={styles.docUploadCard}>
-      <Text style={styles.docUploadLabel}>{label}</Text>
-      {value ? (
-        <>
-          <Image source={{ uri: value }} style={styles.docPreviewImage} />
-          <Text numberOfLines={1} style={styles.docPreviewText}>
-            Uploaded: {value}
-          </Text>
-        </>
-      ) : (
-        <Text style={styles.docPreviewText}>No document image uploaded yet.</Text>
-      )}
-      <View style={styles.docUploadActions}>
-        <TouchableOpacity
-          style={styles.docUploadActionBtn}
-          onPress={() => pickDocFromGallery(field)}
-          activeOpacity={0.8}
-        >
-          <Icon
-            name="image"
-            size={iconSizes.sm}
-            color={colors.primary}
-            style={styles.docUploadActionIcon}
-          />
-          <Text numberOfLines={1} style={styles.docUploadActionText}>
-            Gallery
-          </Text>
-        </TouchableOpacity>
-        <View style={styles.docUploadActionBtnSpacer} />
-        <TouchableOpacity
-          style={styles.docUploadActionBtn}
-          onPress={() => captureDocWithCamera(field)}
-          activeOpacity={0.8}
-        >
-          <Icon
-            name="camera"
-            size={iconSizes.sm}
-            color={colors.primary}
-            style={styles.docUploadActionIcon}
-          />
-          <Text numberOfLines={1} style={styles.docUploadActionText}>
-            Take Photo
-          </Text>
-        </TouchableOpacity>
-      </View>
-    </View>
-  );
-
-  const requestGalleryPermission = async () => {
-    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (status !== 'granted') {
-      Alert.alert('Permission required', 'Please allow gallery access to upload documents.');
-      return false;
-    }
-    return true;
-  };
-
-  const requestCameraPermission = async () => {
-    const { status } = await ImagePicker.requestCameraPermissionsAsync();
-    if (status !== 'granted') {
-      Alert.alert('Permission required', 'Please allow camera access to capture documents.');
-      return false;
-    }
-    return true;
-  };
-
-  const setDocValue = (field: VerificationDocField, uri: string) => {
-    switch (field) {
-      case 'businessRegistrationCopy':
-        setBusinessRegistrationDraft(uri);
-        break;
-      case 'companyNicCopy':
-        setCompanyNicDraft(uri);
-        break;
-      case 'vehicleRegistrationCopy':
-        setVehicleRegistrationDraft(uri);
-        break;
-      case 'truckNicCopy':
-        setTruckNicDraft(uri);
-        break;
-    }
-  };
-
-  const pickDocFromGallery = async (field: VerificationDocField) => {
-    if (!(await requestGalleryPermission())) return;
-    try {
-      const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ['images'],
-        allowsEditing: true,
-        quality: 0.8,
-      });
-      if (!result.canceled && result.assets[0]) {
-        setDocValue(field, result.assets[0].uri);
-      }
-    } catch {
-      Alert.alert('Upload failed', 'Unable to pick image from gallery.');
-    }
-  };
-
-  const captureDocWithCamera = async (field: VerificationDocField) => {
-    if (!(await requestCameraPermission())) return;
-    try {
-      const result = await ImagePicker.launchCameraAsync({
-        mediaTypes: ['images'],
-        allowsEditing: true,
-        quality: 0.8,
-      });
-      if (!result.canceled && result.assets[0]) {
-        setDocValue(field, result.assets[0].uri);
-      }
-    } catch {
-      Alert.alert('Capture failed', 'Unable to capture image from camera.');
-    }
-  };
+  const switchTrack = { false: 'rgba(156,163,175,0.32)', true: 'rgba(37,99,235,0.32)' } as const;
+  const switchThumb = { false: '#FFFFFF', true: colors.primary } as const;
 
   return (
     <Animated.View
@@ -819,27 +431,19 @@ export const TowDashboard: React.FC<TowDashboardProps> = ({ driverName }) => {
       <Card style={{ marginBottom: spacing.md }} padded>
         <View style={styles.row}>
           <View style={styles.statusBlock}>
-            <Text style={styles.statusTitle}>
-              {driverName || 'You are live'}
-            </Text>
-            <Text style={styles.statusSubtitle}>
-              Control your availability for new tow requests.
-            </Text>
-            <View className="availability-pill" style={styles.availabilityPill}>
+            <Text style={styles.statusTitle}>{driverName || 'You are live'}</Text>
+            <Text style={styles.statusSubtitle}>Control your availability for new tow requests.</Text>
+            <View style={styles.availabilityPill}>
               <Text style={styles.availabilityPillText}>
-                {isAvailable
-                  ? 'Live · visible to nearby drivers'
-                  : 'Offline · not visible to drivers'}
+                {isAvailable ? 'Live · visible to nearby drivers' : 'Offline · not visible to drivers'}
               </Text>
             </View>
           </View>
           <Switch
             value={isAvailable}
             onValueChange={setIsAvailable}
-            trackColor={styles.switchTrackColor}
-            thumbColor={
-              isAvailable ? styles.switchThumbColor.true : styles.switchThumbColor.false
-            }
+            trackColor={switchTrack}
+            thumbColor={isAvailable ? switchThumb.true : switchThumb.false}
           />
         </View>
       </Card>
@@ -891,268 +495,29 @@ export const TowDashboard: React.FC<TowDashboardProps> = ({ driverName }) => {
       </Card>
 
       <Card style={{ marginTop: spacing.lg }} padded>
-        <View style={styles.fleetCardTitleRow}>
-          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-            <Icon name="car" size={iconSizes.lg} color={colors.primary} />
-            <Text style={[styles.fleetCardTitle, { marginLeft: spacing.sm }]}>
-              Your Tow Fleet
-            </Text>
-          </View>
-        </View>
-
-        <View style={styles.fleetSection}>
-          <Text style={styles.fleetSectionLabel}>Company</Text>
-          {companyProfile ? (
-            <View>
-              <Text style={styles.fleetValue}>{companyProfile.name}</Text>
-              <Text style={styles.docCopyText}>
-                Business registration copy: {companyProfile.businessRegistrationCopy}
-              </Text>
-              <Text style={styles.docCopyText}>NIC copy: {companyProfile.nicCopy}</Text>
-              <View style={styles.verificationBadge}>
-                <Text style={styles.verificationBadgeText}>
-                  Verification {companyProfile.verificationStatus}
-                </Text>
-              </View>
-            </View>
-          ) : (
-            <Text style={styles.fleetEmptyText}>No company added yet.</Text>
-          )}
-        </View>
-
-        <View style={styles.fleetSection}>
-          <Text style={styles.fleetSectionLabel}>Tow Trucks</Text>
-          {towTrucks.length === 0 ? (
-            <Text style={styles.fleetEmptyText}>No tow trucks added yet.</Text>
-          ) : (
-            <>
-              {!isAvailable ? (
-                <Text style={styles.fleetEmptyText}>
-                  You’re offline. Active trucks won’t be visible to nearby drivers.
-                </Text>
-              ) : null}
-
-              <View style={{ marginTop: spacing.md }}>
-                <Text style={styles.fleetSectionLabel}>Active</Text>
-                {activeTowTrucks.length === 0 ? (
-                  <Text style={styles.fleetEmptyText}>No active trucks.</Text>
-                ) : (
-                  <View style={styles.fleetTruckList}>
-                    {activeTowTrucks.map((t, idx) => (
-                      <View
-                        key={t.id}
-                        style={[
-                          styles.fleetTruckRow,
-                          idx === activeTowTrucks.length - 1 &&
-                            styles.fleetTruckRowLast,
-                        ]}
-                      >
-                        <View style={{ flex: 1, paddingRight: spacing.sm }}>
-                          <Text style={styles.fleetTruckName}>{t.name}</Text>
-                          {t.plate ? (
-                            <Text style={styles.fleetTruckPlate}>{t.plate}</Text>
-                          ) : null}
-                          <Text style={styles.docCopyText}>
-                            Vehicle registration copy: {t.vehicleRegistrationCopy}
-                          </Text>
-                          <Text style={styles.docCopyText}>NIC copy: {t.nicCopy}</Text>
-                          <View style={styles.verificationBadge}>
-                            <Text style={styles.verificationBadgeText}>
-                              Verification {t.verificationStatus}
-                            </Text>
-                          </View>
-                        </View>
-                        <Switch
-                          value={true}
-                          onValueChange={(v) => setTruckActive(t.id, v)}
-                          trackColor={styles.switchTrackColor}
-                          thumbColor={styles.switchThumbColor.true}
-                        />
-                      </View>
-                    ))}
-                  </View>
-                )}
-              </View>
-
-              <View style={{ marginTop: spacing.lg }}>
-                <Text style={styles.fleetSectionLabel}>Inactive</Text>
-                {inactiveTowTrucks.length === 0 ? (
-                  <Text style={styles.fleetEmptyText}>No inactive trucks.</Text>
-                ) : (
-                  <View style={styles.fleetTruckList}>
-                    {inactiveTowTrucks.map((t, idx) => (
-                      <View
-                        key={t.id}
-                        style={[
-                          styles.fleetTruckRow,
-                          idx === inactiveTowTrucks.length - 1 &&
-                            styles.fleetTruckRowLast,
-                        ]}
-                      >
-                        <View style={{ flex: 1, paddingRight: spacing.sm }}>
-                          <Text style={styles.fleetTruckName}>{t.name}</Text>
-                          {t.plate ? (
-                            <Text style={styles.fleetTruckPlate}>{t.plate}</Text>
-                          ) : null}
-                          <Text style={styles.docCopyText}>
-                            Vehicle registration copy: {t.vehicleRegistrationCopy}
-                          </Text>
-                          <Text style={styles.docCopyText}>NIC copy: {t.nicCopy}</Text>
-                          <View style={styles.verificationBadge}>
-                            <Text style={styles.verificationBadgeText}>
-                              Verification {t.verificationStatus}
-                            </Text>
-                          </View>
-                        </View>
-                        <Switch
-                          value={false}
-                          onValueChange={(v) => setTruckActive(t.id, v)}
-                          trackColor={styles.switchTrackColor}
-                          thumbColor={styles.switchThumbColor.false}
-                        />
-                      </View>
-                    ))}
-                  </View>
-                )}
-              </View>
-            </>
-          )}
-        </View>
-
-        <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-          <View style={{ flex: 1, marginRight: spacing.sm }}>
-            <PrimaryButton title="Add Tow Truck" onPress={() => openAddModal('truck')} />
-          </View>
-          <View style={{ flex: 1 }}>
-            <PrimaryButton title="Add Company" onPress={() => openAddModal('company')} />
-          </View>
+        <Text style={styles.profileTitle}>{v.title}</Text>
+        <Text style={styles.profileLine}>
+          <Text style={{ fontWeight: '600', color: colors.text }}>Company: </Text>
+          {user?.businessName || '—'}
+        </Text>
+        <Text style={styles.profileLine}>
+          <Text style={{ fontWeight: '600', color: colors.text }}>Truck: </Text>
+          {user?.truckName || '—'}
+          {user?.plateNumber ? ` · ${user.plateNumber}` : ''}
+        </Text>
+        <Text style={[styles.profileLine, { marginTop: spacing.sm }]}>{v.detail}</Text>
+        <View style={[styles.verifyBadge, { backgroundColor: badgeColors.bg }]}>
+          <Text style={[styles.verifyBadgeText, { color: badgeColors.fg }]}>
+            {pvStatus === 'pending'
+              ? 'Pending review'
+              : pvStatus === 'rejected'
+              ? 'Rejected'
+              : pvStatus === 'approved'
+              ? 'Approved'
+              : 'Active'}
+          </Text>
         </View>
       </Card>
-
-      <Modal
-        visible={isAddModalOpen}
-        transparent
-        animationType="fade"
-        onRequestClose={closeAddModal}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalSheet}>
-            <Text style={styles.modalTitle}>
-              {addMode === 'company' ? 'Add Tow Company' : 'Add Tow Truck'}
-            </Text>
-            <Text style={styles.modalSubtitle}>
-              {addMode === 'company'
-                ? 'Add company details and required verification document copies.'
-                : 'Add tow truck details and required verification document copies.'}
-            </Text>
-
-            {addMode === 'company' ? (
-              <>
-                <Text style={styles.modalFieldLabel}>Company Name</Text>
-                <TextInput
-                  value={companyNameDraft}
-                  onChangeText={setCompanyNameDraft}
-                  placeholder="e.g. Colombo Tow Services"
-                  placeholderTextColor={colors.textSecondary}
-                  style={styles.modalInput}
-                  autoCapitalize="words"
-                />
-                {renderDocUploadField(
-                  'Business registration document copy',
-                  'businessRegistrationCopy',
-                  businessRegistrationDraft
-                )}
-                {renderDocUploadField('NIC copy', 'companyNicCopy', companyNicDraft)}
-              </>
-            ) : (
-              <>
-                <Text style={styles.modalFieldLabel}>Truck Name</Text>
-                <TextInput
-                  value={truckNameDraft}
-                  onChangeText={setTruckNameDraft}
-                  placeholder="e.g. Tow Truck A"
-                  placeholderTextColor={colors.textSecondary}
-                  style={styles.modalInput}
-                  autoCapitalize="words"
-                />
-                <Text style={styles.modalFieldLabel}>Plate / Identifier (optional)</Text>
-                <TextInput
-                  value={truckPlateDraft}
-                  onChangeText={setTruckPlateDraft}
-                  placeholder="e.g. WP-1234"
-                  placeholderTextColor={colors.textSecondary}
-                  style={styles.modalInput}
-                  autoCapitalize="characters"
-                />
-                {renderDocUploadField(
-                  'Vehicle registration document copy',
-                  'vehicleRegistrationCopy',
-                  vehicleRegistrationDraft
-                )}
-                {renderDocUploadField('NIC copy', 'truckNicCopy', truckNicDraft)}
-
-                <View
-                  style={{
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    marginTop: spacing.sm,
-                  }}
-                >
-                  <Text style={[styles.modalFieldLabel, { marginBottom: 0 }]}>
-                    Mark Active
-                  </Text>
-                  <Switch
-                    value={truckActiveDraft}
-                    onValueChange={setTruckActiveDraft}
-                    trackColor={styles.switchTrackColor}
-                    thumbColor={
-                      truckActiveDraft
-                        ? styles.switchThumbColor.true
-                        : styles.switchThumbColor.false
-                    }
-                  />
-                </View>
-              </>
-            )}
-
-            <View style={styles.modalActions}>
-              <TouchableOpacity
-                style={{ flex: 1 }}
-                onPress={closeAddModal}
-                activeOpacity={0.8}
-              >
-                <View style={styles.modalCancelBtn}>
-                  <Text style={styles.modalCancelText}>Cancel</Text>
-                </View>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={{ flex: 1 }}
-                onPress={saveDraft}
-                activeOpacity={0.8}
-              >
-                <View>
-                  <PrimaryButton
-                    title="Save"
-                    onPress={saveDraft}
-                    disabled={
-                      addMode === 'company'
-                        ? companyNameDraft.trim().length === 0 ||
-                          !businessRegistrationDraft ||
-                          !companyNicDraft
-                        : truckNameDraft.trim().length === 0 ||
-                          !vehicleRegistrationDraft ||
-                          !truckNicDraft
-                    }
-                  />
-                </View>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
     </Animated.View>
   );
 };
-

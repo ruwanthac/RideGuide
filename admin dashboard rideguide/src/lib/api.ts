@@ -57,6 +57,14 @@ export function authHeader(): HeadersInit {
   return h;
 }
 
+/** For binary GETs (e.g. verification files); avoids sending `Content-Type: application/json`. */
+export function authHeaderBearerOnly(): HeadersInit {
+  const token = getToken();
+  const h: Record<string, string> = {};
+  if (token) h.Authorization = `Bearer ${token}`;
+  return h;
+}
+
 export class ApiError extends Error {
   status: number;
   body: string;

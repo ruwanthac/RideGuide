@@ -6,9 +6,11 @@ interface ModalProps {
   onClose: () => void;
   title: string;
   children: ReactNode;
+  /** Appended to the dialog panel (e.g. `max-w-3xl` for wide content). */
+  panelClassName?: string;
 }
 
-export function Modal({ isOpen, onClose, title, children }: ModalProps) {
+export function Modal({ isOpen, onClose, title, children, panelClassName }: ModalProps) {
   useEffect(() => {
     const handleEscape = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
     if (isOpen) {
@@ -31,7 +33,7 @@ export function Modal({ isOpen, onClose, title, children }: ModalProps) {
         aria-hidden
       />
       <div
-        className="relative w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-xl bg-white dark:bg-gray-900 shadow-xl border border-gray-200 dark:border-gray-800 animate-fade-in"
+        className={`relative w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-xl bg-white dark:bg-gray-900 shadow-xl border border-gray-200 dark:border-gray-800 animate-fade-in ${panelClassName ?? ''}`}
         role="dialog"
         aria-modal="true"
         aria-labelledby="modal-title"

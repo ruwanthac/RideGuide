@@ -21,7 +21,7 @@ jest.mock('@google/generative-ai', () => ({
 
 import request from 'supertest';
 import { buildApp } from '../../src/app';
-import { registerUser } from '../../src/services/auth.service';
+import { registerUser, registerApprovedProvider } from '../../src/services/auth.service';
 import { startInMemoryMongo, stopInMemoryMongo, clearDb } from '../helpers/mongo';
 
 beforeAll(startInMemoryMongo);
@@ -50,7 +50,7 @@ describe('diagnosis', () => {
 
   it('creates diagnosis with manual vehicle (no saved vehicle)', async () => {
     const app = buildApp();
-    const { token } = await registerUser({
+    const { token } = await registerApprovedProvider({
       email: 'mech@b.com',
       password: 'secret12',
       displayName: 'Mech',

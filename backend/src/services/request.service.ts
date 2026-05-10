@@ -22,6 +22,16 @@ type RequestWithProviderLocation = Record<string, any> & {
   requesterLiveLocation?: { latitude: number; longitude: number } | null;
 };
 
+async function assertProviderApprovedForJob(userId: string, role: Role) {
+  if (role !== 'mechanic' && role !== 'tow') return;
+  const u = await UserModel.findById(userId).select('providerVerificationStatus').lean();
+  if (!u) throw new HttpError(403, 'forbidden');
+  const st = (u as { providerVerificationStatus?: string }).providerVerificationStatus;
+  if (st === 'pending' || st === 'rejected') {
+    throw new HttpError(403, 'Provider account must be approved before accepting jobs.');
+  }
+}
+
 const TOW_TRANSITIONS: Record<string, TowStatus | null> = {
   requested: 'driver_picked_hire',
   driver_picked_hire: 'driver_on_the_way',
@@ -269,6 +279,7 @@ export async function transition(
       throw new HttpError(403, 'only mechanics can accept roadside requests');
     }
     if (role === 'mechanic') {
+      await assertProviderApprovedForJob(userId, role);
       const providerRow = await UserModel.findById(userId).select('mechanicAvailable').lean();
       if (providerRow?.mechanicAvailable === false) {
         throw new HttpError(400, 'turn on availability to accept new requests');
@@ -301,6 +312,7 @@ export async function transition(
     if (!next) throw new HttpError(409, 'request is not active');
     if (target !== next) throw new HttpError(409, `next status must be ${next}`);
     if (current === 'requested') {
+      if (role === 'tow') await assertProviderApprovedForJob(userId, role);
       req.acceptedBy = new Types.ObjectId(userId);
     }
     req.status = target;

@@ -1,3 +1,7 @@
+import path from 'path';
+import fs from 'fs';
+import crypto from 'crypto';
+import bcrypt from 'bcryptjs';
 import { Types } from 'mongoose';
 import { UserModel } from '../models/User';
 import { VehicleModel } from '../models/Vehicle';
@@ -6,6 +10,7 @@ import { PricingConfigModel } from '../models/PricingConfig';
 import { DiagnosisHistoryModel } from '../models/DiagnosisHistory';
 import { AdminAuditLogModel } from '../models/AdminAuditLog';
 import { HttpError, registerUser } from './auth.service';
+import { sendEmail } from './email.service';
 import { env } from '../config/env';
 import { parsePagination, paginated, PaginatedPayload } from '../utils/pagination';
 import { mapWithId, withId } from '../utils/mongoJson';
@@ -89,8 +94,15 @@ export type UserPatch = Partial<{
 export async function listUsersPaginated(query: Record<string, unknown>) {
   const { page, limit, skip } = parsePagination(query);
   const filter: Record<string, unknown> = {};
-  const role = typeof query.role === 'string' && query.role ? query.role : undefined;
-  if (role) filter.role = role;
+  const pendingProviders =
+    query.pendingProviders === 'true' || query.pendingProviders === '1' || query.pendingProviders === true;
+  if (pendingProviders) {
+    filter.role = { $in: ['mechanic', 'tow'] };
+    filter.providerVerificationStatus = 'pending';
+  } else {
+    const role = typeof query.role === 'string' && query.role ? query.role : undefined;
+    if (role) filter.role = role;
+  }
   const status = typeof query.status === 'string' ? query.status.trim() : '';
   if (status === 'active' || status === 'suspended') filter.status = status;
   const search = typeof query.search === 'string' ? query.search.trim() : '';
@@ -98,11 +110,100 @@ export async function listUsersPaginated(query: Record<string, unknown>) {
     const rx = new RegExp(search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
     filter.$or = [{ email: rx }, { displayName: rx }, { phoneNumber: rx }];
   }
+  const pvs = typeof query.providerVerificationStatus === 'string' ? query.providerVerificationStatus.trim() : '';
+  if (pvs === 'pending' || pvs === 'approved' || pvs === 'rejected' || pvs === 'none') {
+    filter.providerVerificationStatus = pvs;
+  }
   const [items, total] = await Promise.all([
     UserModel.find(filter).select('-passwordHash').sort({ createdAt: -1 }).skip(skip).limit(limit).lean(),
     UserModel.countDocuments(filter),
   ]);
   return paginated(mapWithId(items), total, page, limit);
+}
+
+const VERIFICATION_FILE_FIELDS = new Set([
+  'mechanicBrCopy',
+  'mechanicNicCopy',
+  'towCompanyBrCopy',
+  'towCompanyNicCopy',
+  'towTruckRegCopy',
+  'towTruckNicCopy',
+]);
+
+function generateProviderOtp(): string {
+  return crypto.randomBytes(9).toString('base64url').slice(0, 12);
+}
+
+export async function getUserByIdForAdmin(id: string): Promise<Record<string, unknown>> {
+  const u = await UserModel.findById(id).select('-passwordHash').lean();
+  if (!u) throw new HttpError(404, 'user not found');
+  return withId(u);
+}
+
+export async function verifyProviderApplication(userId: string, adminId: string): Promise<{ ok: boolean }> {
+  const u = await UserModel.findById(userId);
+  if (!u) throw new HttpError(404, 'user not found');
+  if (u.role !== 'mechanic' && u.role !== 'tow') throw new HttpError(400, 'user is not a mechanic or tow provider');
+  if (u.providerVerificationStatus !== 'pending') {
+    throw new HttpError(409, 'user is not awaiting verification');
+  }
+  const otp = generateProviderOtp();
+  u.passwordHash = await bcrypt.hash(otp, 10);
+  (u as any).mustChangePassword = true;
+  u.providerVerificationStatus = 'approved';
+  u.providerVerificationReviewedAt = new Date();
+  await u.save();
+  const emailResult = await sendEmail({
+    to: u.email,
+    subject: 'Your RideGuide account is approved',
+    html: `<p>Hi ${u.displayName},</p><p>Your provider application has been approved.</p><p><strong>Sign-in password (one-time):</strong> <code style="font-size:16px">${otp}</code></p><p>Use this password with your email on the app login screen. You can change it later from your profile if that option is available.</p>`,
+    text: `Your RideGuide account is approved. One-time sign-in password: ${otp}`,
+  });
+  if (!emailResult.ok) {
+    console.warn('[admin] verify-provider: email skipped or failed; user still approved');
+  }
+  await recordAudit({
+    adminId,
+    action: 'PROVIDER_VERIFY',
+    targetType: 'user',
+    targetId: userId,
+    meta: { emailSent: emailResult.ok },
+  });
+  return { ok: true };
+}
+
+export async function rejectProviderApplication(userId: string, adminId: string): Promise<{ ok: boolean }> {
+  const u = await UserModel.findById(userId);
+  if (!u) throw new HttpError(404, 'user not found');
+  if (u.role !== 'mechanic' && u.role !== 'tow') throw new HttpError(400, 'user is not a mechanic or tow provider');
+  if (u.providerVerificationStatus !== 'pending') {
+    throw new HttpError(409, 'user is not awaiting verification');
+  }
+  u.providerVerificationStatus = 'rejected';
+  u.providerVerificationReviewedAt = new Date();
+  await u.save();
+  await recordAudit({
+    adminId,
+    action: 'PROVIDER_REJECT',
+    targetType: 'user',
+    targetId: userId,
+    meta: {},
+  });
+  return { ok: true };
+}
+
+export async function getVerificationFileAbsolutePath(userId: string, field: string): Promise<string> {
+  if (!VERIFICATION_FILE_FIELDS.has(field)) throw new HttpError(400, 'invalid file field');
+  const u = await UserModel.findById(userId).lean();
+  if (!u) throw new HttpError(404, 'user not found');
+  const rel = (u as { providerVerification?: Record<string, string> }).providerVerification?.[field];
+  if (!rel || typeof rel !== 'string') throw new HttpError(404, 'file not found');
+  const uploadRoot = path.resolve(process.cwd(), env.UPLOAD_DIR);
+  const abs = path.resolve(uploadRoot, rel);
+  const prefix = path.resolve(uploadRoot, 'provider-verification');
+  if (!abs.startsWith(prefix)) throw new HttpError(403, 'invalid path');
+  if (!fs.existsSync(abs)) throw new HttpError(404, 'file not found');
+  return abs;
 }
 
 export async function updateUser(

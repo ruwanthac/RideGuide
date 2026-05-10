@@ -17,6 +17,12 @@ export interface AuthUser {
   mechanicAvailable?: boolean;
   location?: { type: 'Point'; coordinates: [number, number] } | null;
   status?: 'active' | 'suspended';
+  /** Mechanic/tow pipeline; omitted or `none` for owners and legacy accounts. */
+  providerVerificationStatus?: 'none' | 'pending' | 'approved' | 'rejected';
+  providerVerificationSubmittedAt?: string;
+  providerVerificationReviewedAt?: string;
+  /** True when account signed in with a one-time password and must set a new password. */
+  mustChangePassword?: boolean;
   createdAt: string;
   updatedAt: string;
 }

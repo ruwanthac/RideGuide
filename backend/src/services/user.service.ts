@@ -32,7 +32,7 @@ export async function updateProfile(userId: string, patch: ProfilePatch) {
       { $set: { ownerName: patch.displayName.trim() } }
     );
   }
-  const { passwordHash, __v, ...rest } = u as any;
+  const { passwordHash, __v, providerVerification: _pv, ...rest } = u as any;
   const id = String(rest._id);
   return { ...rest, _id: id, id };
 }

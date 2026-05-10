@@ -1,23 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useFocusEffect } from '@react-navigation/native';
-import {
-  View,
-  Text,
-  StyleSheet,
-  Switch,
-  Animated,
-  Easing,
-  TouchableOpacity,
-  Modal,
-  TextInput,
-  Alert,
-  Image,
-} from 'react-native';
-import * as ImagePicker from 'expo-image-picker';
-import { Card, PrimaryButton } from '../';
+import { View, Text, StyleSheet, Switch, Animated, Easing, Alert } from 'react-native';
+import { Card } from '../';
 import { colors } from '../../constants/theme';
 import { useResponsive } from '../../hooks';
-import { Icon } from '../Icon';
 import { useAuth } from '../../context/AuthContext';
 import { listServiceRequests, subscribeServiceRequests } from '../../backend/serviceRequestsService';
 import { updateUserProfile } from '../../backend/userProfileService';
@@ -26,16 +12,6 @@ import { extractApiError } from '../../backend/apiClient';
 interface MechanicDashboardProps {
   shopName?: string;
 }
-
-type WorkshopVerificationStatus =
-  | 'not_started'
-  | 'submitted'
-  | 'under_review'
-  | 'approved'
-  | 'rejected'
-  | 'needs_more_info';
-
-type WorkshopDocField = 'brCopy' | 'nicCopy';
 
 function countRoadsideCompletedThisMonth(
   rows: { type: string; status: string; acceptedBy?: string | null; updatedAt: string }[],
@@ -52,35 +28,47 @@ function countRoadsideCompletedThisMonth(
   }).length;
 }
 
-export const MechanicDashboard: React.FC<MechanicDashboardProps> = ({
-  shopName,
-}) => {
+function verificationCopy(
+  status: string | undefined,
+  workshopLabel: string,
+): { title: string; detail: string; tone: 'neutral' | 'warn' | 'bad' | 'ok' } {
+  if (status === 'pending') {
+    return {
+      title: 'Verification pending',
+      detail:
+        'An administrator is reviewing your workshop documents. You cannot sign in until approved; watch for an email with your one-time password.',
+      tone: 'warn',
+    };
+  }
+  if (status === 'rejected') {
+    return {
+      title: 'Verification not approved',
+      detail: 'Your provider application was rejected. Contact support if you need help.',
+      tone: 'bad',
+    };
+  }
+  return {
+    title: 'Verification',
+    detail: `Your workshop (“${workshopLabel}”) is verified. Availability below controls whether you receive new roadside requests.`,
+    tone: 'ok',
+  };
+}
+
+export const MechanicDashboard: React.FC<MechanicDashboardProps> = ({ shopName }) => {
   const { user, refreshProfile } = useAuth();
-  const { spacing, fontSizes, borderRadius, scale, iconSizes } = useResponsive();
+  const { spacing, fontSizes, borderRadius, scale } = useResponsive();
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const [incomingPendingCount, setIncomingPendingCount] = useState(0);
   const [monthlyCompletedCount, setMonthlyCompletedCount] = useState(0);
   const [availabilityBusy, setAvailabilityBusy] = useState(false);
-  const [isVerificationModalOpen, setIsVerificationModalOpen] = useState(false);
-  const [workshopNameDraft, setWorkshopNameDraft] = useState(shopName || '');
-  const [workshopAddressDraft, setWorkshopAddressDraft] = useState('');
-  const [brCopyDraft, setBrCopyDraft] = useState<string | null>(null);
-  const [nicCopyDraft, setNicCopyDraft] = useState<string | null>(null);
-  const [verificationStatus, setVerificationStatus] =
-    useState<WorkshopVerificationStatus>('not_started');
-  const [submittedWorkshop, setSubmittedWorkshop] = useState<{
-    name: string;
-    address: string;
-    brCopy: string;
-    nicCopy: string;
-  } | null>(null);
+
+  const workshopLabel = user?.businessName?.trim() || shopName || 'Your workshop';
+  const pvStatus = user?.providerVerificationStatus;
+  const v = verificationCopy(pvStatus, workshopLabel);
 
   const styles = useMemo(
     () =>
       StyleSheet.create({
-        container: {
-          marginBottom: spacing.lg,
-        },
         sectionTitle: {
           fontSize: fontSizes.lg,
           fontWeight: '600',
@@ -149,166 +137,30 @@ export const MechanicDashboard: React.FC<MechanicDashboardProps> = ({
           color: colors.textSecondary,
           marginTop: 4,
         },
-        switchTrackColor: {
-          false: 'rgba(156,163,175,0.32)',
-          true: 'rgba(34,197,94,0.32)',
-        } as { false: string; true: string },
-        switchThumbColor: {
-          false: '#FFFFFF',
-          true: colors.success,
-        } as { false: string; true: string },
-        verificationHeaderRow: {
-          flexDirection: 'row',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          marginBottom: spacing.md,
-        },
-        verificationTitle: {
-          fontSize: fontSizes.lg,
-          fontWeight: '600',
-          color: colors.text,
-        },
-        verificationBadge: {
-          paddingHorizontal: spacing.sm,
-          paddingVertical: spacing.xs,
-          borderRadius: borderRadius.full,
-          backgroundColor: 'rgba(245,158,11,0.16)',
-        },
-        verificationBadgeText: {
-          fontSize: fontSizes.xs,
-          fontWeight: '600',
-          color: '#B45309',
-        },
-        verificationHelperText: {
-          fontSize: fontSizes.sm,
-          color: colors.textSecondary,
-          marginBottom: spacing.md,
-        },
-        verificationInfoText: {
-          fontSize: fontSizes.xs,
-          color: colors.textSecondary,
-          marginTop: spacing.xs,
-        },
-        modalOverlay: {
-          flex: 1,
-          backgroundColor: 'rgba(0,0,0,0.45)',
-          alignItems: 'center',
-          justifyContent: 'center',
-          padding: spacing.lg,
-        },
-        modalSheet: {
-          width: '100%',
-          backgroundColor: colors.card,
-          borderRadius: borderRadius.xl,
-          padding: spacing.lg,
-        },
-        modalTitle: {
-          fontSize: fontSizes.lg,
-          fontWeight: '700',
-          color: colors.text,
-          marginBottom: spacing.xs,
-        },
-        modalSubtitle: {
-          fontSize: fontSizes.sm,
-          color: colors.textSecondary,
-          marginBottom: spacing.md,
-        },
-        modalFieldLabel: {
-          fontSize: fontSizes.xs,
-          color: colors.textSecondary,
-          fontWeight: '600',
-          marginBottom: spacing.xs,
-          textTransform: 'uppercase',
-        },
-        modalInput: {
-          backgroundColor: colors.background,
-          borderRadius: borderRadius.lg,
-          borderWidth: 1,
-          borderColor: colors.border,
-          paddingVertical: spacing.sm,
-          paddingHorizontal: spacing.md,
+        verifyTitle: {
           fontSize: fontSizes.md,
-          fontWeight: '500',
-          color: colors.text,
-          marginBottom: spacing.md,
-        },
-        docUploadCard: {
-          borderWidth: 1,
-          borderColor: colors.border,
-          borderRadius: borderRadius.lg,
-          backgroundColor: colors.background,
-          padding: spacing.sm,
-          marginBottom: spacing.md,
-        },
-        docUploadLabel: {
-          fontSize: fontSizes.xs,
           fontWeight: '600',
-          color: colors.textSecondary,
-          textTransform: 'uppercase',
+          color: colors.text,
           marginBottom: spacing.xs,
         },
-        docPreviewImage: {
-          width: '100%',
-          height: scale(120),
-          borderRadius: borderRadius.md,
-          backgroundColor: colors.card,
-        },
-        docPreviewText: {
-          fontSize: fontSizes.xs,
+        verifyDetail: {
+          fontSize: fontSizes.sm,
           color: colors.textSecondary,
-          marginTop: spacing.xs,
+          lineHeight: scale(20),
         },
-        docUploadActions: {
-          flexDirection: 'row',
+        verifyBadge: {
           marginTop: spacing.sm,
-          alignItems: 'stretch',
-        },
-        docUploadActionBtn: {
-          flex: 1,
-          flexDirection: 'row',
-          alignItems: 'center',
-          justifyContent: 'center',
-          minHeight: scale(44),
-          paddingVertical: spacing.sm,
+          alignSelf: 'flex-start',
           paddingHorizontal: spacing.sm,
-          borderRadius: borderRadius.md,
-          borderWidth: 1,
-          borderColor: colors.primary,
-          backgroundColor: 'rgba(37,99,235,0.06)',
+          paddingVertical: spacing.xs / 2,
+          borderRadius: borderRadius.full,
         },
-        docUploadActionBtnSpacer: {
-          width: spacing.sm,
-        },
-        docUploadActionIcon: {
-          marginRight: spacing.xs,
-        },
-        docUploadActionText: {
-          fontSize: fontSizes.sm,
+        verifyBadgeText: {
+          fontSize: fontSizes.xs,
           fontWeight: '600',
-          color: colors.primary,
-          textAlign: 'center',
-        },
-        modalActions: {
-          flexDirection: 'row',
-          justifyContent: 'space-between',
-          marginTop: spacing.md,
-        },
-        modalCancelBtn: {
-          paddingVertical: spacing.sm,
-          paddingHorizontal: spacing.lg,
-          borderRadius: borderRadius.lg,
-          borderWidth: 1,
-          borderColor: colors.border,
-          backgroundColor: colors.background,
-        },
-        modalCancelText: {
-          fontSize: fontSizes.md,
-          fontWeight: '600',
-          color: colors.text,
-          textAlign: 'center',
         },
       }),
-    [borderRadius, fontSizes, scale, spacing, iconSizes]
+    [borderRadius, fontSizes, scale, spacing],
   );
 
   useEffect(() => {
@@ -330,7 +182,7 @@ export const MechanicDashboard: React.FC<MechanicDashboardProps> = ({
       const rows = await listServiceRequests({ history: true });
       setMonthlyCompletedCount(countRoadsideCompletedThisMonth(rows, uid));
     } catch {
-      // keep last value on failure
+      /* keep last value */
     }
   }, [user?._id]);
 
@@ -349,14 +201,17 @@ export const MechanicDashboard: React.FC<MechanicDashboardProps> = ({
     let unsub: (() => void) | null = null;
     (async () => {
       try {
-        const off = await subscribeServiceRequests((items) => {
-          if (!alive) return;
-          setIncomingPendingCount(items.filter((r) => r.status === 'pending').length);
-        }, {
-          type: 'roadside',
-          inboxOnly: true,
-          providerUserId: user._id,
-        });
+        const off = await subscribeServiceRequests(
+          (items) => {
+            if (!alive) return;
+            setIncomingPendingCount(items.filter((r) => r.status === 'pending').length);
+          },
+          {
+            type: 'roadside',
+            inboxOnly: true,
+            providerUserId: user._id,
+          },
+        );
         unsub = off;
       } catch {
         if (alive) setIncomingPendingCount(0);
@@ -383,132 +238,17 @@ export const MechanicDashboard: React.FC<MechanicDashboardProps> = ({
     }
   };
 
-  const requestGalleryPermission = async () => {
-    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (status !== 'granted') {
-      Alert.alert('Permission required', 'Please allow gallery access to upload documents.');
-      return false;
-    }
-    return true;
-  };
+  const badgeColors =
+    v.tone === 'warn'
+      ? { bg: 'rgba(245,158,11,0.16)', fg: '#B45309' }
+      : v.tone === 'bad'
+      ? { bg: 'rgba(239,68,68,0.12)', fg: colors.error }
+      : v.tone === 'ok'
+      ? { bg: 'rgba(16,185,129,0.12)', fg: colors.success }
+      : { bg: 'rgba(107,114,128,0.12)', fg: colors.textSecondary };
 
-  const requestCameraPermission = async () => {
-    const { status } = await ImagePicker.requestCameraPermissionsAsync();
-    if (status !== 'granted') {
-      Alert.alert('Permission required', 'Please allow camera access to capture documents.');
-      return false;
-    }
-    return true;
-  };
-
-  const setDocValue = (field: WorkshopDocField, uri: string) => {
-    if (field === 'brCopy') {
-      setBrCopyDraft(uri);
-      return;
-    }
-    setNicCopyDraft(uri);
-  };
-
-  const pickDocFromGallery = async (field: WorkshopDocField) => {
-    if (!(await requestGalleryPermission())) return;
-    try {
-      const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ['images'],
-        allowsEditing: true,
-        quality: 0.8,
-      });
-      if (!result.canceled && result.assets[0]) {
-        setDocValue(field, result.assets[0].uri);
-      }
-    } catch {
-      Alert.alert('Upload failed', 'Unable to pick image from gallery.');
-    }
-  };
-
-  const captureDocWithCamera = async (field: WorkshopDocField) => {
-    if (!(await requestCameraPermission())) return;
-    try {
-      const result = await ImagePicker.launchCameraAsync({
-        mediaTypes: ['images'],
-        allowsEditing: true,
-        quality: 0.8,
-      });
-      if (!result.canceled && result.assets[0]) {
-        setDocValue(field, result.assets[0].uri);
-      }
-    } catch {
-      Alert.alert('Capture failed', 'Unable to capture image from camera.');
-    }
-  };
-
-  const renderDocUploadField = (
-    label: string,
-    field: WorkshopDocField,
-    value: string | null
-  ) => (
-    <View style={styles.docUploadCard}>
-      <Text style={styles.docUploadLabel}>{label}</Text>
-      {value ? (
-        <>
-          <Image source={{ uri: value }} style={styles.docPreviewImage} />
-          <Text numberOfLines={1} style={styles.docPreviewText}>
-            Uploaded: {value}
-          </Text>
-        </>
-      ) : (
-        <Text style={styles.docPreviewText}>No document image uploaded yet.</Text>
-      )}
-      <View style={styles.docUploadActions}>
-        <TouchableOpacity
-          style={styles.docUploadActionBtn}
-          onPress={() => pickDocFromGallery(field)}
-          activeOpacity={0.8}
-        >
-          <Icon
-            name="image"
-            size={iconSizes.sm}
-            color={colors.primary}
-            style={styles.docUploadActionIcon}
-          />
-          <Text numberOfLines={1} style={styles.docUploadActionText}>
-            Gallery
-          </Text>
-        </TouchableOpacity>
-        <View style={styles.docUploadActionBtnSpacer} />
-        <TouchableOpacity
-          style={styles.docUploadActionBtn}
-          onPress={() => captureDocWithCamera(field)}
-          activeOpacity={0.8}
-        >
-          <Icon
-            name="camera"
-            size={iconSizes.sm}
-            color={colors.primary}
-            style={styles.docUploadActionIcon}
-          />
-          <Text numberOfLines={1} style={styles.docUploadActionText}>
-            Take Photo
-          </Text>
-        </TouchableOpacity>
-      </View>
-    </View>
-  );
-
-  const submitWorkshopVerification = () => {
-    const cleanedName = workshopNameDraft.trim();
-    const cleanedAddress = workshopAddressDraft.trim();
-    const cleanedBr = (brCopyDraft ?? '').trim();
-    const cleanedNic = (nicCopyDraft ?? '').trim();
-    if (!cleanedName || !cleanedAddress || !cleanedBr || !cleanedNic) return;
-    setSubmittedWorkshop({
-      name: cleanedName,
-      address: cleanedAddress,
-      brCopy: cleanedBr,
-      nicCopy: cleanedNic,
-    });
-    setVerificationStatus('submitted');
-    setIsVerificationModalOpen(false);
-  };
+  const switchTrack = { false: 'rgba(156,163,175,0.32)', true: 'rgba(34,197,94,0.32)' } as const;
+  const switchThumb = { false: '#FFFFFF', true: colors.success } as const;
 
   return (
     <Animated.View
@@ -530,12 +270,8 @@ export const MechanicDashboard: React.FC<MechanicDashboardProps> = ({
       <Card style={{ marginBottom: spacing.md }} padded>
         <View style={styles.row}>
           <View style={styles.statusLabelGroup}>
-            <Text style={styles.statusLabel}>
-              {shopName || 'Your workshop'}
-            </Text>
-            <Text style={styles.statusSubLabel}>
-              Control your availability for new jobs.
-            </Text>
+            <Text style={styles.statusLabel}>{workshopLabel}</Text>
+            <Text style={styles.statusSubLabel}>Control your availability for new jobs.</Text>
             <View style={styles.statusPill}>
               <Text style={styles.statusPillText}>
                 {mechanicReceiving
@@ -547,9 +283,11 @@ export const MechanicDashboard: React.FC<MechanicDashboardProps> = ({
           <Switch
             value={mechanicReceiving}
             disabled={availabilityBusy}
-            trackColor={styles.switchTrackColor}
-            thumbColor={mechanicReceiving ? styles.switchThumbColor.true : styles.switchThumbColor.false}
-            onValueChange={(v) => { void onMechanicAvailabilityChange(v); }}
+            trackColor={switchTrack}
+            thumbColor={mechanicReceiving ? switchThumb.true : switchThumb.false}
+            onValueChange={(val) => {
+              void onMechanicAvailabilityChange(val);
+            }}
           />
         </View>
       </Card>
@@ -570,98 +308,21 @@ export const MechanicDashboard: React.FC<MechanicDashboardProps> = ({
         </View>
       </Card>
 
-      <Card style={{ marginTop: spacing.md }} padded>
-        <View style={styles.verificationHeaderRow}>
-          <Text style={styles.verificationTitle}>Workshop Verification</Text>
-          <View style={styles.verificationBadge}>
-            <Text style={styles.verificationBadgeText}>
-              {verificationStatus === 'not_started'
-                ? 'Not started'
-                : verificationStatus.replace('_', ' ')}
-            </Text>
-          </View>
-        </View>
-        {submittedWorkshop ? (
-          <>
-            <Text style={styles.verificationInfoText}>Workshop: {submittedWorkshop.name}</Text>
-            <Text style={styles.verificationInfoText}>Address: {submittedWorkshop.address}</Text>
-            <Text style={styles.verificationInfoText}>BR copy: {submittedWorkshop.brCopy}</Text>
-            <Text style={styles.verificationInfoText}>NIC copy: {submittedWorkshop.nicCopy}</Text>
-          </>
-        ) : (
-          <Text style={styles.verificationHelperText}>
-            Submit BR copy and NIC copy to verify your workshop profile.
+      <Card padded>
+        <Text style={styles.verifyTitle}>{v.title}</Text>
+        <Text style={styles.verifyDetail}>{v.detail}</Text>
+        <View style={[styles.verifyBadge, { backgroundColor: badgeColors.bg }]}>
+          <Text style={[styles.verifyBadgeText, { color: badgeColors.fg }]}>
+            {pvStatus === 'pending'
+              ? 'Pending review'
+              : pvStatus === 'rejected'
+              ? 'Rejected'
+              : pvStatus === 'approved'
+              ? 'Approved'
+              : 'Active'}
           </Text>
-        )}
-        <PrimaryButton
-          title={submittedWorkshop ? 'Resubmit Verification' : 'Start Verification'}
-          onPress={() => setIsVerificationModalOpen(true)}
-        />
-      </Card>
-
-      <Modal
-        visible={isVerificationModalOpen}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setIsVerificationModalOpen(false)}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalSheet}>
-            <Text style={styles.modalTitle}>Workshop Verification</Text>
-            <Text style={styles.modalSubtitle}>
-              Add workshop details and upload required BR and NIC document copies.
-            </Text>
-            <Text style={styles.modalFieldLabel}>Workshop Name</Text>
-            <TextInput
-              value={workshopNameDraft}
-              onChangeText={setWorkshopNameDraft}
-              placeholder="e.g. Alex Auto Garage"
-              placeholderTextColor={colors.textSecondary}
-              style={styles.modalInput}
-              autoCapitalize="words"
-            />
-            <Text style={styles.modalFieldLabel}>Workshop Address</Text>
-            <TextInput
-              value={workshopAddressDraft}
-              onChangeText={setWorkshopAddressDraft}
-              placeholder="e.g. No 12, Main Street, Colombo"
-              placeholderTextColor={colors.textSecondary}
-              style={styles.modalInput}
-              autoCapitalize="sentences"
-            />
-            {renderDocUploadField('Business Registration (BR) Copy', 'brCopy', brCopyDraft)}
-            {renderDocUploadField('NIC Copy', 'nicCopy', nicCopyDraft)}
-            <View style={styles.modalActions}>
-              <TouchableOpacity
-                style={{ flex: 1 }}
-                onPress={() => setIsVerificationModalOpen(false)}
-                activeOpacity={0.8}
-              >
-                <View style={styles.modalCancelBtn}>
-                  <Text style={styles.modalCancelText}>Cancel</Text>
-                </View>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={{ flex: 1, marginLeft: spacing.sm }}
-                onPress={submitWorkshopVerification}
-                activeOpacity={0.8}
-              >
-                <PrimaryButton
-                  title="Submit"
-                  onPress={submitWorkshopVerification}
-                  disabled={
-                    workshopNameDraft.trim().length === 0 ||
-                    workshopAddressDraft.trim().length === 0 ||
-                    !brCopyDraft ||
-                    !nicCopyDraft
-                  }
-                />
-              </TouchableOpacity>
-            </View>
-          </View>
         </View>
-      </Modal>
+      </Card>
     </Animated.View>
   );
 };
-

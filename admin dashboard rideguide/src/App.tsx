@@ -10,6 +10,7 @@ import { Requests } from './pages/Requests';
 import { Analytics } from './pages/Analytics';
 import { Settings } from './pages/Settings';
 import { AuditLogs } from './pages/AuditLogs';
+import { ProviderApplications } from './pages/ProviderApplications';
 
 function App() {
   return (
@@ -20,6 +21,7 @@ function App() {
           <Route path="/" element={<Layout />}>
             <Route index element={<Dashboard />} />
             <Route path="users" element={<Users />} />
+            <Route path="provider-applications" element={<ProviderApplications />} />
             <Route path="vehicles" element={<Vehicles />} />
             <Route path="diagnoses" element={<Diagnoses />} />
             <Route path="requests" element={<Requests />} />

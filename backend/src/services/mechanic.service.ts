@@ -4,6 +4,7 @@ export async function findNearby(params: { lat: number; lng: number; radiusKm: n
   const radiusMeters = params.radiusKm * 1000;
   return UserModel.find({
     role: params.role,
+    $nor: [{ providerVerificationStatus: 'pending' }, { providerVerificationStatus: 'rejected' }],
     location: {
       $nearSphere: {
         $geometry: { type: 'Point', coordinates: [params.lng, params.lat] },

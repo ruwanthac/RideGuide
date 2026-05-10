@@ -1,6 +1,7 @@
 import {
   LayoutDashboard,
   Users,
+  UserCheck,
   Car,
   Stethoscope,
   Wrench,
@@ -16,6 +17,7 @@ import { SidebarItem } from './SidebarItem';
 const navItems = [
   { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
   { to: '/users', icon: Users, label: 'Users' },
+  { to: '/provider-applications', icon: UserCheck, label: 'Provider applications' },
   { to: '/vehicles', icon: Car, label: 'Vehicles' },
   { to: '/diagnoses', icon: Stethoscope, label: 'Diagnoses' },
   { to: '/requests', icon: Wrench, label: 'Roadside Requests' },

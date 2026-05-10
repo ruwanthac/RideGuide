@@ -34,13 +34,12 @@ describe('auth routes', () => {
     expect(res.status).toBe(401);
   });
 
-  it('registers with mechanic role when provided', async () => {
+  it('rejects JSON register when role is not owner', async () => {
     const app = buildApp();
-    const reg = await request(app)
+    const bad = await request(app)
       .post('/api/auth/register')
-      .send({ email: 'mech@b.com', password: 'secret12', displayName: 'M', role: 'mechanic' });
-    expect(reg.status).toBe(201);
-    expect(reg.body.user.role).toBe('mechanic');
+      .send({ email: 'mech2@b.com', password: 'secret12', displayName: 'M', role: 'mechanic' });
+    expect(bad.status).toBe(400);
   });
 
   it('rejects admin role on public register', async () => {
@@ -49,5 +48,34 @@ describe('auth routes', () => {
       .post('/api/auth/register')
       .send({ email: 'bad@b.com', password: 'secret12', displayName: 'X', role: 'admin' });
     expect(reg.status).toBe(400);
+  });
+
+  it('changes password for authenticated user', async () => {
+    const app = buildApp();
+    await request(app)
+      .post('/api/auth/register')
+      .send({ email: 'cp@b.com', password: 'secret12', displayName: 'CP' });
+
+    const login = await request(app)
+      .post('/api/auth/login')
+      .send({ email: 'cp@b.com', password: 'secret12' });
+    expect(login.status).toBe(200);
+
+    const change = await request(app)
+      .post('/api/auth/change-password')
+      .set('Authorization', `Bearer ${login.body.token}`)
+      .send({ password: 'newsecret12' });
+    expect(change.status).toBe(200);
+    expect(change.body.ok).toBe(true);
+
+    const oldLogin = await request(app)
+      .post('/api/auth/login')
+      .send({ email: 'cp@b.com', password: 'secret12' });
+    expect(oldLogin.status).toBe(401);
+
+    const newLogin = await request(app)
+      .post('/api/auth/login')
+      .send({ email: 'cp@b.com', password: 'newsecret12' });
+    expect(newLogin.status).toBe(200);
   });
 });

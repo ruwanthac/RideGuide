@@ -1,6 +1,14 @@
 export type UserRole = 'owner' | 'mechanic' | 'tow' | 'admin';
 export type UserStatus = 'active' | 'suspended';
 
+export type ProviderVerificationFileField =
+  | 'mechanicBrCopy'
+  | 'mechanicNicCopy'
+  | 'towCompanyBrCopy'
+  | 'towCompanyNicCopy'
+  | 'towTruckRegCopy'
+  | 'towTruckNicCopy';
+
 export type ServiceRequestType = 'roadside' | 'tow';
 /** ServiceRequest statuses include roadside + full tow pipeline (see API model). */
 export type RequestStatus = string;
@@ -20,6 +28,14 @@ export interface AdminUser {
   truckName?: string;
   plateNumber?: string;
   joinedAt: string;
+  providerVerificationStatus?: 'none' | 'pending' | 'approved' | 'rejected';
+  providerVerificationSubmittedAt?: string;
+  providerVerificationReviewedAt?: string;
+}
+
+/** `GET /admin/users/:id` — includes verification file keys for admins. */
+export interface AdminUserDetail extends AdminUser {
+  providerVerification?: Partial<Record<ProviderVerificationFileField, string>>;
 }
 
 export interface VehicleOwner {

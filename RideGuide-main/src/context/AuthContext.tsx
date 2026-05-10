@@ -1,6 +1,6 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { setAuthToken, getAuthToken } from '../backend/apiClient';
-import { loginWithApi, registerWithApi, fetchMe, logoutWithApi } from '../backend/authService';
+import { loginWithApi, registerWithApi, fetchMe, logoutWithApi, type RegisterProviderPayload } from '../backend/authService';
 import { formatAuthError } from '../backend/authErrors';
 import type { AuthUser } from '../backend/types';
 
@@ -14,8 +14,9 @@ interface AuthContextValue {
     email: string,
     password: string,
     role?: 'owner' | 'mechanic' | 'tow',
-    phoneNumber?: string
-  ) => Promise<void>;
+    phoneNumber?: string,
+    provider?: RegisterProviderPayload
+  ) => Promise<{ pendingVerification: boolean }>;
   signOutUser: () => Promise<void>;
   refreshProfile: () => Promise<void>;
 }
@@ -59,17 +60,22 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       email: string,
       password: string,
       role?: 'owner' | 'mechanic' | 'tow',
-      phoneNumber?: string
+      phoneNumber?: string,
+      provider?: RegisterProviderPayload
     ) => {
       try {
-        const u = await registerWithApi({
+        const { user, pendingVerification } = await registerWithApi({
           email,
           password,
           displayName,
           role,
           ...(phoneNumber?.trim() ? { phoneNumber: phoneNumber.trim() } : {}),
+          ...(provider ? { provider } : {}),
         });
-        setUser(u);
+        if (!pendingVerification) {
+          setUser(user);
+        }
+        return { pendingVerification };
       } catch (e) {
         throw new Error(formatAuthError(e));
       }
