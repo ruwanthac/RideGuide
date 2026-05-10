@@ -49,6 +49,15 @@ const RECENT_DROP_STORAGE_KEY = 'tow_recent_drop_locations_v1';
 const MAX_RECENT_DROPS = 5;
 const MIN_SCHEDULE_MINUTES = 60;
 const MAX_SCHEDULE_DAYS = 7;
+
+/** Reject uninitialized (0,0) or invalid coords so tow jobs store a real pickup for the driver map. */
+function usablePickupCoords(lat?: number | null, lng?: number | null): boolean {
+  if (lat == null || lng == null) return false;
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return false;
+  if (Math.abs(lat) > 90 || Math.abs(lng) > 180) return false;
+  return Math.abs(lat) > 1e-4 || Math.abs(lng) > 1e-4;
+}
+
 const getLocalSuggestions = (query: string): LocationSuggestion[] => {
   const needle = query.trim().toLowerCase();
   if (!needle) return [];
@@ -310,13 +319,13 @@ export const TowTruckAssistantScreen: React.FC<TowTruckAssistantScreenProps> = (
     return `${coords.latitude.toFixed(4)}, ${coords.longitude.toFixed(4)}`;
   };
 
-  const resolveCurrentLocation = async () => {
+  const resolveCurrentLocation = async (): Promise<{ latitude: number; longitude: number } | null> => {
     setLoadingLocation(true);
     try {
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== 'granted') {
         Alert.alert('Location Permission', 'Location permission is required to show nearby services.');
-        return;
+        return null;
       }
 
       let currentLocation: Location.LocationObject | null = null;
@@ -329,7 +338,7 @@ export const TowTruckAssistantScreen: React.FC<TowTruckAssistantScreenProps> = (
 
       if (!currentLocation) {
         Alert.alert('Location unavailable', 'Unable to fetch your location. Please try again.');
-        return;
+        return null;
       }
 
       const coords = {
@@ -348,9 +357,11 @@ export const TowTruckAssistantScreen: React.FC<TowTruckAssistantScreenProps> = (
         setPickupLocation('Current Location');
         setPickupManuallyEdited(false);
       }
+      return coords;
     } catch (error) {
       console.error('Error getting location:', error);
       Alert.alert('Location error', 'Unable to fetch location right now. Please try again.');
+      return null;
     } finally {
       setLoadingLocation(false);
     }
@@ -897,6 +908,19 @@ export const TowTruckAssistantScreen: React.FC<TowTruckAssistantScreenProps> = (
         return;
       }
     }
+    let pickupCoords = tripType === 'tow' ? location : null;
+    if (tripType === 'tow') {
+      if (!usablePickupCoords(pickupCoords?.latitude, pickupCoords?.longitude)) {
+        pickupCoords = await resolveCurrentLocation();
+      }
+      if (!pickupCoords || !usablePickupCoords(pickupCoords.latitude, pickupCoords.longitude)) {
+        Alert.alert(
+          'Pickup location needed',
+          'Enable location permission so your tow driver can see your pickup point on the map.',
+        );
+        return;
+      }
+    }
     if (!user || !selectedVehicle) {
       Alert.alert('Missing info', 'Sign in and select a vehicle first.');
       return;
@@ -913,6 +937,10 @@ export const TowTruckAssistantScreen: React.FC<TowTruckAssistantScreenProps> = (
           c?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
       }
       const idempotencyKey = bookingIdempotencyKeyRef.current;
+      const pickupLatLng =
+        tripType === 'tow' && pickupCoords
+          ? pickupCoords
+          : { latitude: location?.latitude ?? 0, longitude: location?.longitude ?? 0 };
       const created = await createServiceRequest({
         type: tripType,
         vehicle:
@@ -921,13 +949,13 @@ export const TowTruckAssistantScreen: React.FC<TowTruckAssistantScreenProps> = (
           'Vehicle',
         issue: tripType === 'roadside' ? 'Roadside help requested' : 'Tow requested',
         location: pickupLocation || currentLocationAddress || dropLocation,
-        latitude: location?.latitude ?? 0,
-        longitude: location?.longitude ?? 0,
+        latitude: pickupLatLng.latitude,
+        longitude: pickupLatLng.longitude,
         phoneNumber: user.phoneNumber,
         vehicleId: selectedVehicle._id,
         pickupAddress: pickupLocation || currentLocationAddress || dropLocation,
-        pickupLatitude: location?.latitude ?? 0,
-        pickupLongitude: location?.longitude ?? 0,
+        pickupLatitude: pickupLatLng.latitude,
+        pickupLongitude: pickupLatLng.longitude,
         dropoffAddress: tripType === 'tow' ? dropLocation : undefined,
         dropoffLatitude: tripType === 'tow' ? dropLocationCoords?.latitude : undefined,
         dropoffLongitude: tripType === 'tow' ? dropLocationCoords?.longitude : undefined,

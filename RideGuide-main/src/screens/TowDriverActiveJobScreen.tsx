@@ -67,6 +67,10 @@ const MAP_ATTRIBUTION = MAPBOX_TOKEN ? '© Mapbox © OpenStreetMap contributors'
 
 /** Hide driver→owner road when within this distance (m). */
 const ROUTE_HIDE_NEAR_OWNER_M = 120;
+/** (0,0) and uninitialized numeric defaults from the client should never win over live/stored coords. */
+const COORD_NEAR_ZERO_EPS = 1e-4;
+/** Nudge displayed owner pin so it does not sit under the truck when coords match (same phone testing / drift). */
+const OWNER_PIN_FANOUT_UNDER_M = 42;
 
 const ROAD_LINE = { color: '#111111', weight: 5, opacity: 0.92 };
 
@@ -79,6 +83,35 @@ function haversineMeters(lat1: number, lon1: number, lat2: number, lon2: number)
     Math.sin(dLat / 2) ** 2 +
     Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
   return 2 * R * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function sanitizeLatLng(lat: unknown, lng: unknown): [number, number] | null {
+  const la = typeof lat === 'number' ? lat : lat != null ? Number(lat) : NaN;
+  const ln = typeof lng === 'number' ? lng : lng != null ? Number(lng) : NaN;
+  if (
+    !Number.isFinite(la) ||
+    !Number.isFinite(ln) ||
+    Math.abs(la) > 90 ||
+    Math.abs(ln) > 180 ||
+    (Math.abs(la) <= COORD_NEAR_ZERO_EPS && Math.abs(ln) <= COORD_NEAR_ZERO_EPS)
+  ) {
+    return null;
+  }
+  return [la, ln];
+}
+
+/** Pickup for the vehicle owner: stored job coords first, then live profile-derived fields from API. */
+function resolveOwnerPickup(request: ServiceRequest): { lat: number; lng: number } | null {
+  const candidates: ReadonlyArray<[unknown, unknown]> = [
+    [request.pickupLatitude, request.pickupLongitude],
+    [request.latitude, request.longitude],
+    [request.requesterLiveLocation?.latitude, request.requesterLiveLocation?.longitude],
+  ];
+  for (const [la, ln] of candidates) {
+    const pair = sanitizeLatLng(la, ln);
+    if (pair) return { lat: pair[0], lng: pair[1] };
+  }
+  return null;
 }
 
 interface TowDriverActiveJobScreenProps {
@@ -261,31 +294,45 @@ export const TowDriverActiveJobScreen: React.FC<TowDriverActiveJobScreenProps> =
 
   const nextStatus = request ? NEXT_STATUS[request.status] : null;
 
+  const mapWebViewKey = useMemo(() => {
+    if (!request) return '';
+    const owner = resolveOwnerPickup(request);
+    return [
+      request._id,
+      request.status,
+      request.updatedAt ?? '',
+      owner?.lat ?? '—',
+      owner?.lng ?? '—',
+      driverLive?.latitude ?? 'x',
+      driverLive?.longitude ?? 'y',
+    ].join('|');
+  }, [request, driverLive?.latitude, driverLive?.longitude]);
+
   const mapHtml = useMemo(() => {
     if (!request) return '';
 
     const pickupPopup = JSON.stringify(request.pickupAddress || request.location || 'Vehicle owner');
     const dropPopup = JSON.stringify(request.dropoffAddress || request.location || 'Drop-off');
 
-    const pickupLat =
-      request.pickupLatitude ??
-      request.requesterLiveLocation?.latitude ??
-      request.latitude ??
-      6.9271;
-    const pickupLng =
-      request.pickupLongitude ??
-      request.requesterLiveLocation?.longitude ??
-      request.longitude ??
-      79.8612;
-    const dropLat = request.dropoffLatitude ?? pickupLat + 0.015;
-    const dropLng = request.dropoffLongitude ?? pickupLng + 0.015;
+    const fallbackCenter = { lat: 6.9271, lng: 79.8612 };
+    const ownerResolved = resolveOwnerPickup(request);
+    const hasOwnerCoords = !!ownerResolved;
+    const pickupLat = ownerResolved?.lat ?? fallbackCenter.lat;
+    const pickupLng = ownerResolved?.lng ?? fallbackCenter.lng;
+
+    const dropPair = sanitizeLatLng(request.dropoffLatitude, request.dropoffLongitude);
+    const dropLat = dropPair ? dropPair[0] : pickupLat + 0.015;
+    const dropLng = dropPair ? dropPair[1] : pickupLng + 0.015;
 
     const dLat = driverLive?.latitude;
     const dLng = driverLive?.longitude;
     const hasDriver = typeof dLat === 'number' && typeof dLng === 'number';
 
+    const truckLat = hasDriver ? dLat! : pickupLat;
+    const truckLng = hasDriver ? dLng! : pickupLng;
+
     const st = request.status;
-    /** completed → truck only · vehicle_in_tow → truck + drop + road · driver_arrived → truck only · on the way → owner + truck; road hides near owner · early → owner + truck + road */
+    /** completed → truck only · vehicle_in_tow → truck + drop + road · driver_arrived → truck only · on the way → owner + truck; road hides near owner · driver_picked_hire / requested → owner + truck + road until near */
     const phase: 'completed_truck' | 'drop_nav' | 'driver_solitary' | 'pickup_nav_hide_near' | 'pickup_nav' =
       st === 'completed'
         ? 'completed_truck'
@@ -298,21 +345,32 @@ export const TowDriverActiveJobScreen: React.FC<TowDriverActiveJobScreenProps> =
               : 'pickup_nav';
 
     const distToPickupM =
-      hasDriver ? haversineMeters(dLat!, dLng!, pickupLat, pickupLng) : Number.POSITIVE_INFINITY;
+      hasDriver && hasOwnerCoords ? haversineMeters(truckLat, truckLng, pickupLat, pickupLng) : Number.POSITIVE_INFINITY;
 
-    const showPickupPin = phase === 'pickup_nav' || phase === 'pickup_nav_hide_near';
+    const showPickupPin = hasOwnerCoords && (phase === 'pickup_nav' || phase === 'pickup_nav_hide_near');
     const showDropPin = phase === 'drop_nav';
     const showTruckPin =
       phase === 'completed_truck' ||
       phase === 'driver_solitary' ||
-      phase === 'drop_nav' ||
+      (phase === 'drop_nav' && hasDriver) ||
       ((phase === 'pickup_nav' || phase === 'pickup_nav_hide_near') && hasDriver);
 
-    const truckLat = hasDriver ? dLat! : pickupLat;
-    const truckLng = hasDriver ? dLng! : pickupLng;
+    let ownerPinLat = pickupLat;
+    let ownerPinLng = pickupLng;
+    if (
+      hasOwnerCoords &&
+      hasDriver &&
+      showPickupPin &&
+      showTruckPin &&
+      distToPickupM < OWNER_PIN_FANOUT_UNDER_M
+    ) {
+      ownerPinLat = pickupLat + 2.8e-4;
+      ownerPinLng = pickupLng;
+    }
 
     const drawBlackRouteToPickup =
       hasDriver &&
+      hasOwnerCoords &&
       (phase === 'pickup_nav' ||
         (phase === 'pickup_nav_hide_near' && distToPickupM > ROUTE_HIDE_NEAR_OWNER_M));
 
@@ -327,6 +385,8 @@ export const TowDriverActiveJobScreen: React.FC<TowDriverActiveJobScreenProps> =
     const injectTruckLng = truckLng;
     const injectHasLiveGps = hasDriver;
     const injectPhase = phase;
+    const injectOwnerPinLat = ownerPinLat;
+    const injectOwnerPinLng = ownerPinLng;
 
     return `
 <!DOCTYPE html><html><head>
@@ -342,6 +402,8 @@ export const TowDriverActiveJobScreen: React.FC<TowDriverActiveJobScreenProps> =
   const PHASE = '${injectPhase}';
   const pickupLat = ${pickupLat};
   const pickupLng = ${pickupLng};
+  const ownerPinLat = ${injectOwnerPinLat};
+  const ownerPinLng = ${injectOwnerPinLng};
   const dropLat = ${dropLat};
   const dropLng = ${dropLng};
   const truckLat = ${injectTruckLat};
@@ -354,7 +416,7 @@ export const TowDriverActiveJobScreen: React.FC<TowDriverActiveJobScreenProps> =
   const drawBlackToDrop = ${injectDrawDropRoute ? 'true' : 'false'};
 
   const points = [];
-  if (showPickupPin) points.push([pickupLat, pickupLng]);
+  if (showPickupPin) points.push([ownerPinLat, ownerPinLng]);
   if (showDropPin) points.push([dropLat, dropLng]);
   if (showTruckPin) points.push([truckLat, truckLng]);
 
@@ -376,7 +438,7 @@ export const TowDriverActiveJobScreen: React.FC<TowDriverActiveJobScreenProps> =
     '<div style="background:#111;color:#fff;width:40px;height:40px;border-radius:999px;display:flex;align-items:center;justify-content:center;font-size:18px;border:3px solid #fff;box-shadow:0 2px 8px rgba(0,0,0,0.35);">🚚</div>';
 
   if (showPickupPin) {
-    L.marker([pickupLat, pickupLng], {
+    L.marker([ownerPinLat, ownerPinLng], {
       icon: L.divIcon({ className: 'pick', html: ownerPinHtml, iconSize: [34, 34], iconAnchor: [17, 17] }),
     })
       .addTo(map)
@@ -447,7 +509,7 @@ export const TowDriverActiveJobScreen: React.FC<TowDriverActiveJobScreenProps> =
 </script>
 </body></html>
     `;
-  }, [request, request.status, driverLive?.latitude, driverLive?.longitude]);
+  }, [request, driverLive?.latitude, driverLive?.longitude]);
 
   const styles = useMemo(
     () =>
@@ -603,6 +665,7 @@ export const TowDriverActiveJobScreen: React.FC<TowDriverActiveJobScreenProps> =
   return (
     <View style={styles.container}>
       <WebView
+        key={mapWebViewKey || 'tow-map'}
         source={{ html: mapHtml }}
         style={styles.map}
         scrollEnabled={false}
