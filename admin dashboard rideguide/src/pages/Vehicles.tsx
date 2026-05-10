@@ -17,18 +17,30 @@ interface PaginatedVehicles {
   totalPages: number;
 }
 
-function ownerDisplay(o: string | VehicleOwner) {
-  if (typeof o === 'string') return { name: '—', email: '', phone: '' };
-  return {
-    name: o.displayName || o.email || o.id,
-    email: o.email ?? '',
-    phone: o.phoneNumber ?? '',
-  };
+/** Populated owner, raw ObjectId string, or null if ref is missing — all must be safe to render. */
+function ownerDisplay(raw: unknown) {
+  if (raw == null || typeof raw === 'string') return { name: '—', email: '', phone: '' };
+  if (typeof raw !== 'object') return { name: '—', email: '', phone: '' };
+  const o = raw as Record<string, unknown>;
+  const email = typeof o.email === 'string' ? o.email : '';
+  const phone = typeof o.phoneNumber === 'string' ? o.phoneNumber : '';
+  const displayName = typeof o.displayName === 'string' ? o.displayName : '';
+  const id =
+    typeof o.id === 'string' ? o.id : o._id != null ? String(o._id) : '';
+  const name = displayName.trim() || email.trim() || id || '—';
+  return { name, email: email.trim(), phone: phone.trim() };
 }
 
-function normalizeVehicle(v: Vehicle): Vehicle {
+function normalizeVehicle(v: Record<string, unknown>): Vehicle {
   const id = String(v.id ?? v._id ?? '');
-  return { ...v, id };
+  const plateRaw = v.plate ?? v.plateNumber ?? v.plate_no;
+  const plate =
+    typeof plateRaw === 'string'
+      ? plateRaw.trim()
+      : plateRaw != null
+        ? String(plateRaw).trim()
+        : '';
+  return { ...(v as unknown as Vehicle), id, plate };
 }
 
 export function Vehicles() {
@@ -59,11 +71,17 @@ export function Vehicles() {
         q.set('page', String(page));
         q.set('limit', String(ITEMS_PER_PAGE));
         const res = await apiGet<Omit<PaginatedVehicles, 'totalPages'>>(adminUrl(`vehicles?${q.toString()}`));
+        const rows = Array.isArray(res.items) ? res.items : [];
+        const total = typeof res.total === 'number' ? res.total : rows.length;
+        const lim = typeof res.limit === 'number' ? res.limit : ITEMS_PER_PAGE;
+        const pg = typeof res.page === 'number' ? res.page : page;
         if (!cancelled)
           setData({
-            ...res,
-            totalPages: totalPagesFrom(res.total, res.limit),
-            items: res.items.map((row) => normalizeVehicle(row)),
+            items: rows.map((row) => normalizeVehicle(row as Record<string, unknown>)),
+            total,
+            page: pg,
+            limit: lim,
+            totalPages: totalPagesFrom(total, lim),
           });
       } catch (e) {
         if (!cancelled) {
@@ -101,14 +119,14 @@ export function Vehicles() {
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
             <input
               type="search"
-              placeholder="Search by owner, vehicle, VIN…"
+              placeholder="Search by owner, vehicle, VIN, plate…"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               className="w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50 py-2 pl-10 pr-4 text-sm focus:border-accent-500 focus:outline-none focus:ring-2 focus:ring-accent-500/20"
             />
           </div>
           {loading ? (
-            <TableSkeleton rows={5} cols={6} />
+            <TableSkeleton rows={5} cols={7} />
           ) : (
             <>
               <Table>
@@ -124,7 +142,8 @@ export function Vehicles() {
                 <TableBody>
                   {paginated.map((v) => {
                     const o = ownerDisplay(v.ownerId);
-                    const label = v.makeModel ?? v.label ?? `${v.make} ${v.model}`;
+                    const mm = `${v.make ?? ''} ${v.model ?? ''}`.trim();
+                    const label = String(v.makeModel || v.label || mm || '—');
                     return (
                       <TableRow key={v.id}>
                         <TableCell className="font-medium">{o.name}</TableCell>
@@ -132,8 +151,8 @@ export function Vehicles() {
                         <TableCell className="text-sm">{o.phone || '—'}</TableCell>
                         <TableCell>{label}</TableCell>
                         <TableCell>{v.year != null ? String(v.year) : '—'}</TableCell>
-                        <TableCell className="font-mono text-xs">{v.vin}</TableCell>
-                        <TableCell>{v.plate ?? '—'}</TableCell>
+                        <TableCell className="font-mono text-xs">{v.vin || '—'}</TableCell>
+                        <TableCell>{(v.plate ?? '').trim() || '—'}</TableCell>
                       </TableRow>
                     );
                   })}

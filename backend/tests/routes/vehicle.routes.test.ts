@@ -18,8 +18,13 @@ describe('vehicle routes', () => {
     const token = await auth();
     const h = { Authorization: `Bearer ${token}` };
 
-    const create = await request(app).post('/api/vehicles').set(h)
-      .send({ label: 'Daily', makeModel: 'Toyota Camry 2020', vin: '1HGBH41JXMN109186' });
+    const create = await request(app).post('/api/vehicles').set(h).send({
+      label: 'Daily',
+      makeModel: 'Toyota Camry 2020',
+      vin: '1HGBH41JXMN109186',
+      year: 2020,
+      plate: 'CAB-1001',
+    });
     expect(create.status).toBe(201);
     expect(create.body.ownerName).toBe('A');
     const id = create.body._id;
@@ -43,5 +48,38 @@ describe('vehicle routes', () => {
     const app = buildApp();
     const res = await request(app).get('/api/vehicles');
     expect(res.status).toBe(401);
+  });
+
+  it('rejects a 4th vehicle for the same owner', async () => {
+    const app = buildApp();
+    const token = await auth();
+    const h = { Authorization: `Bearer ${token}` };
+    const base = {
+      makeModel: 'Toyota Aqua',
+      label: 'Car',
+      year: 2019,
+      plate: 'P',
+    };
+    for (let i = 0; i < 3; i++) {
+      const res = await request(app)
+        .post('/api/vehicles')
+        .set(h)
+        .send({
+          ...base,
+          vin: `VINVIN00${i}`,
+          plate: `LK-${1000 + i}`,
+          label: `Car ${i + 1}`,
+        });
+      expect(res.status).toBe(201);
+    }
+    const fourth = await request(app).post('/api/vehicles').set(h).send({
+      label: 'Car 4',
+      makeModel: 'Honda Fit',
+      vin: 'FOUR444',
+      year: 2022,
+      plate: 'LK-9999',
+    });
+    expect(fourth.status).toBe(400);
+    expect(String(fourth.body?.error ?? '')).toContain('at most');
   });
 });

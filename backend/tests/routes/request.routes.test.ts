@@ -65,8 +65,20 @@ describe('service requests — vehicleId scoping', () => {
     const owner = await registerUser({ email: 'o@b.com', password: 'secret12', displayName: 'O' });
     const h = { Authorization: `Bearer ${owner.token}` };
 
-    const v1 = await request(app).post('/api/vehicles').set(h).send({ label: 'A', makeModel: 'A', vin: 'A' });
-    const v2 = await request(app).post('/api/vehicles').set(h).send({ label: 'B', makeModel: 'B', vin: 'B' });
+    const v1 = await request(app).post('/api/vehicles').set(h).send({
+      label: 'A',
+      makeModel: 'A',
+      vin: 'AVIN12345',
+      year: 2019,
+      plate: 'REQ-A1',
+    });
+    const v2 = await request(app).post('/api/vehicles').set(h).send({
+      label: 'B',
+      makeModel: 'B',
+      vin: 'BVIN67890',
+      year: 2020,
+      plate: 'REQ-B2',
+    });
 
     const towPayload = (vehicleId: string, vehicle: string) => ({
       type: 'tow' as const,

@@ -10,9 +10,10 @@ export async function addUserVehicle(input: {
   label: string;
   makeModel: string;
   vin: string;
+  year: number;
+  plate: string;
   make?: string;
   model?: string;
-  year?: number;
   trim?: string;
   engine?: string;
 }): Promise<Vehicle> {
@@ -29,6 +30,7 @@ export async function updateUserVehicle(
     make: string;
     model: string;
     year: number;
+    plate: string;
     trim: string;
     engine: string;
   }>

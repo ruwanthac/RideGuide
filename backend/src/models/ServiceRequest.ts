@@ -21,6 +21,8 @@ const ServiceRequestSchema = new Schema(
       default: 'pending',
     },
     acceptedBy: { type: Schema.Types.ObjectId, ref: 'User', default: null },
+    /** First moment a provider accepts the request (used for acceptance-time analytics). */
+    acceptedAt: { type: Date, default: null },
     /** Snapshot when a provider accepts (e.g. mechanic phone for owner UI). */
     acceptedProviderDisplayName: { type: String, default: '' },
     acceptedProviderPhone: { type: String, default: '' },

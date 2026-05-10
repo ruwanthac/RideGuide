@@ -1,35 +1,53 @@
 import React, { useMemo, useState } from 'react';
 import { Alert, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Card, PrimaryButton } from '../components';
 import { colors } from '../constants/theme';
 import { useResponsive } from '../hooks';
 import { useAuth } from '../context/AuthContext';
 import { updateUserProfile } from '../backend/userProfileService';
+import { extractApiError } from '../backend/apiClient';
 
 interface PrivacyScreenProps {
   onBack: () => void;
 }
 
 export const PrivacyScreen: React.FC<PrivacyScreenProps> = ({ onBack }) => {
+  const insets = useSafeAreaInsets();
   const { spacing, fontSizes, borderRadius, iconSizes } = useResponsive();
   const { user, refreshProfile } = useAuth();
+  const [displayName, setDisplayName] = useState(user?.displayName ?? '');
   const [phoneNumber, setPhoneNumber] = useState(user?.phoneNumber ?? '');
+  const [savedDisplayName, setSavedDisplayName] = useState(user?.displayName ?? '');
+  const [savedPhoneNumber, setSavedPhoneNumber] = useState(user?.phoneNumber ?? '');
+  const [isEditing, setIsEditing] = useState(false);
   const [saving, setSaving] = useState(false);
 
+  const hasUnsavedChanges =
+    displayName.trim() !== savedDisplayName.trim() ||
+    phoneNumber.trim() !== savedPhoneNumber.trim();
+
   const onSave = async () => {
+    const name = displayName.trim();
     const trimmed = phoneNumber.trim();
+    if (!name) {
+      Alert.alert('Display name required', 'Please enter how you want your name to appear.');
+      return;
+    }
     if (!trimmed) {
       Alert.alert('Phone number required', 'Please enter a phone number.');
       return;
     }
     setSaving(true);
     try {
-      await updateUserProfile({ phoneNumber: trimmed });
+      await updateUserProfile({ displayName: name, phoneNumber: trimmed });
       await refreshProfile();
-      Alert.alert('Saved', 'Phone number updated.');
-      onBack();
+      setSavedDisplayName(name);
+      setSavedPhoneNumber(trimmed);
+      setIsEditing(false);
+      Alert.alert('Saved', 'Your account details were updated.');
     } catch (error) {
-      Alert.alert('Update failed', error instanceof Error ? error.message : 'Please try again.');
+      Alert.alert('Update failed', extractApiError(error, 'Please try again.'));
     } finally {
       setSaving(false);
     }
@@ -38,7 +56,13 @@ export const PrivacyScreen: React.FC<PrivacyScreenProps> = ({ onBack }) => {
   const styles = useMemo(
     () =>
       StyleSheet.create({
-        container: { flex: 1, backgroundColor: colors.background, padding: spacing.lg },
+        container: {
+          flex: 1,
+          backgroundColor: colors.background,
+          paddingHorizontal: spacing.lg,
+          paddingTop: insets.top + spacing.sm,
+          paddingBottom: Math.max(spacing.lg, insets.bottom + spacing.sm),
+        },
         topRow: { flexDirection: 'row', alignItems: 'center', marginBottom: spacing.lg },
         backBtn: {
           width: 40,
@@ -64,7 +88,7 @@ export const PrivacyScreen: React.FC<PrivacyScreenProps> = ({ onBack }) => {
           fontSize: fontSizes.md,
         },
       }),
-    [borderRadius.md, fontSizes.md, fontSizes.sm, fontSizes.xl, iconSizes.md, spacing.lg, spacing.md, spacing.sm, spacing.xs],
+    [borderRadius.md, fontSizes.md, fontSizes.sm, fontSizes.xl, iconSizes.md, insets.bottom, insets.top, spacing.lg, spacing.md, spacing.sm, spacing.xs],
   );
 
   return (
@@ -77,22 +101,46 @@ export const PrivacyScreen: React.FC<PrivacyScreenProps> = ({ onBack }) => {
       </View>
 
       <Card padded>
-        <Text style={styles.label}>Vehicle Owner Phone Number</Text>
+        <Text style={styles.label}>Display name</Text>
+        <TextInput
+          value={displayName}
+          onChangeText={(text) => setDisplayName(text)}
+          placeholder="Your name"
+          placeholderTextColor={colors.textSecondary}
+          style={[styles.input, { marginBottom: spacing.sm }]}
+          editable={isEditing}
+        />
+        <Text style={styles.label}>Phone (E.164 recommended)</Text>
         <TextInput
           value={phoneNumber}
-          onChangeText={setPhoneNumber}
+          onChangeText={(text) => setPhoneNumber(text)}
           keyboardType="phone-pad"
-          placeholder="e.g. +94 77 123 4567"
+          placeholder="+94771234567"
           placeholderTextColor={colors.textSecondary}
           style={styles.input}
+          editable={isEditing}
         />
         <Text style={styles.hint}>
-          This number is shared with tow drivers when you place a tow booking.
+          Saved to your account on the server (same data the admin dashboard reads).
         </Text>
       </Card>
 
       <View style={{ marginTop: spacing.lg }}>
-        <PrimaryButton title={saving ? 'Saving...' : 'Save Phone Number'} onPress={onSave} disabled={saving} />
+        <PrimaryButton
+          title={saving ? 'Saving...' : isEditing ? 'Save account' : 'Edit account'}
+          onPress={() => {
+            if (!isEditing) {
+              setIsEditing(true);
+              return;
+            }
+            if (!hasUnsavedChanges) {
+              setIsEditing(false);
+              return;
+            }
+            void onSave();
+          }}
+          disabled={saving}
+        />
       </View>
     </View>
   );

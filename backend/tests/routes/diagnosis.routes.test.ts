@@ -34,8 +34,13 @@ describe('diagnosis', () => {
     const { token } = await registerUser({ email: 'a@b.com', password: 'secret12', displayName: 'A' });
     const h = { Authorization: `Bearer ${token}` };
 
-    const v = await request(app).post('/api/vehicles').set(h)
-      .send({ label: 'Daily', makeModel: 'Toyota Camry', vin: 'X' });
+    const v = await request(app).post('/api/vehicles').set(h).send({
+      label: 'Daily',
+      makeModel: 'Toyota Camry',
+      vin: 'XVIN123DIAG',
+      year: 2018,
+      plate: 'D-9911',
+    });
 
     const diag = await request(app).post('/api/diagnosis').set(h)
       .send({ symptoms: 'slow crank', obdCode: '', vehicleId: v.body._id });

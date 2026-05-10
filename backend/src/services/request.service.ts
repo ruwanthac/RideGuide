@@ -288,6 +288,7 @@ export async function transition(
     if (req.status !== 'pending') throw new HttpError(409, 'not pending');
     req.status = 'accepted';
     req.acceptedBy = new Types.ObjectId(userId);
+    if (!(req as any).acceptedAt) (req as any).acceptedAt = new Date();
     const provider = await UserModel.findById(userId).lean();
     if (provider) {
       (req as any).acceptedProviderDisplayName = provider.displayName ?? '';
@@ -314,6 +315,7 @@ export async function transition(
     if (current === 'requested') {
       if (role === 'tow') await assertProviderApprovedForJob(userId, role);
       req.acceptedBy = new Types.ObjectId(userId);
+      if (!(req as any).acceptedAt) (req as any).acceptedAt = new Date();
     }
     req.status = target;
   } else {

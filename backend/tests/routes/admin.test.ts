@@ -84,6 +84,49 @@ describe('admin', () => {
     expect(res.body.total).toBe(0);
   });
 
+  it('admin can list vehicles with populated owner', async () => {
+    const app = buildApp();
+    const { token: adminTok } = await registerUser({
+      email: 'admveh@b.com',
+      password: 'secret12',
+      displayName: 'AdmVeh',
+      role: 'admin',
+    });
+    const owner = await registerUser({
+      email: 'ownveh@b.com',
+      password: 'secret12',
+      displayName: 'OwnerVeh',
+      role: 'owner',
+    });
+    const vRes = await request(app)
+      .post('/api/vehicles')
+      .set('Authorization', `Bearer ${owner.token}`)
+      .send({
+        label: 'Daily',
+        makeModel: 'Toyota Aqua',
+        make: 'Toyota',
+        model: 'Aqua',
+        year: 2018,
+        vin: 'VINLIST123',
+        plate: 'CAB-8833',
+      });
+    expect(vRes.status).toBe(201);
+    const list = await request(app).get('/api/admin/vehicles').set('Authorization', `Bearer ${adminTok}`);
+    expect(list.status).toBe(200);
+    expect(list.body.total).toBe(1);
+    expect(Array.isArray(list.body.items)).toBe(true);
+    expect(list.body.items).toHaveLength(1);
+    expect(list.body.items[0].vin).toBe('VINLIST123');
+    expect(list.body.items[0].plate).toBe('CAB-8833');
+    expect(list.body.items[0].year).toBe(2018);
+    expect(list.body.items[0].ownerId).toBeDefined();
+    const byOwnerSearch = await request(app)
+      .get('/api/admin/vehicles?search=ownveh')
+      .set('Authorization', `Bearer ${adminTok}`);
+    expect(byOwnerSearch.status).toBe(200);
+    expect(byOwnerSearch.body.total).toBe(1);
+  });
+
   it('admin can suspend a user and they cannot log in', async () => {
     const app = buildApp();
     const admin = await registerUser({ email: 'adm3@b.com', password: 'secret12', displayName: 'Adm3', role: 'admin' });

@@ -14,6 +14,8 @@ const VehicleSchema = new Schema(
     engine: { type: String, default: null },
     canonicalVehicleKey: { type: String, default: null, index: true },
     vin: { type: String, required: true },
+    /** Registration plate / number — shown on admin dashboard */
+    plate: { type: String, default: null, trim: true, index: true },
   },
   { timestamps: true }
 );

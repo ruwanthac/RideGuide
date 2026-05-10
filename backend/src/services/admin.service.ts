@@ -319,7 +319,22 @@ export async function listVehicles(query: Record<string, unknown>): Promise<Pagi
   const search = typeof query.search === 'string' ? query.search.trim() : '';
   if (search) {
     const rx = new RegExp(escapeRx(search), 'i');
-    filter.$or = [{ makeModel: rx }, { vin: rx }, { label: rx }, { ownerName: rx }];
+    const ownerMatches = await UserModel.find({
+      role: 'owner',
+      $or: [{ email: rx }, { displayName: rx }, { phoneNumber: rx }],
+    })
+      .select('_id')
+      .lean();
+    const ownerIds = ownerMatches.map((u) => u._id);
+    const clauses: Record<string, unknown>[] = [
+      { makeModel: rx },
+      { vin: rx },
+      { label: rx },
+      { ownerName: rx },
+      { plate: rx },
+    ];
+    if (ownerIds.length) clauses.push({ ownerId: { $in: ownerIds } });
+    filter.$or = clauses;
   }
   const [items, total] = await Promise.all([
     VehicleModel.find(filter)
@@ -367,7 +382,7 @@ export async function getAnalytics(query: Record<string, unknown>) {
   since.setDate(since.getDate() - days);
   since.setHours(0, 0, 0, 0);
 
-  const [byType, byStatus, dailySeries, completedInRange, diagnosisCount] = await Promise.all([
+  const [byType, byStatus, dailySeries, completedInRange, diagnosisCount, acceptanceAgg] = await Promise.all([
     ServiceRequestModel.aggregate([
       { $match: { createdAt: { $gte: since } } },
       { $group: { _id: '$type', count: { $sum: 1 } } },
@@ -391,19 +406,39 @@ export async function getAnalytics(query: Record<string, unknown>) {
       createdAt: { $gte: since },
     }),
     DiagnosisHistoryModel.countDocuments({ createdAt: { $gte: since } }),
-  ]);
-
-  const estimatedRevenueLkr = await ServiceRequestModel.aggregate([
-    {
-      $match: {
-        status: 'completed',
-        createdAt: { $gte: since },
-        finalAmount: { $ne: null },
+    ServiceRequestModel.aggregate([
+      {
+        $match: {
+          createdAt: { $gte: since },
+          acceptedAt: { $ne: null },
+          type: { $in: ['roadside', 'tow'] },
+        },
       },
-    },
-    { $group: { _id: null, total: { $sum: '$finalAmount' } } },
+      {
+        $project: {
+          type: 1,
+          acceptMs: { $subtract: ['$acceptedAt', '$createdAt'] },
+        },
+      },
+      { $match: { acceptMs: { $gte: 0 } } },
+      {
+        $group: {
+          _id: '$type',
+          avgAcceptMs: { $avg: '$acceptMs' },
+          sampleCount: { $sum: 1 },
+        },
+      },
+    ]),
   ]);
-  const revenueSum = estimatedRevenueLkr[0]?.total ?? 0;
+  const acceptanceByType = new Map<string, { avgAcceptMs: number; sampleCount: number }>();
+  for (const r of acceptanceAgg) {
+    acceptanceByType.set(String(r._id), {
+      avgAcceptMs: Number(r.avgAcceptMs ?? 0),
+      sampleCount: Number(r.sampleCount ?? 0),
+    });
+  }
+  const roadsideAvgMs = acceptanceByType.get('roadside')?.avgAcceptMs;
+  const towAvgMs = acceptanceByType.get('tow')?.avgAcceptMs;
 
   return {
     range: { days, since: since.toISOString() },
@@ -412,13 +447,19 @@ export async function getAnalytics(query: Record<string, unknown>) {
     requestsPerDay: dailySeries.map((r) => ({ date: r._id, count: r.count })),
     completedRequestsInRange: completedInRange,
     diagnosesInRange: diagnosisCount,
-    /** Sum of `finalAmount` on completed requests in range (cash_manual model; not card payments). */
-    estimatedRevenueLkr: Math.round(Number(revenueSum) || 0),
+    acceptanceTimeAvgMinutes: {
+      roadside: Number.isFinite(roadsideAvgMs as number) ? Number(((roadsideAvgMs as number) / 60000).toFixed(2)) : null,
+      tow: Number.isFinite(towAvgMs as number) ? Number(((towAvgMs as number) / 60000).toFixed(2)) : null,
+    },
+    acceptanceSamples: {
+      roadside: acceptanceByType.get('roadside')?.sampleCount ?? 0,
+      tow: acceptanceByType.get('tow')?.sampleCount ?? 0,
+    },
     meta: {
       assumptions: [
         'Diagnosis flows use DiagnosisHistory, not ServiceRequest.type=diagnosis.',
         'activeMechanics = users with role mechanic and mechanicAvailable true; activeTow = count of users with role tow.',
-        'Revenue is derived from completed ServiceRequest.finalAmount only.',
+        'Average acceptance time = acceptedAt - createdAt for requests accepted in the selected window.',
       ],
     },
   };
@@ -486,14 +527,20 @@ export async function seedDemo(adminId: string) {
 
   const vA = await VehicleModel.create({
     ownerId: ownerA.user._id,
+    ownerName: ownerA.user.displayName,
     label: 'Daily',
     makeModel: '2019 Honda Civic',
+    year: 2019,
+    plate: 'DEMO-101',
     vin: '1HGBH41JXMN109186',
   });
   await VehicleModel.create({
     ownerId: ownerB.user._id,
+    ownerName: ownerB.user.displayName,
     label: 'Work',
     makeModel: '2020 Toyota Camry',
+    year: 2020,
+    plate: 'DEMO-202',
     vin: '2T1B11HK5JC123456',
   });
 

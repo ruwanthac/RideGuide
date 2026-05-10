@@ -36,6 +36,8 @@ export interface Vehicle {
   make?: string | null;
   model?: string | null;
   year?: number | null;
+  /** Registration plate / number */
+  plate?: string | null;
   trim?: string | null;
   engine?: string | null;
   canonicalVehicleKey?: string | null;

@@ -23,7 +23,8 @@ interface AnalyticsApi {
   requestsPerDay: { date: string; count: number }[];
   completedRequestsInRange: number;
   diagnosesInRange: number;
-  estimatedRevenueLkr: number;
+  acceptanceTimeAvgMinutes: { roadside: number | null; tow: number | null };
+  acceptanceSamples: { roadside: number; tow: number };
   meta?: { assumptions?: string[] };
 }
 
@@ -124,18 +125,32 @@ export function Analytics() {
       </div>
 
       <p className="text-xs text-gray-500 dark:text-gray-400">
-        Window: last {data.range.days} days (since {new Date(data.range.since).toLocaleDateString()}). Revenue is sum
-        of completed request <code className="rounded bg-gray-100 px-1 dark:bg-gray-800">finalAmount</code> only.
+        Window: last {data.range.days} days (since {new Date(data.range.since).toLocaleDateString()}).
       </p>
 
-      <div className="grid gap-6 lg:grid-cols-3">
+      <div className="grid gap-6 lg:grid-cols-4">
         <Card>
           <CardContent className="p-6">
-            <p className="text-sm font-medium text-gray-500 dark:text-gray-400">Estimated revenue (LKR)</p>
+            <p className="text-sm font-medium text-gray-500 dark:text-gray-400">Avg tow accept time</p>
             <p className="mt-1 text-2xl font-semibold text-gray-900 dark:text-white">
-              {data.estimatedRevenueLkr.toLocaleString()}
+              {data.acceptanceTimeAvgMinutes.tow != null ? `${data.acceptanceTimeAvgMinutes.tow.toFixed(1)} min` : '—'}
             </p>
-            <p className="mt-0.5 text-xs text-emerald-600 dark:text-emerald-400">Completed requests in range</p>
+            <p className="mt-0.5 text-xs text-emerald-600 dark:text-emerald-400">
+              Samples: {data.acceptanceSamples.tow}
+            </p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-6">
+            <p className="text-sm font-medium text-gray-500 dark:text-gray-400">Avg roadside accept time</p>
+            <p className="mt-1 text-2xl font-semibold text-gray-900 dark:text-white">
+              {data.acceptanceTimeAvgMinutes.roadside != null
+                ? `${data.acceptanceTimeAvgMinutes.roadside.toFixed(1)} min`
+                : '—'}
+            </p>
+            <p className="mt-0.5 text-xs text-sky-600 dark:text-sky-400">
+              Samples: {data.acceptanceSamples.roadside}
+            </p>
           </CardContent>
         </Card>
         <Card>

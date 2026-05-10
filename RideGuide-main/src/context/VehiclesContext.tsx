@@ -9,8 +9,17 @@ interface VehiclesContextValue {
   selectedVehicleId: string | null;
   selectedVehicle: Vehicle | null;
   setSelectedVehicleId: (id: string | null) => Promise<void>;
-  addVehicle: (v: { label: string; makeModel: string; vin: string }) => Promise<Vehicle>;
-  saveVehicle: (id: string, patch: Partial<{ label: string; makeModel: string; vin: string }>) => Promise<Vehicle>;
+  addVehicle: (v: {
+    label: string;
+    makeModel: string;
+    vin: string;
+    year: number;
+    plate: string;
+  }) => Promise<Vehicle>;
+  saveVehicle: (
+    id: string,
+    patch: Partial<{ label: string; makeModel: string; vin: string; year: number; plate: string }>
+  ) => Promise<Vehicle>;
   removeVehicle: (id: string) => Promise<void>;
   refresh: () => Promise<void>;
 }

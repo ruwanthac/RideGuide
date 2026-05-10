@@ -13,8 +13,13 @@ describe('vehicle records', () => {
     const { token } = await registerUser({ email: 'o@b.com', password: 'secret12', displayName: 'O' });
     const h = { Authorization: `Bearer ${token}` };
 
-    const v = await request(app).post('/api/vehicles').set(h)
-      .send({ label: 'Daily', makeModel: 'Toyota', vin: 'X' });
+    const v = await request(app).post('/api/vehicles').set(h).send({
+      label: 'Daily',
+      makeModel: 'Toyota',
+      vin: 'XREC12345',
+      year: 2017,
+      plate: 'R-1001',
+    });
     const vid = v.body._id;
 
     await request(app).post('/api/requests').set(h)
@@ -31,8 +36,13 @@ describe('vehicle records', () => {
     const app = buildApp();
     const a = await registerUser({ email: 'a@b.com', password: 'secret12', displayName: 'A' });
     const b = await registerUser({ email: 'b@b.com', password: 'secret12', displayName: 'B' });
-    const v = await request(app).post('/api/vehicles').set('Authorization', `Bearer ${a.token}`)
-      .send({ label: 'Daily', makeModel: 'Toyota', vin: 'X' });
+    const v = await request(app).post('/api/vehicles').set('Authorization', `Bearer ${a.token}`).send({
+      label: 'Daily',
+      makeModel: 'Toyota',
+      vin: 'XREC99999',
+      year: 2016,
+      plate: 'R-2002',
+    });
     const res = await request(app).get(`/api/vehicles/${v.body._id}/records`).set('Authorization', `Bearer ${b.token}`);
     expect(res.status).toBe(403);
   });

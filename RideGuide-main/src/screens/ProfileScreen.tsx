@@ -17,15 +17,17 @@ import { TowDashboard } from '../components/dashboards/TowDashboard';
 import { useUserRole } from '../context/UserRoleContext';
 import { useVehicles } from '../context/VehiclesContext';
 import { useAuth } from '../context/AuthContext';
-import { updateUserProfile } from '../backend/userProfileService';
 import { useNavigation } from '@react-navigation/native';
 import { extractApiError } from '../backend/apiClient';
 
 const DEFAULT_MAKE_MODEL = 'Toyota Camry 2020';
 const DEFAULT_VIN = '1HGBH41JXMN109186';
+const DEFAULT_YEAR = 2020;
+const DEFAULT_PLATE = 'ABC-1234';
+const MAX_OWNER_VEHICLES = 3;
 
 export const ProfileScreen: React.FC = () => {
-  const { signOutUser, user, refreshProfile } = useAuth();
+  const { signOutUser, user } = useAuth();
   const userName = user?.displayName ?? '';
   const { spacing, fontSizes, borderRadius, buttonHeight, iconSizes, scale } =
     useResponsive();
@@ -41,15 +43,9 @@ export const ProfileScreen: React.FC = () => {
   const navigation = useNavigation<any>();
   const [editMakeModel, setEditMakeModel] = useState(DEFAULT_MAKE_MODEL);
   const [editVin, setEditVin] = useState(DEFAULT_VIN);
+  const [editPlate, setEditPlate] = useState(DEFAULT_PLATE);
+  const [editYear, setEditYear] = useState(String(DEFAULT_YEAR));
   const [isEditingVehicle, setIsEditingVehicle] = useState(false);
-  const [accountDisplayName, setAccountDisplayName] = useState('');
-  const [accountPhone, setAccountPhone] = useState('');
-  const [accountSaving, setAccountSaving] = useState(false);
-
-  useEffect(() => {
-    setAccountDisplayName(user?.displayName ?? '');
-    setAccountPhone(user?.phoneNumber ?? '');
-  }, [user?.displayName, user?.phoneNumber]);
 
   /** Profile may point at a deleted/missing vehicle; UI falls back to first car — save must use the same id. */
   const resolvedSelectedVehicleId = useMemo(() => {
@@ -86,6 +82,12 @@ export const ProfileScreen: React.FC = () => {
     }
     setEditMakeModel(currentVehicle.makeModel);
     setEditVin(currentVehicle.vin);
+    setEditPlate((currentVehicle.plate ?? '').trim() || DEFAULT_PLATE);
+    setEditYear(
+      currentVehicle.year != null && Number.isFinite(Number(currentVehicle.year))
+        ? String(currentVehicle.year)
+        : String(DEFAULT_YEAR),
+    );
     setIsEditingVehicle(true);
   };
 
@@ -100,6 +102,8 @@ export const ProfileScreen: React.FC = () => {
     }
     const makeModel = editMakeModel.trim();
     const vin = editVin.trim();
+    const plate = editPlate.trim();
+    const yearNum = parseInt(editYear.trim(), 10);
     if (!makeModel) {
       Alert.alert('Invalid input', 'Make & Model is required.');
       return;
@@ -108,7 +112,15 @@ export const ProfileScreen: React.FC = () => {
       Alert.alert('Invalid input', 'VIN is required.');
       return;
     }
-    void saveVehicle(currentVehicle._id, { makeModel, vin, label: makeModel })
+    if (!plate) {
+      Alert.alert('Invalid input', 'Plate number is required.');
+      return;
+    }
+    if (!Number.isFinite(yearNum) || yearNum < 1900 || yearNum > 2100) {
+      Alert.alert('Invalid input', 'Enter a manufacture year between 1900 and 2100.');
+      return;
+    }
+    void saveVehicle(currentVehicle._id, { makeModel, vin, label: makeModel, year: yearNum, plate })
       .then(() => {
         setIsEditingVehicle(false);
         Alert.alert('Saved', 'Vehicle information has been updated.');
@@ -118,42 +130,36 @@ export const ProfileScreen: React.FC = () => {
       });
   };
 
-  const handleSaveAccount = () => {
-    const dn = accountDisplayName.trim();
-    if (!dn) {
-      Alert.alert('Display name required', 'Please enter how you want your name to appear.');
+  const handleAddVehicle = () => {
+    if (vehicles.length >= MAX_OWNER_VEHICLES) {
+      Alert.alert(
+        'Vehicle limit',
+        `You can add up to ${MAX_OWNER_VEHICLES} vehicles per account. Remove one to add another.`,
+      );
       return;
     }
-    setAccountSaving(true);
-    void updateUserProfile({
-      displayName: dn,
-      phoneNumber: accountPhone.trim() ? accountPhone.trim() : null,
-    })
-      .then(async () => {
-        await refreshProfile();
-        Alert.alert('Saved', 'Your account details were updated.');
-      })
-      .catch((error) => {
-        Alert.alert('Could not save', extractApiError(error, 'Please try again.'));
-      })
-      .finally(() => setAccountSaving(false));
-  };
-
-  const handleAddVehicle = () => {
     void (async () => {
       try {
         const created = await addVehicle({
           label: DEFAULT_MAKE_MODEL,
           makeModel: DEFAULT_MAKE_MODEL,
           vin: DEFAULT_VIN,
+          year: DEFAULT_YEAR,
+          plate: DEFAULT_PLATE,
         });
         // Persist the new vehicle as selected before the user enters flows like AI video call.
         await setSelectedVehicleId(created._id);
         setEditMakeModel(created.makeModel);
         setEditVin(created.vin);
+        setEditPlate((created.plate ?? DEFAULT_PLATE).trim() || DEFAULT_PLATE);
+        setEditYear(
+          created.year != null && Number.isFinite(Number(created.year))
+            ? String(created.year)
+            : String(DEFAULT_YEAR),
+        );
         setIsEditingVehicle(true);
-      } catch {
-        Alert.alert('Error', 'Could not add vehicle. Try again.');
+      } catch (e) {
+        Alert.alert('Could not add vehicle', extractApiError(e, 'Please try again.'));
       }
     })();
   };
@@ -285,6 +291,10 @@ export const ProfileScreen: React.FC = () => {
           borderWidth: 1,
           borderColor: colors.primary,
           marginBottom: spacing.xs,
+        },
+        vehicleAddButtonDisabled: {
+          opacity: 0.45,
+          borderColor: colors.border,
         },
         vehicleAddButtonText: {
           fontSize: fontSizes.xs,
@@ -454,42 +464,13 @@ export const ProfileScreen: React.FC = () => {
       >
         {renderDashboard()}
 
-        <Card style={styles.section} padded>
-          <Text style={styles.sectionTitle}>Account & contact</Text>
-          <Text style={[styles.currentProfileText, { marginBottom: spacing.md }]}>
-            Saved to your account on the server (same data the admin dashboard reads).
-          </Text>
-          <View style={styles.infoRow}>
-            <Text style={styles.infoLabel}>Display name</Text>
-            <TextInput
-              style={styles.vehicleInput}
-              value={accountDisplayName}
-              onChangeText={setAccountDisplayName}
-              placeholder="Your name"
-              placeholderTextColor={colors.textSecondary}
-            />
-          </View>
-          <View style={styles.infoRow}>
-            <Text style={styles.infoLabel}>Phone (E.164 recommended)</Text>
-            <TextInput
-              style={styles.vehicleInput}
-              value={accountPhone}
-              onChangeText={setAccountPhone}
-              placeholder="+94771234567"
-              placeholderTextColor={colors.textSecondary}
-              keyboardType="phone-pad"
-            />
-          </View>
-          <PrimaryButton
-            title={accountSaving ? 'Saving…' : 'Save account'}
-            onPress={handleSaveAccount}
-            disabled={accountSaving}
-          />
-        </Card>
-
         {userRole === 'owner' && (
           <Card style={styles.section} padded>
             <Text style={styles.sectionTitle}>Vehicle Info</Text>
+            <Text style={[styles.currentProfileText, { marginBottom: spacing.sm }]}>
+              Up to {MAX_OWNER_VEHICLES} vehicles per account. Plate and manufacture year are required and shown to
+              support staff.
+            </Text>
 
             <View style={styles.vehicleSwitcherRow}>
               <View style={styles.vehicleChipsContainer}>
@@ -538,9 +519,13 @@ export const ProfileScreen: React.FC = () => {
                 })}
               </View>
               <TouchableOpacity
-                style={styles.vehicleAddButton}
+                style={[
+                  styles.vehicleAddButton,
+                  vehicles.length >= MAX_OWNER_VEHICLES && styles.vehicleAddButtonDisabled,
+                ]}
                 onPress={handleAddVehicle}
-                activeOpacity={0.7}
+                activeOpacity={vehicles.length >= MAX_OWNER_VEHICLES ? 1 : 0.7}
+                disabled={vehicles.length >= MAX_OWNER_VEHICLES}
               >
                 <Text style={styles.vehicleAddButtonText}>+ Add vehicle</Text>
               </TouchableOpacity>
@@ -571,10 +556,44 @@ export const ProfileScreen: React.FC = () => {
                   onChangeText={setEditVin}
                   placeholder="e.g. 1HGBH41JXMN109186"
                   placeholderTextColor={colors.textSecondary}
+                  autoCapitalize="characters"
                 />
               ) : (
                 <Text style={styles.infoValue}>
                   {currentVehicle?.vin || 'Not set'}
+                </Text>
+              )}
+            </View>
+            <View style={styles.infoRow}>
+              <Text style={styles.infoLabel}>Plate number</Text>
+              {isEditingVehicle ? (
+                <TextInput
+                  style={styles.vehicleInput}
+                  value={editPlate}
+                  onChangeText={(t) => setEditPlate(t.slice(0, 24))}
+                  placeholder="e.g. CAB-1234"
+                  placeholderTextColor={colors.textSecondary}
+                  autoCapitalize="characters"
+                />
+              ) : (
+                <Text style={styles.infoValue}>{currentVehicle?.plate?.trim() || 'Not set'}</Text>
+              )}
+            </View>
+            <View style={styles.infoRow}>
+              <Text style={styles.infoLabel}>Manufacture year</Text>
+              {isEditingVehicle ? (
+                <TextInput
+                  style={styles.vehicleInput}
+                  value={editYear}
+                  onChangeText={setEditYear}
+                  placeholder="e.g. 2020"
+                  placeholderTextColor={colors.textSecondary}
+                  keyboardType="number-pad"
+                  maxLength={4}
+                />
+              ) : (
+                <Text style={styles.infoValue}>
+                  {currentVehicle?.year != null ? String(currentVehicle.year) : 'Not set'}
                 </Text>
               )}
             </View>

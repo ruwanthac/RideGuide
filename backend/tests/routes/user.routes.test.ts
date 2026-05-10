@@ -25,7 +25,13 @@ describe('users routes', () => {
     const app = buildApp();
     const { token } = await registerUser({ email: 'o@b.com', password: 'secret12', displayName: 'OldName' });
     const h = { Authorization: `Bearer ${token}` };
-    const v = await request(app).post('/api/vehicles').set(h).send({ label: 'X', makeModel: 'X', vin: 'X' });
+    const v = await request(app).post('/api/vehicles').set(h).send({
+      label: 'X',
+      makeModel: 'X',
+      vin: 'XVINUSER1',
+      year: 2015,
+      plate: 'U-500',
+    });
     expect(v.body.ownerName).toBe('OldName');
 
     await request(app).patch('/api/users/me').set(h).send({ displayName: 'NewName' });
