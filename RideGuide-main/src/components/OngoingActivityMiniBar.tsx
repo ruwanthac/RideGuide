@@ -46,7 +46,8 @@ export const OngoingActivityMiniBar: React.FC = () => {
   const hide =
     !activity ||
     focusedRouteName === activity.navigateScreen ||
-    focusedRouteName === 'VideoCall';
+    focusedRouteName === 'VideoCall' ||
+    focusedRouteName === 'RequestChat';
 
   if (hide) return null;
 

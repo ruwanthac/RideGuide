@@ -9,7 +9,6 @@ import { env } from '../config/env';
 const MECHANIC_FIELDS = ['mechanicBrCopy', 'mechanicNicCopy'] as const;
 const TOW_FIELDS = [
   'towCompanyBrCopy',
-  'towCompanyNicCopy',
   'towTruckRegCopy',
   'towTruckNicCopy',
 ] as const;

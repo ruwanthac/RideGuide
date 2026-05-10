@@ -410,7 +410,7 @@ export async function getAnalytics(query: Record<string, unknown>) {
       {
         $match: {
           createdAt: { $gte: since },
-          acceptedAt: { $ne: null },
+          acceptedAt: { $type: 'date' },
           type: { $in: ['roadside', 'tow'] },
         },
       },

@@ -195,13 +195,21 @@ export const RequestChatScreen: React.FC<RequestChatScreenProps> = ({
           ref={flatListRef}
           data={messages}
           keyExtractor={(item) => item._id}
-          renderItem={({ item }) => (
-            <ChatBubble
-              message={item.text}
-              isUser={item.senderId === user?._id}
-              timestamp={new Date(item.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-            />
-          )}
+          renderItem={({ item }) => {
+            const isTowMessage = item.senderRole === 'tow';
+            const isOwnerMessage = item.senderRole === 'owner';
+            const isMine = item.senderId === user?._id;
+            const bubbleTone = isTowMessage ? 'tow' : isOwnerMessage ? 'owner' : 'default';
+            return (
+              <ChatBubble
+                message={item.text}
+                isUser={isMine}
+                alignRight={isMine}
+                bubbleTone={bubbleTone}
+                timestamp={new Date(item.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+              />
+            );
+          }}
           contentContainerStyle={styles.messageList}
           onContentSizeChange={scrollToBottom}
           keyboardShouldPersistTaps="handled"

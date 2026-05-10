@@ -10,6 +10,8 @@ import {
   Dimensions,
   PanResponder,
   ScrollView,
+  Linking,
+  Alert,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { WebView } from 'react-native-webview';
@@ -118,12 +120,14 @@ interface TowDriverActiveJobScreenProps {
   requestId: string;
   onMinimize?: () => void;
   onDone: () => void;
+  onOpenChat: (request: ServiceRequest) => void;
 }
 
 export const TowDriverActiveJobScreen: React.FC<TowDriverActiveJobScreenProps> = ({
   requestId,
   onMinimize,
   onDone,
+  onOpenChat,
 }) => {
   const insets = useSafeAreaInsets();
   const { spacing, fontSizes, borderRadius, width: windowWidth } = useResponsive();
@@ -555,6 +559,17 @@ export const TowDriverActiveJobScreen: React.FC<TowDriverActiveJobScreenProps> =
         },
         title: { fontSize: fontSizes.lg, fontWeight: '700', color: colors.text, marginBottom: spacing.xs },
         subtitle: { color: colors.textSecondary, marginBottom: spacing.md },
+        ownerPhone: { color: colors.textSecondary, marginBottom: spacing.sm, fontSize: fontSizes.sm },
+        actionsRow: { flexDirection: 'row', marginBottom: spacing.sm },
+        iconBtn: {
+          width: 44,
+          height: 44,
+          borderRadius: 22,
+          backgroundColor: colors.primary + '10',
+          alignItems: 'center',
+          justifyContent: 'center',
+          marginRight: spacing.sm,
+        },
         amount: { fontWeight: '700', color: colors.text, marginBottom: spacing.sm },
         nextBtn: {
           backgroundColor: colors.primary,
@@ -662,6 +677,14 @@ export const TowDriverActiveJobScreen: React.FC<TowDriverActiveJobScreenProps> =
   const statusLine =
     STATUS_PILL_TEXT[request.status] ?? request.status.replace(/_/g, ' ');
 
+  const onCall = () => {
+    if (!request?.phoneNumber?.trim()) {
+      Alert.alert('No phone number', 'This request does not have a phone number.');
+      return;
+    }
+    void Linking.openURL(`tel:${request.phoneNumber}`);
+  };
+
   return (
     <View style={styles.container}>
       <WebView
@@ -709,6 +732,15 @@ export const TowDriverActiveJobScreen: React.FC<TowDriverActiveJobScreenProps> =
           <Text style={styles.subtitle}>
             {request.userName} · {request.vehicle}
           </Text>
+          <Text style={styles.ownerPhone}>Owner contact: {request.phoneNumber || 'Not provided'}</Text>
+          <View style={styles.actionsRow}>
+            <TouchableOpacity style={styles.iconBtn} onPress={onCall} activeOpacity={0.85}>
+              <Icon name="call" size={18} color={colors.primary} />
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.iconBtn} onPress={() => onOpenChat(request)} activeOpacity={0.85}>
+              <Icon name="chatbubble" size={18} color={colors.primary} />
+            </TouchableOpacity>
+          </View>
           <Animated.View style={[styles.statusPill, { transform: [{ scale: pulse }] }]}>
             <Icon name="send" size={16} color={colors.primary} />
             <Text style={styles.statusText}>{statusLine}</Text>

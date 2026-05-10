@@ -485,7 +485,8 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
           backgroundColor: colors.primary,
         },
         requestsCard: {
-          padding: isSmallScreen ? spacing.sm : spacing.lg,
+          paddingHorizontal: isSmallScreen ? spacing.md : spacing.xl,
+          paddingVertical: isSmallScreen ? spacing.md : spacing.lg,
         },
         requestsCardExpanded: {
           marginHorizontal: isSmallScreen ? -spacing.xs : -spacing.sm,
@@ -493,18 +494,21 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
         requestHeaderRow: {
           flexDirection: 'row',
           alignItems: 'center',
-          justifyContent: 'space-between',
-          marginBottom: spacing.md,
+          justifyContent: 'center',
+          paddingTop: spacing.sm,
+          marginBottom: spacing.lg,
         },
         requestSectionTitle: {
           fontSize: fontSizes.lg,
           fontWeight: '600',
           color: colors.text,
+          textAlign: 'center',
         },
         requestSectionSubtitle: {
           fontSize: fontSizes.sm,
           color: colors.textSecondary,
           marginTop: spacing.xs,
+          textAlign: 'center',
         },
         requestBadge: {
           minWidth: scale(28),
@@ -524,6 +528,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
           alignItems: 'center',
           justifyContent: 'center',
           paddingVertical: spacing.xl,
+          paddingHorizontal: spacing.md,
         },
         emptyRequestsTitle: {
           fontSize: fontSizes.md,
@@ -684,6 +689,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
           color: colors.textSecondary,
           textAlign: 'center',
           paddingVertical: spacing.lg,
+          paddingHorizontal: spacing.sm,
         },
       }),
     [spacing, fontSizes, iconSizes, isSmallScreen, scale, width]
@@ -870,53 +876,6 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                               )}
                             </View>
                           </TouchableOpacity>
-                          <View style={styles.requestFooterColumn}>
-                            <View style={styles.requestPhoneRow}>
-                              <Icon
-                                name="call"
-                                size={iconSizes.sm}
-                                color={colors.textSecondary}
-                              />
-                              <Text style={styles.requestPhoneText} numberOfLines={2}>
-                                {req.phoneNumber}
-                              </Text>
-                            </View>
-                            <View style={styles.requestFooterActions}>
-                              <TouchableOpacity
-                                style={styles.iconActionBtn}
-                                onPress={() => openCall(req.phoneNumber)}
-                                activeOpacity={0.8}
-                              >
-                                <Icon
-                                  name="call"
-                                  size={iconSizes.sm}
-                                  color={colors.primary}
-                                />
-                              </TouchableOpacity>
-                              <TouchableOpacity
-                                style={styles.iconActionBtn}
-                                onPress={() => openRequestChat(req)}
-                                activeOpacity={0.8}
-                              >
-                                <Icon
-                                  name="chatbubble"
-                                  size={iconSizes.sm}
-                                  color={colors.primary}
-                                />
-                              </TouchableOpacity>
-                              <TouchableOpacity
-                                style={styles.iconActionBtn}
-                                onPress={() => openRequestOnMap(req)}
-                                activeOpacity={0.8}
-                              >
-                                <Icon
-                                  name="map"
-                                  size={iconSizes.sm}
-                                  color={colors.primary}
-                                />
-                              </TouchableOpacity>
-                            </View>
-                          </View>
                           <View style={styles.requestActions}>
                             {isTow || req.status === 'pending' ? (
                               <TouchableOpacity

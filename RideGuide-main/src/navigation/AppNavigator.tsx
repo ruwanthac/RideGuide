@@ -103,6 +103,14 @@ const TowOwnerTrackingScreenWrapper = ({ navigation, route }: { navigation: any;
   <TowOwnerTrackingScreen
     requestId={route.params?.requestId ?? ''}
     onBackHome={() => navigation.navigate('Home')}
+    onOpenChat={(request) =>
+      navigation.navigate('RequestChat', {
+        requestId: request._id,
+        userName: request.acceptedProviderDisplayName?.trim() || 'Tow truck driver',
+        vehicle: request.vehicle,
+        issue: request.issue,
+      })
+    }
   />
 );
 
@@ -118,6 +126,14 @@ const TowDriverActiveJobScreenWrapper = ({ navigation, route }: { navigation: an
     requestId={route.params?.requestId ?? ''}
     onMinimize={() => navigation.navigate('Home')}
     onDone={() => navigation.navigate('Home')}
+    onOpenChat={(request) =>
+      navigation.navigate('RequestChat', {
+        requestId: request._id,
+        userName: request.userName,
+        vehicle: request.vehicle,
+        issue: request.issue,
+      })
+    }
   />
 );
 

@@ -628,10 +628,6 @@ export const ProfileScreen: React.FC = () => {
           <Text style={styles.menuText}>Notifications</Text>
           <Text style={styles.menuArrow}>›</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.menuItem}>
-          <Text style={styles.menuText}>Units & Preferences</Text>
-          <Text style={styles.menuArrow}>›</Text>
-        </TouchableOpacity>
         <TouchableOpacity
           style={[styles.menuItem, userRole !== 'admin' && styles.menuItemLast]}
           onPress={() => navigation.navigate('Privacy' as never)}

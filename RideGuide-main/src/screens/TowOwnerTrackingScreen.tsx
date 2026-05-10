@@ -48,9 +48,14 @@ const MAP_ATTRIBUTION = MAPBOX_TOKEN ? '© Mapbox © OpenStreetMap contributors'
 interface TowOwnerTrackingScreenProps {
   requestId: string;
   onBackHome: () => void;
+  onOpenChat: (request: ServiceRequest) => void;
 }
 
-export const TowOwnerTrackingScreen: React.FC<TowOwnerTrackingScreenProps> = ({ requestId, onBackHome }) => {
+export const TowOwnerTrackingScreen: React.FC<TowOwnerTrackingScreenProps> = ({
+  requestId,
+  onBackHome,
+  onOpenChat,
+}) => {
   const insets = useSafeAreaInsets();
   const { spacing, fontSizes, borderRadius, iconSizes, width: windowWidth } = useResponsive();
   const { role } = useUserRole();
@@ -469,6 +474,16 @@ export const TowOwnerTrackingScreen: React.FC<TowOwnerTrackingScreenProps> = ({ 
     },
     activePill: { flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start', paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: borderRadius.full, backgroundColor: 'rgba(37,99,235,0.12)' },
     activeText: { color: colors.primary, marginLeft: spacing.xs, fontWeight: '600' },
+    actionsRow: { flexDirection: 'row', marginTop: spacing.sm, marginBottom: spacing.xs },
+    iconBtn: {
+      width: 44,
+      height: 44,
+      borderRadius: 22,
+      backgroundColor: colors.primary + '10',
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginRight: spacing.sm,
+    },
     amount: { marginTop: spacing.md, fontSize: fontSizes.md, color: colors.text, fontWeight: '700' },
     topBar: {
       position: 'absolute',
@@ -541,6 +556,9 @@ export const TowOwnerTrackingScreen: React.FC<TowOwnerTrackingScreenProps> = ({ 
     : `${request.pickupAddress || request.location} → ${request.dropoffAddress || request.location}`;
   const amountLabel = request.type === 'roadside' ? 'Estimated service' : 'Estimated fare';
   const ownerCanCancel = request.type === 'tow' ? request.status === 'requested' : request.status === 'pending';
+  const ownerCanChatTow =
+    request.type === 'tow' &&
+    ['driver_picked_hire', 'driver_on_the_way', 'driver_arrived', 'vehicle_in_tow'].includes(request.status);
 
   const handleMinimize = () => {
     if (user?.role === 'owner') syncFromServiceRequest(request, user.role);
@@ -617,6 +635,13 @@ export const TowOwnerTrackingScreen: React.FC<TowOwnerTrackingScreenProps> = ({ 
             <Icon name={request.type === 'roadside' ? 'construct' : 'car'} size={16} color={colors.primary} />
             <Text style={styles.activeText}>{LABELS[request.status] ?? request.status}</Text>
           </Animated.View>
+          {ownerCanChatTow ? (
+            <View style={styles.actionsRow}>
+              <TouchableOpacity style={styles.iconBtn} onPress={() => onOpenChat(request)} activeOpacity={0.85}>
+                <Icon name="chatbubble" size={18} color={colors.primary} />
+              </TouchableOpacity>
+            </View>
+          ) : null}
           <Text style={styles.amount}>
             {amountLabel}: {request.currency ?? 'LKR'} {Math.round(request.estimatedAmount ?? 0)}
           </Text>

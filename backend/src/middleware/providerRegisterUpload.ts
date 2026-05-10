@@ -26,7 +26,7 @@ const storage = multer.diskStorage({
 
 export const providerRegisterUpload = multer({
   storage,
-  limits: { fileSize: MAX_SIZE, files: 6 },
+  limits: { fileSize: MAX_SIZE, files: 5 },
   fileFilter: (_req, file, cb) => {
     if (ALLOWED_MIME.has(file.mimetype)) cb(null, true);
     else cb(new HttpError(400, 'Only JPEG, PNG, WebP, or PDF files are allowed'));
@@ -35,7 +35,6 @@ export const providerRegisterUpload = multer({
   { name: 'mechanicBrCopy', maxCount: 1 },
   { name: 'mechanicNicCopy', maxCount: 1 },
   { name: 'towCompanyBrCopy', maxCount: 1 },
-  { name: 'towCompanyNicCopy', maxCount: 1 },
   { name: 'towTruckRegCopy', maxCount: 1 },
   { name: 'towTruckNicCopy', maxCount: 1 },
 ]);

@@ -30,6 +30,9 @@ export const RegisterScreen: React.FC<RegisterScreenProps> = ({ onNavigateToLogi
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [phone, setPhone] = useState('');
   const [accountType, setAccountType] = useState<'owner' | 'mechanic' | 'tow'>('owner');
   const [imageError, setImageError] = useState(false);
@@ -43,7 +46,6 @@ export const RegisterScreen: React.FC<RegisterScreenProps> = ({ onNavigateToLogi
   const [mechanicBrUri, setMechanicBrUri] = useState<string | null>(null);
   const [mechanicNicUri, setMechanicNicUri] = useState<string | null>(null);
   const [towCompanyBrUri, setTowCompanyBrUri] = useState<string | null>(null);
-  const [towCompanyNicUri, setTowCompanyNicUri] = useState<string | null>(null);
   const [towTruckRegUri, setTowTruckRegUri] = useState<string | null>(null);
   const [towTruckNicUri, setTowTruckNicUri] = useState<string | null>(null);
 
@@ -85,7 +87,8 @@ export const RegisterScreen: React.FC<RegisterScreenProps> = ({ onNavigateToLogi
         formCard: {
           backgroundColor: colors.card,
           borderRadius: scale(24),
-          padding: spacing.xl,
+          paddingHorizontal: spacing.xl + spacing.sm,
+          paddingVertical: spacing.xl + spacing.xs,
           marginBottom: spacing.xl,
           ...shadows.md,
         },
@@ -222,6 +225,23 @@ export const RegisterScreen: React.FC<RegisterScreenProps> = ({ onNavigateToLogi
           color: colors.primary,
           marginLeft: spacing.xs,
         },
+        passwordFieldWrap: {
+          position: 'relative',
+        },
+        compactInputContainer: {
+          marginBottom: spacing.sm,
+        },
+        compactInputFollower: {
+          marginTop: -spacing.xs,
+        },
+        passwordEyeBtn: {
+          position: 'absolute',
+          right: spacing.md,
+          top: '50%',
+          zIndex: 10,
+          padding: spacing.xs,
+          transform: [{ translateY: -scale(11) }],
+        },
       }),
     [spacing, fontSizes, width, scale, borderRadius, iconSizes]
   );
@@ -299,12 +319,20 @@ export const RegisterScreen: React.FC<RegisterScreenProps> = ({ onNavigateToLogi
       setError('Fill in name and email.');
       return;
     }
+    if (!phone.trim()) {
+      setError('Phone number is required.');
+      return;
+    }
     if (accountType === 'owner' && !password) {
       setError('Owner accounts need a password.');
       return;
     }
     if (accountType === 'owner' && password.length < 8) {
       setError('Password must be at least 8 characters.');
+      return;
+    }
+    if (accountType === 'owner' && password !== confirmPassword) {
+      setError('Password and confirm password must match.');
       return;
     }
 
@@ -340,8 +368,8 @@ export const RegisterScreen: React.FC<RegisterScreenProps> = ({ onNavigateToLogi
         setError('Enter company name, truck name, and plate number.');
         return;
       }
-      if (!towCompanyBrUri || !towCompanyNicUri || !towTruckRegUri || !towTruckNicUri) {
-        setError('Upload all four document images.');
+      if (!towCompanyBrUri || !towTruckRegUri || !towTruckNicUri) {
+        setError('Upload all required document images.');
         return;
       }
       provider = {
@@ -350,7 +378,6 @@ export const RegisterScreen: React.FC<RegisterScreenProps> = ({ onNavigateToLogi
         plateNumber: plateNumber.trim(),
         files: {
           towCompanyBrCopy: towCompanyBrUri,
-          towCompanyNicCopy: towCompanyNicUri,
           towTruckRegCopy: towTruckRegUri,
           towTruckNicCopy: towTruckNicUri,
         },
@@ -422,10 +449,10 @@ export const RegisterScreen: React.FC<RegisterScreenProps> = ({ onNavigateToLogi
                 <Text style={styles.title}>Create Account</Text>
                 <Text style={styles.subtitle}>
                   {accountType === 'owner'
-                    ? 'Sign up as a vehicle owner — diagnostics, history, and roadside help.'
+                    ? 'Sign up as a vehicle owner.'
                     : accountType === 'mechanic'
-                    ? 'Sign up as a mechanic — submit workshop verification on this screen.'
-                    : 'Sign up as a tow driver — submit company and truck documents on this screen.'}
+                    ? 'Sign up as a mechanic.Submit workshop verification details'
+                    : 'Sign up as a tow driver. Submit company and truck documents for verification.'}
                 </Text>
               </View>
 
@@ -458,6 +485,7 @@ export const RegisterScreen: React.FC<RegisterScreenProps> = ({ onNavigateToLogi
                   placeholder="John Doe"
                   value={name}
                   onChangeText={setName}
+                  containerStyle={styles.compactInputContainer}
                 />
                 <InputField
                   label="Email Address"
@@ -466,24 +494,65 @@ export const RegisterScreen: React.FC<RegisterScreenProps> = ({ onNavigateToLogi
                   onChangeText={setEmail}
                   keyboardType="email-address"
                   autoCapitalize="none"
+                  containerStyle={styles.compactInputContainer}
                 />
-                {accountType === 'owner' ? (
-                  <InputField
-                    label="Password"
-                    placeholder="At least 8 characters"
-                    value={password}
-                    onChangeText={setPassword}
-                    secureTextEntry
-                  />
-                ) : null}
                 <InputField
-                  label="Phone (optional)"
+                  label="Phone"
                   placeholder="+94771234567"
                   value={phone}
                   onChangeText={setPhone}
                   keyboardType="phone-pad"
+                  containerStyle={styles.compactInputContainer}
                 />
+                {accountType === 'owner' ? (
+                  <>
+                    <View style={styles.passwordFieldWrap}>
+                      <InputField
+                        label="Password"
+                        placeholder="At least 8 characters"
+                        value={password}
+                        onChangeText={setPassword}
+                        secureTextEntry={!showPassword}
+                        style={{ paddingRight: scale(46) }}
+                        containerStyle={styles.compactInputContainer}
+                      />
+                      <TouchableOpacity
+                        style={styles.passwordEyeBtn}
+                        onPress={() => setShowPassword((v) => !v)}
+                        activeOpacity={0.7}
+                      >
+                        <Icon
+                          name={showPassword ? 'eye-off' : 'eye'}
+                          size={iconSizes.md}
+                          color={colors.textSecondary}
+                        />
+                      </TouchableOpacity>
+                    </View>
 
+                    <View style={styles.passwordFieldWrap}>
+                      <InputField
+                        label="Confirm Password"
+                        placeholder="Re-enter password"
+                        value={confirmPassword}
+                        onChangeText={setConfirmPassword}
+                        secureTextEntry={!showConfirmPassword}
+                        style={{ paddingRight: scale(46) }}
+                        containerStyle={styles.compactInputContainer}
+                      />
+                      <TouchableOpacity
+                        style={styles.passwordEyeBtn}
+                        onPress={() => setShowConfirmPassword((v) => !v)}
+                        activeOpacity={0.7}
+                      >
+                        <Icon
+                          name={showConfirmPassword ? 'eye-off' : 'eye'}
+                          size={iconSizes.md}
+                          color={colors.textSecondary}
+                        />
+                      </TouchableOpacity>
+                    </View>
+                  </>
+                ) : null}
                 {accountType === 'mechanic' && (
                   <>
                     <Text style={styles.providerSectionTitle}>Workshop verification</Text>
@@ -512,12 +581,14 @@ export const RegisterScreen: React.FC<RegisterScreenProps> = ({ onNavigateToLogi
                       placeholder="e.g. Colombo Tow Services"
                       value={businessName}
                       onChangeText={setBusinessName}
+                      containerStyle={styles.compactInputContainer}
                     />
                     <InputField
                       label="Truck name / label"
                       placeholder="e.g. Tow Truck A"
                       value={truckName}
                       onChangeText={setTruckName}
+                      containerStyle={[styles.compactInputContainer, styles.compactInputFollower]}
                     />
                     <InputField
                       label="Plate number"
@@ -525,11 +596,11 @@ export const RegisterScreen: React.FC<RegisterScreenProps> = ({ onNavigateToLogi
                       value={plateNumber}
                       onChangeText={setPlateNumber}
                       autoCapitalize="characters"
+                      containerStyle={[styles.compactInputContainer, styles.compactInputFollower]}
                     />
                     {renderDocRow('Company BR copy', towCompanyBrUri, setTowCompanyBrUri)}
-                    {renderDocRow('Company NIC copy', towCompanyNicUri, setTowCompanyNicUri)}
                     {renderDocRow('Truck registration copy', towTruckRegUri, setTowTruckRegUri)}
-                    {renderDocRow('Truck NIC copy', towTruckNicUri, setTowTruckNicUri)}
+                    {renderDocRow('Tow owner NIC copy', towTruckNicUri, setTowTruckNicUri)}
                   </>
                 )}
 

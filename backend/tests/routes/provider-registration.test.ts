@@ -67,7 +67,6 @@ describe('provider registration', () => {
       .field('truckName', 'Big')
       .field('plateNumber', 'ABC123')
       .attach('towCompanyBrCopy', tinyPng(), 'b.png')
-      .attach('towCompanyNicCopy', tinyPng(), 'n.png')
       .attach('towTruckRegCopy', tinyPng(), 'r.png')
       .attach('towTruckNicCopy', tinyPng(), 't.png');
     expect(reg.status).toBe(201);

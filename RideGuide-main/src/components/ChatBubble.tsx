@@ -8,6 +8,8 @@ interface ChatBubbleProps {
   isUser: boolean;
   timestamp?: string;
   imageUri?: string | null;
+  alignRight?: boolean;
+  bubbleTone?: 'owner' | 'tow' | 'default';
 }
 
 export const ChatBubble: React.FC<ChatBubbleProps> = ({
@@ -15,6 +17,8 @@ export const ChatBubble: React.FC<ChatBubbleProps> = ({
   isUser,
   timestamp,
   imageUri,
+  alignRight,
+  bubbleTone = 'default',
 }) => {
   const { spacing, borderRadius, fontSizes, scale } = useResponsive();
 
@@ -40,6 +44,14 @@ export const ChatBubble: React.FC<ChatBubbleProps> = ({
           backgroundColor: colors.primary,
           borderBottomRightRadius: borderRadius.sm,
         },
+        ownerBubble: {
+          backgroundColor: '#1D4ED8',
+          borderBottomRightRadius: borderRadius.sm,
+        },
+        towBubble: {
+          backgroundColor: '#0F766E',
+          borderBottomLeftRadius: borderRadius.sm,
+        },
         aiBubble: {
           backgroundColor: colors.card,
           borderBottomLeftRadius: borderRadius.sm,
@@ -52,6 +64,7 @@ export const ChatBubble: React.FC<ChatBubbleProps> = ({
           lineHeight: Math.round(fontSizes.md * 1.45),
         },
         userText: { color: colors.card },
+        roleText: { color: '#FFFFFF' },
         aiText: { color: colors.text },
         timestamp: {
           fontSize: fontSizes.xs - 1,
@@ -63,14 +76,31 @@ export const ChatBubble: React.FC<ChatBubbleProps> = ({
     [spacing, borderRadius, fontSizes, scale]
   );
 
+  const rightAligned = typeof alignRight === 'boolean' ? alignRight : isUser;
+  const bubbleStyle =
+    bubbleTone === 'owner'
+      ? styles.ownerBubble
+      : bubbleTone === 'tow'
+        ? styles.towBubble
+        : isUser
+          ? styles.userBubble
+          : styles.aiBubble;
+  const textStyle = bubbleTone === 'default' ? (isUser ? styles.userText : styles.aiText) : styles.roleText;
+  const timestampStyle =
+    bubbleTone === 'default'
+      ? isUser
+        ? styles.userTimestamp
+        : styles.aiTimestamp
+      : styles.userTimestamp;
+
   return (
-    <View style={[styles.container, isUser ? styles.userContainer : styles.aiContainer]}>
-      <View style={[styles.bubble, isUser ? styles.userBubble : styles.aiBubble]}>
+    <View style={[styles.container, rightAligned ? styles.userContainer : styles.aiContainer]}>
+      <View style={[styles.bubble, bubbleStyle]}>
         {imageUri ? (
           <Image source={{ uri: imageUri }} style={styles.bubbleImage} resizeMode="cover" />
         ) : null}
         {message ? (
-        <Text style={StyleSheet.flatten([styles.message, isUser ? styles.userText : styles.aiText])}>
+        <Text style={StyleSheet.flatten([styles.message, textStyle])}>
           {message}
         </Text>
         ) : null}
@@ -78,7 +108,7 @@ export const ChatBubble: React.FC<ChatBubbleProps> = ({
           <Text
             style={StyleSheet.flatten([
               styles.timestamp,
-              isUser ? styles.userTimestamp : styles.aiTimestamp,
+              timestampStyle,
             ])}
           >
             {timestamp}
