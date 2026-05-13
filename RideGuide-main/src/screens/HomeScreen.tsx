@@ -32,6 +32,7 @@ import {
 } from '../utils/homeLastAccessed';
 import { hasSavedProfilePhone } from '../utils/profilePhone';
 import { navigateToProfilePrivacy } from '../navigation/historyCrossTabNavigate';
+import { haversineKm } from '../utils/geoDistance';
 
 function alertProviderPhoneRequired(navigation: { getParent: () => unknown }) {
   Alert.alert(
@@ -208,11 +209,58 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
     });
   };
 
+  function resolveOwnerJobPoint(req: ServiceRequest): { lat: number; lng: number } | null {
+    const live = req.requesterLiveLocation;
+    if (
+      live &&
+      typeof live.latitude === 'number' &&
+      typeof live.longitude === 'number' &&
+      Number.isFinite(live.latitude) &&
+      Number.isFinite(live.longitude)
+    ) {
+      return { lat: live.latitude, lng: live.longitude };
+    }
+    if (
+      typeof req.pickupLatitude === 'number' &&
+      typeof req.pickupLongitude === 'number' &&
+      Number.isFinite(req.pickupLatitude) &&
+      Number.isFinite(req.pickupLongitude)
+    ) {
+      return { lat: req.pickupLatitude, lng: req.pickupLongitude };
+    }
+    if (typeof req.latitude === 'number' && typeof req.longitude === 'number') {
+      return { lat: req.latitude, lng: req.longitude };
+    }
+    return null;
+  }
+
+  function coordsFromUserLocation(u: typeof user): { lat: number; lng: number } | null {
+    const c = u?.location?.coordinates;
+    if (Array.isArray(c) && c.length >= 2) {
+      const [lng, lat] = c;
+      if (typeof lat === 'number' && typeof lng === 'number' && Number.isFinite(lat) && Number.isFinite(lng)) {
+        return { lat, lng };
+      }
+    }
+    return null;
+  }
+
   const openRequestOnMap = (request: ServiceRequest) => {
+    const ownerPt = resolveOwnerJobPoint(request);
+    const lat = ownerPt?.lat ?? request.latitude;
+    const lng = ownerPt?.lng ?? request.longitude;
+    const label =
+      request.type === 'tow'
+        ? request.pickupAddress?.trim() || request.location
+        : request.location;
     navigation.navigate('RequestMap', {
-      location: request.location,
-      latitude: request.latitude,
-      longitude: request.longitude,
+      location: label,
+      latitude: lat,
+      longitude: lng,
+      previewRouteToOwner: true,
+      ownerLatitude: lat,
+      ownerLongitude: lng,
+      customerName: request.userName,
     });
   };
 
@@ -712,6 +760,40 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
           color: colors.primary,
           marginLeft: spacing.xs,
         },
+        mapPreviewRow: {
+          flexDirection: 'row',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          marginTop: spacing.sm,
+          paddingTop: spacing.sm,
+          borderTopWidth: StyleSheet.hairlineWidth,
+          borderTopColor: colors.border,
+        },
+        mapPreviewBtn: {
+          flexDirection: 'row',
+          alignItems: 'center',
+          paddingVertical: spacing.xs,
+          paddingRight: spacing.sm,
+        },
+        mapPreviewDistance: {
+          flexShrink: 1,
+          marginLeft: spacing.sm,
+          fontSize: isSmallScreen ? fontSizes.xs : fontSizes.sm,
+          color: colors.textSecondary,
+          textAlign: 'right',
+        },
+        liveBadge: {
+          marginLeft: spacing.xs,
+          paddingHorizontal: spacing.xs,
+          paddingVertical: 2,
+          borderRadius: 4,
+          backgroundColor: colors.success + '22',
+        },
+        liveBadgeText: {
+          fontSize: fontSizes.xs,
+          fontWeight: '600',
+          color: colors.success,
+        },
         emptyRequestsText: {
           fontSize: fontSizes.sm,
           color: colors.textSecondary,
@@ -837,11 +919,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                             index === requests.length - 1 && styles.requestRowLast,
                           ]}
                         >
-                          <TouchableOpacity
-                            style={styles.requestRowMain}
-                            activeOpacity={0.85}
-                            onPress={() => openRequestOnMap(req)}
-                          >
+                          <View style={styles.requestRowMain}>
                             <View style={styles.requestAvatar}>
                               <Text style={styles.requestAvatarText}>
                                 {req.userName.charAt(0).toUpperCase()}
@@ -903,7 +981,42 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                                 </View>
                               )}
                             </View>
-                          </TouchableOpacity>
+                          </View>
+                          <View style={styles.mapPreviewRow}>
+                            <TouchableOpacity
+                              style={styles.mapPreviewBtn}
+                              onPress={() => openRequestOnMap(req)}
+                              activeOpacity={0.8}
+                              accessibilityRole="button"
+                              accessibilityLabel="View vehicle owner on map with route and distance"
+                            >
+                              <Icon name="map" size={22} color={colors.primary} />
+                              <Text style={styles.viewMapBtnText}>Map & route</Text>
+                            </TouchableOpacity>
+                            {req.requesterLiveLocation &&
+                            typeof req.requesterLiveLocation.latitude === 'number' ? (
+                              <View style={styles.liveBadge}>
+                                <Text style={styles.liveBadgeText}>Live location</Text>
+                              </View>
+                            ) : null}
+                            {(() => {
+                              const o = resolveOwnerJobPoint(req);
+                              const me = coordsFromUserLocation(user);
+                              if (!o || !me) {
+                                return (
+                                  <Text style={styles.mapPreviewDistance} numberOfLines={2}>
+                                    Save your location in Profile to see distance here
+                                  </Text>
+                                );
+                              }
+                              const km = haversineKm(me.lat, me.lng, o.lat, o.lng);
+                              return (
+                                <Text style={styles.mapPreviewDistance} numberOfLines={2}>
+                                  ≈ {km.toFixed(1)} km to owner (straight line)
+                                </Text>
+                              );
+                            })()}
+                          </View>
                           <View style={styles.requestActions}>
                             {isTow || req.status === 'pending' ? (
                               <TouchableOpacity

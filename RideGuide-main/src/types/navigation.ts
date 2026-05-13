@@ -29,7 +29,17 @@ export type HomeStackParamList = {
   ChatAssistant: { sessionId?: string } | undefined;
   Assistance: undefined;
   VideoCall: { priorConversationSummary?: string; vehicleId?: string } | undefined;
-  RequestMap: { location: string; latitude: number; longitude: number };
+  RequestMap: {
+    location: string;
+    latitude: number;
+    longitude: number;
+    /** Mechanic/tow: show route from your position to the owner pin. */
+    previewRouteToOwner?: boolean;
+    /** Owner / pickup pin (prefer `requesterLiveLocation` when the app sends it). */
+    ownerLatitude?: number;
+    ownerLongitude?: number;
+    customerName?: string;
+  };
   RequestChat: { requestId: string; userName: string; vehicle: string; issue: string };
 };
 

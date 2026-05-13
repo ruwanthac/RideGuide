@@ -1030,13 +1030,21 @@ export const TowTruckAssistantScreen: React.FC<TowTruckAssistantScreenProps> = (
           alignItems: 'center',
           justifyContent: 'center',
           paddingTop: spacing.xs,
-          paddingBottom: spacing.xs,
+          paddingBottom: spacing.sm,
         },
         bottomSheetHandle: {
           width: scale(48),
           height: scale(5),
           borderRadius: borderRadius.full,
           backgroundColor: colors.border,
+        },
+        bottomSheetGrabHint: {
+          marginTop: spacing.xs,
+          paddingHorizontal: spacing.md,
+          fontSize: fontSizes.xs,
+          fontWeight: '600',
+          color: colors.textSecondary,
+          textAlign: 'center',
         },
         bottomOverlayContent: {
           padding: spacing.lg,
@@ -1424,6 +1432,7 @@ export const TowTruckAssistantScreen: React.FC<TowTruckAssistantScreenProps> = (
       <Animated.View style={styles.bottomOverlay}>
         <View style={styles.bottomSheetHandleArea} {...sheetPanResponder.panHandlers}>
           <View style={styles.bottomSheetHandle} />
+          <Text style={styles.bottomSheetGrabHint}>Drag up/down to show map or details</Text>
         </View>
         <KeyboardAvoidingView
           style={{ flex: 1 }}
