@@ -451,7 +451,7 @@ export const RegisterScreen: React.FC<RegisterScreenProps> = ({ onNavigateToLogi
                   {accountType === 'owner'
                     ? 'Sign up as a vehicle owner.'
                     : accountType === 'mechanic'
-                    ? 'Sign up as a mechanic.Submit workshop verification details'
+                    ? 'Sign up as a mechanic. Submit workshop verification details'
                     : 'Sign up as a tow driver. Submit company and truck documents for verification.'}
                 </Text>
               </View>

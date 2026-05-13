@@ -21,9 +21,8 @@ const MECHANIC_FIELDS: { field: ProviderVerificationFileField; label: string }[]
 
 const TOW_FIELDS: { field: ProviderVerificationFileField; label: string }[] = [
   { field: 'towCompanyBrCopy', label: 'Company BR' },
-  { field: 'towCompanyNicCopy', label: 'Company NIC' },
   { field: 'towTruckRegCopy', label: 'Truck registration' },
-  { field: 'towTruckNicCopy', label: 'Truck NIC' },
+  { field: 'towTruckNicCopy', label: 'Truck / owner NIC' },
 ];
 
 interface Paginated {
