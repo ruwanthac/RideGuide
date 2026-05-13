@@ -27,6 +27,7 @@ import { useUserRole } from '../context/UserRoleContext';
 import { useAuth } from '../context/AuthContext';
 import { useOngoingActivity } from '../context/OngoingActivityContext';
 import { useUnreadRequestChat } from '../context/UnreadRequestChatContext';
+import { formatCurrencyAmount } from '../utils/formatMoneyAmount';
 
 const NEXT_STATUS: Record<
   string,
@@ -755,7 +756,7 @@ export const TowDriverActiveJobScreen: React.FC<TowDriverActiveJobScreenProps> =
             <Text style={styles.statusText}>{statusLine}</Text>
           </Animated.View>
           <Text style={styles.amount}>
-            Estimated fare: {request.currency ?? 'LKR'} {Math.round(request.estimatedAmount ?? 0)}
+            Estimated fare: {formatCurrencyAmount(request.currency, request.estimatedAmount ?? 0)}
           </Text>
           {nextStatus ? (
             <TouchableOpacity disabled={saving} style={styles.nextBtn} onPress={onAdvanceStatus} activeOpacity={0.85}>

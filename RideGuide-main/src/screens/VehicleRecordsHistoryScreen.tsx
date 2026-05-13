@@ -20,6 +20,7 @@ import type { ServiceRequest } from '../backend/types';
 import type { HistoryStackParamList } from '../types/navigation';
 import { navigateToTowOwnerTracking } from '../navigation/historyCrossTabNavigate';
 import { isIsoInCalendarRange } from '../utils/historyDateRange';
+import { formatCurrencyAmount } from '../utils/formatMoneyAmount';
 
 type Nav = NativeStackNavigationProp<HistoryStackParamList, 'VehicleRecordsHistory'>;
 
@@ -211,6 +212,13 @@ export const VehicleRecordsHistoryScreen: React.FC = () => {
               <View style={styles.badge}>
                 <Text style={styles.badgeText}>{item.type === 'tow' ? 'Tow truck' : 'Roadside'}</Text>
               </View>
+              {item.finalAmount != null || item.estimatedAmount != null ? (
+                <Text style={styles.meta}>
+                  {item.finalAmount != null
+                    ? `Final: ${formatCurrencyAmount(item.currency, item.finalAmount)}`
+                    : `Est.: ${formatCurrencyAmount(item.currency, item.estimatedAmount)}`}
+                </Text>
+              ) : null}
             </Card>
           )}
         />

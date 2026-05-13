@@ -33,6 +33,7 @@ import {
 import { hasSavedProfilePhone } from '../utils/profilePhone';
 import { navigateToProfilePrivacy } from '../navigation/historyCrossTabNavigate';
 import { haversineKm } from '../utils/geoDistance';
+import { formatCurrencyAmount } from '../utils/formatMoneyAmount';
 
 function alertProviderPhoneRequired(navigation: { getParent: () => unknown }) {
   Alert.alert(
@@ -830,7 +831,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
 
   const formatTowAmount = (req: ServiceRequest) => {
     if (typeof req.estimatedAmount !== 'number') return null;
-    return `${req.currency ?? 'LKR'} ${Math.round(req.estimatedAmount)}`;
+    return formatCurrencyAmount(req.currency, req.estimatedAmount);
   };
 
   return (

@@ -11,6 +11,7 @@ import { adminUrl, apiDelete, apiGet, ApiError } from '../lib/api';
 import { totalPagesFrom } from '../lib/pagination';
 import { SERVICE_REQUEST_STATUSES } from '../constants/serviceRequestStatuses';
 import type { RequestStatus, ServiceRequestRow } from '../types';
+import { formatCurrencyAmount } from '../lib/formatMoneyAmount';
 
 type Tab = 'roadside' | 'tow';
 
@@ -119,6 +120,16 @@ function RequestDetailModal({
               <div>
                 <dt className="text-gray-500 dark:text-gray-400">Location</dt>
                 <dd>{request.location}</dd>
+              </div>
+            )}
+            {(request.estimatedAmount != null || request.finalAmount != null) && (
+              <div>
+                <dt className="text-gray-500 dark:text-gray-400">Amount</dt>
+                <dd>
+                  {request.finalAmount != null
+                    ? `Final: ${formatCurrencyAmount(request.currency, request.finalAmount)}`
+                    : `Estimated: ${formatCurrencyAmount(request.currency, request.estimatedAmount)}`}
+                </dd>
               </div>
             )}
             {(request.assignedTo || request.acceptedProviderDisplayName) && (
@@ -296,7 +307,7 @@ export function Requests() {
             </select>
           </div>
           {loading ? (
-            <TableSkeleton rows={6} cols={6} />
+            <TableSkeleton rows={6} cols={7} />
           ) : (
             <>
               <Table>
@@ -305,6 +316,7 @@ export function Requests() {
                   <TableHead>Vehicle</TableHead>
                   <TableHead>Issue</TableHead>
                   <TableHead>Status</TableHead>
+                  <TableHead>Amount</TableHead>
                   <TableHead>Created</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
                 </TableHeader>
@@ -320,6 +332,13 @@ export function Requests() {
                       </TableCell>
                       <TableCell>
                         <Badge variant={statusToBadgeVariant(r.status)}>{r.status}</Badge>
+                      </TableCell>
+                      <TableCell className="text-gray-700 dark:text-gray-300 tabular-nums">
+                        {(() => {
+                          const v = r.finalAmount ?? r.estimatedAmount;
+                          if (v == null || typeof v !== 'number' || !Number.isFinite(v)) return '—';
+                          return formatCurrencyAmount(r.currency, v);
+                        })()}
                       </TableCell>
                       <TableCell className="text-gray-500 dark:text-gray-400">
                         {new Date(r.createdAt).toLocaleDateString()}

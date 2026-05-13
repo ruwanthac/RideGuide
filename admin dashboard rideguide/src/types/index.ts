@@ -74,6 +74,9 @@ export interface ServiceRequestRow {
   location?: string;
   description?: string;
   issue?: string;
+  estimatedAmount?: number | null;
+  finalAmount?: number | null;
+  currency?: string | null;
   createdAt: string;
   updatedAt?: string;
   /** Mechanic/tow display name when accepted */

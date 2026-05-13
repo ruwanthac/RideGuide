@@ -18,6 +18,7 @@ import { listServiceRequests } from '../backend/serviceRequestsService';
 import { extractApiError } from '../backend/apiClient';
 import type { ServiceRequest } from '../backend/types';
 import type { HistoryStackParamList } from '../types/navigation';
+import { formatCurrencyAmount } from '../utils/formatMoneyAmount';
 
 type Nav = NativeStackNavigationProp<HistoryStackParamList, 'TowJobHistory'>;
 
@@ -145,9 +146,9 @@ export const TowJobHistoryScreen: React.FC = () => {
               <Text style={styles.meta}>
                 {item.bookingType === 'scheduled' ? 'Scheduled' : 'On-demand'}
                 {item.finalAmount != null
-                  ? ` · ${item.currency ?? 'LKR'} ${Math.round(item.finalAmount)}`
+                  ? ` · ${formatCurrencyAmount(item.currency, item.finalAmount)}`
                   : item.estimatedAmount != null
-                  ? ` · est. ${item.currency ?? 'LKR'} ${Math.round(item.estimatedAmount)}`
+                  ? ` · est. ${formatCurrencyAmount(item.currency, item.estimatedAmount)}`
                   : ''}
               </Text>
             </Card>

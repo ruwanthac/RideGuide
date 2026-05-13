@@ -25,6 +25,7 @@ import { useUserRole } from '../context/UserRoleContext';
 import { useAuth } from '../context/AuthContext';
 import { useOngoingActivity } from '../context/OngoingActivityContext';
 import { useUnreadRequestChat } from '../context/UnreadRequestChatContext';
+import { formatCurrencyAmount } from '../utils/formatMoneyAmount';
 
 const LABELS: Record<string, string> = {
   pending: 'Pending',
@@ -716,7 +717,7 @@ export const TowOwnerTrackingScreen: React.FC<TowOwnerTrackingScreenProps> = ({
             </View>
           ) : null}
           <Text style={styles.amount}>
-            {amountLabel}: {request.currency ?? 'LKR'} {Math.round(request.estimatedAmount ?? 0)}
+            {amountLabel}: {formatCurrencyAmount(request.currency, request.estimatedAmount ?? 0)}
           </Text>
           <View style={styles.timelineContainer}>
             {flow.map((step, index) => {

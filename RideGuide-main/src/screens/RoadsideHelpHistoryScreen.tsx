@@ -18,6 +18,7 @@ import { listServiceRequests } from '../backend/serviceRequestsService';
 import { extractApiError } from '../backend/apiClient';
 import type { ServiceRequest } from '../backend/types';
 import type { HistoryStackParamList } from '../types/navigation';
+import { formatCurrencyAmount } from '../utils/formatMoneyAmount';
 
 type Nav = NativeStackNavigationProp<HistoryStackParamList, 'RoadsideHelpHistory'>;
 
@@ -143,7 +144,11 @@ export const RoadsideHelpHistoryScreen: React.FC = () => {
               <Text style={styles.meta}>{item.pickupAddress ?? item.location}</Text>
               {item.finalAmount != null ? (
                 <Text style={styles.meta}>
-                  Final: {item.currency ?? 'LKR'} {Math.round(item.finalAmount)}
+                  Final: {formatCurrencyAmount(item.currency, item.finalAmount)}
+                </Text>
+              ) : item.estimatedAmount != null ? (
+                <Text style={styles.meta}>
+                  Est.: {formatCurrencyAmount(item.currency, item.estimatedAmount)}
                 </Text>
               ) : null}
             </Card>

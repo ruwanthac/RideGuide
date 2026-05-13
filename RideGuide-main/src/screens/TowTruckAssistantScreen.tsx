@@ -30,6 +30,7 @@ import { hasMapboxToken, reverseGeocodeMapbox, searchMapboxPlaces, type Location
 import { useAuth } from '../context/AuthContext';
 import { useVehicles } from '../context/VehiclesContext';
 import type { TowEstimate } from '../backend/types';
+import { formatCurrencyAmount } from '../utils/formatMoneyAmount';
 
 type TripType = 'tow' | 'roadside';
 
@@ -1593,7 +1594,7 @@ export const TowTruckAssistantScreen: React.FC<TowTruckAssistantScreenProps> = (
                   {estimating
                     ? 'Calculating estimate...'
                     : estimate
-                    ? `${estimate.currency ?? 'LKR'} ${Number(estimate.estimatedAmount ?? 0).toFixed(2)}`
+                    ? formatCurrencyAmount(estimate.currency, estimate.estimatedAmount)
                     : 'Unable to calculate estimate right now.'}
                 </Text>
               </View>
