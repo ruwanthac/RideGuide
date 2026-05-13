@@ -12,7 +12,7 @@ import {
   Linking,
   Alert,
 } from 'react-native';
-import { Card, Icon } from '../components';
+import { Card, Icon, UnreadRedDot } from '../components';
 import { colors } from '../constants/theme';
 import type { IconName } from '../components';
 import { useResponsive } from '../hooks';
@@ -20,6 +20,7 @@ import { useUserRole } from '../context/UserRoleContext';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { useVehicles } from '../context/VehiclesContext';
 import { useAuth } from '../context/AuthContext';
+import { useUnreadRequestChat } from '../context/UnreadRequestChatContext';
 import { subscribeServiceRequests, updateServiceRequest } from '../backend/serviceRequestsService';
 import type { ServiceRequest } from '../backend/types';
 import { extractApiError } from '../backend/apiClient';
@@ -76,6 +77,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   const { role } = useUserRole();
   const { selectedVehicleId, refresh: refreshVehicles } = useVehicles();
   const { refreshProfile, user } = useAuth();
+  const { hasUnreadRequestChat } = useUnreadRequestChat();
   const greeting = getTimeBasedGreeting();
   const [bannerIndex, setBannerIndex] = useState(0);
   const [refreshing, setRefreshing] = useState(false);
@@ -324,7 +326,8 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
           justifyContent: 'center',
           minHeight: verticalScale(120),
         },
-        cardIcon: {
+        cardIconWrap: {
+          position: 'relative',
           marginBottom: spacing.md,
         },
         cardTitle: {
@@ -418,6 +421,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
           alignItems: 'center',
           justifyContent: 'center',
           marginRight: spacing.md,
+          position: 'relative',
         },
         activityContent: {
           flex: 1,
@@ -900,7 +904,10 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
             ) : (
               <Card onPress={item.onPress} padded>
                 <View style={styles.cardContent}>
-                  <Icon name={item.icon} size={iconSizes.lg} color={colors.primary} style={styles.cardIcon} />
+                  <View style={styles.cardIconWrap}>
+                    <Icon name={item.icon} size={iconSizes.lg} color={colors.primary} />
+                    <UnreadRedDot visible={hasUnreadRequestChat && item.id === 'chat'} />
+                  </View>
                   <Text style={styles.cardTitle}>{item.title}</Text>
                 </View>
               </Card>
@@ -929,6 +936,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
               >
                 <View style={styles.activityIcon}>
                   <Icon name={row.icon} size={20} color={colors.primary} />
+                  <UnreadRedDot visible={hasUnreadRequestChat && row.icon === 'chatbubble'} />
                 </View>
                 <View style={styles.activityContent}>
                   <Text style={styles.activityTitle}>{row.title}</Text>

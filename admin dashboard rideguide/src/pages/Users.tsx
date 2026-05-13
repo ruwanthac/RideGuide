@@ -7,7 +7,7 @@ import { TableSkeleton } from '../components/ui/Skeleton';
 import { Modal } from '../components/ui/Modal';
 import { adminUrl, apiGet, apiPatch, ApiError } from '../lib/api';
 import { totalPagesFrom } from '../lib/pagination';
-import { statusToBadgeVariant } from '../components/ui/Badge';
+import { statusToBadgeVariant } from '../components/ui/badgeStatus';
 import type { AdminUser, UserRole, UserStatus } from '../types';
 
 const roleLabels: Record<UserRole, string> = {

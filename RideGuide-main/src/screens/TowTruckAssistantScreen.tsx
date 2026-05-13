@@ -112,7 +112,10 @@ export const TowTruckAssistantScreen: React.FC<TowTruckAssistantScreenProps> = (
   const [estimate, setEstimate] = useState<TowEstimate | null>(null);
   const [estimating, setEstimating] = useState(false);
   const visibleRecentDrops = useMemo(
-    () => (recentDropLocations.length > 0 ? recentDropLocations.slice(0, 5) : SUGGESTED_LOCATIONS),
+    () =>
+      recentDropLocations.length > 0
+        ? recentDropLocations.slice(0, 5)
+        : SUGGESTED_LOCATIONS.map((item) => ({ ...item, latitude: 0, longitude: 0 })),
     [recentDropLocations]
   );
   const showTowEstimateCard =
@@ -1750,13 +1753,7 @@ export const TowTruckAssistantScreen: React.FC<TowTruckAssistantScreenProps> = (
                     index === visibleRecentDrops.length - 1 && styles.suggestedCardLast,
                   ]}
                   activeOpacity={0.7}
-                  onPress={() =>
-                    handleSelectDropLocation({
-                      ...loc,
-                      latitude: typeof loc.latitude === 'number' ? loc.latitude : 0,
-                      longitude: typeof loc.longitude === 'number' ? loc.longitude : 0,
-                    })
-                  }
+                  onPress={() => handleSelectDropLocation(loc)}
                 >
                   <Text style={styles.suggestedName} numberOfLines={1}>
                     {loc.name}

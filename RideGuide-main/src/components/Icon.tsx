@@ -26,7 +26,12 @@ export type IconName =
   | 'eye-off'
   | 'chevron-back'
   | 'chevron-forward'
-  | 'navigate';
+  | 'navigate'
+  | 'flash'
+  | 'time'
+  | 'calendar'
+  | 'locate'
+  | 'location-outline';
 
 interface IconProps {
   name: IconName;

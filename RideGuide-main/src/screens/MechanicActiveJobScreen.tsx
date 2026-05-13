@@ -16,7 +16,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { WebView } from 'react-native-webview';
 import * as Location from 'expo-location';
-import { Icon } from '../components';
+import { Icon, UnreadRedDot } from '../components';
 import { colors } from '../constants/theme';
 import { useResponsive } from '../hooks';
 import type { ServiceRequest } from '../backend/types';
@@ -26,6 +26,7 @@ import { updateUserProfile } from '../backend/userProfileService';
 import { useUserRole } from '../context/UserRoleContext';
 import { useAuth } from '../context/AuthContext';
 import { useOngoingActivity } from '../context/OngoingActivityContext';
+import { useUnreadRequestChat } from '../context/UnreadRequestChatContext';
 
 const NEXT_STATUS: Record<string, 'attending_to_location' | 'completed' | null> = {
   pending: null,
@@ -120,6 +121,7 @@ export const MechanicActiveJobScreen: React.FC<MechanicActiveJobScreenProps> = (
   const { role } = useUserRole();
   const { user } = useAuth();
   const { syncFromServiceRequest } = useOngoingActivity();
+  const { hasUnreadRequestChat } = useUnreadRequestChat();
   const [request, setRequest] = useState<ServiceRequest | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -600,6 +602,7 @@ export const MechanicActiveJobScreen: React.FC<MechanicActiveJobScreenProps> = (
           alignItems: 'center',
           justifyContent: 'center',
           marginRight: spacing.sm,
+          position: 'relative',
         },
         nextBtn: {
           backgroundColor: colors.primary,
@@ -698,6 +701,7 @@ export const MechanicActiveJobScreen: React.FC<MechanicActiveJobScreenProps> = (
             </TouchableOpacity>
             <TouchableOpacity style={styles.iconBtn} onPress={() => onOpenChat(request)} activeOpacity={0.85}>
               <Icon name="chatbubble" size={18} color={colors.primary} />
+              <UnreadRedDot visible={hasUnreadRequestChat} />
             </TouchableOpacity>
           </View>
           {nextStatus ? (

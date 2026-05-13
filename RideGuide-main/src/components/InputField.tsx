@@ -5,7 +5,8 @@ import {
   Text,
   StyleSheet,
   TextInputProps,
-  ViewStyle,
+  type StyleProp,
+  type ViewStyle,
   Animated,
 } from 'react-native';
 import { colors } from '../constants/theme';
@@ -14,7 +15,7 @@ import { useResponsive } from '../hooks';
 interface InputFieldProps extends TextInputProps {
   label?: string;
   error?: string;
-  containerStyle?: ViewStyle;
+  containerStyle?: StyleProp<ViewStyle>;
 }
 
 export const InputField: React.FC<InputFieldProps> = ({

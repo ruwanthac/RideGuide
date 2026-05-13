@@ -3,8 +3,9 @@ import {
   TouchableOpacity,
   View,
   StyleSheet,
-  ViewStyle,
-  ViewProps,
+  type StyleProp,
+  type ViewStyle,
+  type ViewProps,
 } from 'react-native';
 import { colors, shadows } from '../constants/theme';
 import { useResponsive } from '../hooks';
@@ -12,7 +13,7 @@ import { useResponsive } from '../hooks';
 interface CardProps extends ViewProps {
   children: React.ReactNode;
   onPress?: () => void;
-  style?: ViewStyle;
+  style?: StyleProp<ViewStyle>;
   padded?: boolean;
 }
 

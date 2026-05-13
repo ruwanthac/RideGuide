@@ -5,7 +5,7 @@ import { Table, TableHeader, TableHead, TableBody, TableRow, TableCell } from '.
 import { TableSkeleton } from '../components/ui/Skeleton';
 import { adminUrl, apiGet, ApiError } from '../lib/api';
 import { totalPagesFrom } from '../lib/pagination';
-import type { Vehicle, VehicleOwner } from '../types';
+import type { Vehicle } from '../types';
 
 const ITEMS_PER_PAGE = 20;
 
@@ -77,7 +77,7 @@ export function Vehicles() {
         const pg = typeof res.page === 'number' ? res.page : page;
         if (!cancelled)
           setData({
-            items: rows.map((row) => normalizeVehicle(row as Record<string, unknown>)),
+            items: rows.map((row) => normalizeVehicle(row as unknown as Record<string, unknown>)),
             total,
             page: pg,
             limit: lim,

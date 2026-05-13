@@ -1133,10 +1133,10 @@ export const VideoCallScreen: React.FC<VideoCallScreenProps> = ({
         borderRadius: borderRadius.lg,
         padding: spacing.md,
         zIndex: 5,
-        elevation: 8,
         borderWidth: 1,
         borderColor: call.border,
         ...shadows.lg,
+        elevation: 8,
       },
       chatList: {
         flex: 1,
@@ -1187,6 +1187,7 @@ export const VideoCallScreen: React.FC<VideoCallScreenProps> = ({
       chatInputRow: {
         flexDirection: 'row',
         alignItems: 'center',
+        paddingBottom: spacing.md,
       },
       chatInput: {
         flex: 1,

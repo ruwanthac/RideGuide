@@ -49,8 +49,8 @@ export async function searchMapboxPlaces(
     throw new Error(`Mapbox search failed (${response.status})`);
   }
   const data = await response.json();
-  const features = Array.isArray(data?.features) ? data.features : [];
-  return features.map(toSuggestion).filter((item): item is LocationSuggestion => item !== null);
+  const features: unknown[] = Array.isArray(data?.features) ? data.features : [];
+  return features.map((f) => toSuggestion(f)).filter((item): item is LocationSuggestion => item !== null);
 }
 
 export async function reverseGeocodeMapbox(latitude: number, longitude: number): Promise<LocationSuggestion | null> {

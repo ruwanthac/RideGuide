@@ -15,6 +15,7 @@ import { colors } from '../constants/theme';
 import { useResponsive } from '../hooks';
 import { joinChat } from '../backend/chatService';
 import { useAuth } from '../context/AuthContext';
+import { useUnreadRequestChat } from '../context/UnreadRequestChatContext';
 import type { ChatMessage } from '../backend/types';
 
 export interface RequestChatScreenParams {
@@ -41,6 +42,7 @@ export const RequestChatScreen: React.FC<RequestChatScreenProps> = ({
 }) => {
   const { spacing, fontSizes, iconSizes, scale, borderRadius } = useResponsive();
   const { user } = useAuth();
+  const { setOpenRequestChatId, clearUnreadRequestChat } = useUnreadRequestChat();
 
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputText, setInputText] = useState('');
@@ -55,6 +57,12 @@ export const RequestChatScreen: React.FC<RequestChatScreenProps> = ({
       flatListRef.current?.scrollToEnd({ animated: true });
     });
   }, []);
+
+  useEffect(() => {
+    setOpenRequestChatId(requestId);
+    clearUnreadRequestChat();
+    return () => setOpenRequestChatId(null);
+  }, [requestId, setOpenRequestChatId, clearUnreadRequestChat]);
 
   useEffect(() => {
     let alive = true;

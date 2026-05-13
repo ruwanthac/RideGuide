@@ -12,7 +12,7 @@ import {
   Alert,
 } from 'react-native';
 import { WebView } from 'react-native-webview';
-import { Icon } from '../components';
+import { Icon, UnreadRedDot } from '../components';
 import { colors } from '../constants/theme';
 import { useResponsive } from '../hooks';
 import type { ServiceRequest } from '../backend/types';
@@ -22,6 +22,7 @@ import { useUserRole } from '../context/UserRoleContext';
 import { useNavigation } from '@react-navigation/native';
 import { useAuth } from '../context/AuthContext';
 import { useOngoingActivity } from '../context/OngoingActivityContext';
+import { useUnreadRequestChat } from '../context/UnreadRequestChatContext';
 import { updateUserProfile } from '../backend/userProfileService';
 
 const ROAD_STATUS_LABELS: Record<string, string> = {
@@ -52,6 +53,7 @@ export const RoadsideOwnerTrackingScreen: React.FC<RoadsideOwnerTrackingScreenPr
   const { role } = useUserRole();
   const { user } = useAuth();
   const { syncFromServiceRequest, clearForRequest } = useOngoingActivity();
+  const { hasUnreadRequestChat } = useUnreadRequestChat();
   const navigation = useNavigation<any>();
   const [request, setRequest] = useState<ServiceRequest | null>(null);
   const [loading, setLoading] = useState(true);
@@ -503,6 +505,7 @@ export const RoadsideOwnerTrackingScreen: React.FC<RoadsideOwnerTrackingScreenPr
           alignItems: 'center',
           justifyContent: 'center',
           marginRight: spacing.sm,
+          position: 'relative',
         },
         backBtn: {
           position: 'absolute',
@@ -647,6 +650,7 @@ export const RoadsideOwnerTrackingScreen: React.FC<RoadsideOwnerTrackingScreenPr
               </TouchableOpacity>
               <TouchableOpacity style={styles.iconBtn} onPress={openChat} activeOpacity={0.85}>
                 <Icon name="chatbubble" size={20} color={colors.primary} />
+                <UnreadRedDot visible={hasUnreadRequestChat} />
               </TouchableOpacity>
             </View>
           </View>

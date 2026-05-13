@@ -12,6 +12,7 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { useAuth } from '../context/AuthContext';
 import { OngoingActivityProvider } from '../context/OngoingActivityContext';
+import { UnreadRequestChatProvider } from '../context/UnreadRequestChatContext';
 import { OngoingActivityMiniBar } from '../components/OngoingActivityMiniBar';
 import { PasswordChangePromptGate } from '../components/PasswordChangePromptGate';
 
@@ -323,11 +324,13 @@ export const AppNavigator = () => {
           <RootStack.Screen name="Main">
             {() => (
               <OngoingActivityProvider navigationRef={navigationRef}>
-                <View style={{ flex: 1 }}>
-                  <PasswordChangePromptGate />
-                  <MainTabNavigator />
-                  <OngoingActivityMiniBar />
-                </View>
+                <UnreadRequestChatProvider>
+                  <View style={{ flex: 1 }}>
+                    <PasswordChangePromptGate />
+                    <MainTabNavigator />
+                    <OngoingActivityMiniBar />
+                  </View>
+                </UnreadRequestChatProvider>
               </OngoingActivityProvider>
             )}
           </RootStack.Screen>

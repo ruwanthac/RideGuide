@@ -11,10 +11,11 @@ import {
   Dimensions,
   PanResponder,
   ScrollView,
+  Linking,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { WebView } from 'react-native-webview';
-import { Icon } from '../components';
+import { Icon, UnreadRedDot } from '../components';
 import { colors } from '../constants/theme';
 import { useResponsive } from '../hooks';
 import type { ServiceRequest } from '../backend/types';
@@ -23,6 +24,7 @@ import { extractApiError } from '../backend/apiClient';
 import { useUserRole } from '../context/UserRoleContext';
 import { useAuth } from '../context/AuthContext';
 import { useOngoingActivity } from '../context/OngoingActivityContext';
+import { useUnreadRequestChat } from '../context/UnreadRequestChatContext';
 
 const LABELS: Record<string, string> = {
   pending: 'Pending',
@@ -61,6 +63,7 @@ export const TowOwnerTrackingScreen: React.FC<TowOwnerTrackingScreenProps> = ({
   const { role } = useUserRole();
   const { user } = useAuth();
   const { syncFromServiceRequest, clearForRequest } = useOngoingActivity();
+  const { hasUnreadRequestChat } = useUnreadRequestChat();
   const [request, setRequest] = useState<ServiceRequest | null>(null);
   const [loading, setLoading] = useState(true);
   const [lastKnownDriverLocation, setLastKnownDriverLocation] = useState<{ latitude: number; longitude: number } | null>(null);
@@ -475,6 +478,28 @@ export const TowOwnerTrackingScreen: React.FC<TowOwnerTrackingScreenProps> = ({
     activePill: { flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start', paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: borderRadius.full, backgroundColor: 'rgba(37,99,235,0.12)' },
     activeText: { color: colors.primary, marginLeft: spacing.xs, fontWeight: '600' },
     actionsRow: { flexDirection: 'row', marginTop: spacing.sm, marginBottom: spacing.xs },
+    providerContactBlock: {
+      marginTop: spacing.sm,
+      paddingTop: spacing.md,
+      borderTopWidth: StyleSheet.hairlineWidth,
+      borderTopColor: colors.border,
+    },
+    providerContactLabel: {
+      fontSize: fontSizes.xs,
+      fontWeight: '600',
+      color: colors.textSecondary,
+      marginBottom: spacing.xs,
+    },
+    providerContactName: {
+      fontSize: fontSizes.md,
+      fontWeight: '700',
+      color: colors.text,
+    },
+    providerContactPhone: {
+      fontSize: fontSizes.sm,
+      color: colors.textSecondary,
+      marginTop: spacing.xs,
+    },
     iconBtn: {
       width: 44,
       height: 44,
@@ -483,6 +508,7 @@ export const TowOwnerTrackingScreen: React.FC<TowOwnerTrackingScreenProps> = ({
       alignItems: 'center',
       justifyContent: 'center',
       marginRight: spacing.sm,
+      position: 'relative',
     },
     amount: { marginTop: spacing.md, fontSize: fontSizes.md, color: colors.text, fontWeight: '700' },
     topBar: {
@@ -559,6 +585,34 @@ export const TowOwnerTrackingScreen: React.FC<TowOwnerTrackingScreenProps> = ({
   const ownerCanChatTow =
     request.type === 'tow' &&
     ['driver_picked_hire', 'driver_on_the_way', 'driver_arrived', 'vehicle_in_tow'].includes(request.status);
+  const ownerTowLiveContact =
+    request.type === 'tow' &&
+    ['driver_picked_hire', 'driver_on_the_way', 'driver_arrived', 'vehicle_in_tow', 'completed'].includes(
+      request.status
+    );
+  const ownerRoadsideLiveContact =
+    request.type === 'roadside' &&
+    (request.status === 'accepted' ||
+      request.status === 'attending_to_location' ||
+      request.status === 'completed');
+  const showProviderContactRow = ownerTowLiveContact || ownerRoadsideLiveContact;
+  const providerName =
+    request.acceptedProviderDisplayName?.trim() ||
+    (request.type === 'tow' ? 'Tow truck driver' : 'Mechanic');
+  const providerPhone = request.acceptedProviderPhone?.trim() ?? '';
+
+  const openCallProvider = () => {
+    if (!providerPhone) {
+      Alert.alert(
+        'Phone unavailable',
+        request.type === 'tow'
+          ? 'Your driver has not added a phone number yet.'
+          : 'Your mechanic has not added a phone number yet.'
+      );
+      return;
+    }
+    void Linking.openURL(`tel:${providerPhone}`);
+  };
 
   const handleMinimize = () => {
     if (user?.role === 'owner') syncFromServiceRequest(request, user.role);
@@ -635,11 +689,24 @@ export const TowOwnerTrackingScreen: React.FC<TowOwnerTrackingScreenProps> = ({
             <Icon name={request.type === 'roadside' ? 'construct' : 'car'} size={16} color={colors.primary} />
             <Text style={styles.activeText}>{LABELS[request.status] ?? request.status}</Text>
           </Animated.View>
-          {ownerCanChatTow ? (
-            <View style={styles.actionsRow}>
-              <TouchableOpacity style={styles.iconBtn} onPress={() => onOpenChat(request)} activeOpacity={0.85}>
-                <Icon name="chatbubble" size={18} color={colors.primary} />
-              </TouchableOpacity>
+          {showProviderContactRow ? (
+            <View style={styles.providerContactBlock}>
+              <Text style={styles.providerContactLabel}>
+                {request.type === 'tow' ? 'DRIVER' : 'MECHANIC'}
+              </Text>
+              <Text style={styles.providerContactName}>{providerName}</Text>
+              <Text style={styles.providerContactPhone}>{providerPhone || 'Phone number not on file'}</Text>
+              <View style={styles.actionsRow}>
+                <TouchableOpacity style={styles.iconBtn} onPress={openCallProvider} activeOpacity={0.85}>
+                  <Icon name="call" size={18} color={colors.primary} />
+                </TouchableOpacity>
+                {ownerCanChatTow || (request.type === 'roadside' && ownerRoadsideLiveContact) ? (
+                  <TouchableOpacity style={styles.iconBtn} onPress={() => onOpenChat(request)} activeOpacity={0.85}>
+                    <Icon name="chatbubble" size={18} color={colors.primary} />
+                    <UnreadRedDot visible={hasUnreadRequestChat} />
+                  </TouchableOpacity>
+                ) : null}
+              </View>
             </View>
           ) : null}
           <Text style={styles.amount}>

@@ -16,7 +16,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { WebView } from 'react-native-webview';
 import * as Location from 'expo-location';
-import { Icon } from '../components';
+import { Icon, UnreadRedDot } from '../components';
 import { colors } from '../constants/theme';
 import { useResponsive } from '../hooks';
 import type { ServiceRequest } from '../backend/types';
@@ -26,6 +26,7 @@ import { extractApiError } from '../backend/apiClient';
 import { useUserRole } from '../context/UserRoleContext';
 import { useAuth } from '../context/AuthContext';
 import { useOngoingActivity } from '../context/OngoingActivityContext';
+import { useUnreadRequestChat } from '../context/UnreadRequestChatContext';
 
 const NEXT_STATUS: Record<
   string,
@@ -134,6 +135,7 @@ export const TowDriverActiveJobScreen: React.FC<TowDriverActiveJobScreenProps> =
   const { role } = useUserRole();
   const { user } = useAuth();
   const { syncFromServiceRequest } = useOngoingActivity();
+  const { hasUnreadRequestChat } = useUnreadRequestChat();
   const [request, setRequest] = useState<ServiceRequest | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -569,6 +571,7 @@ export const TowDriverActiveJobScreen: React.FC<TowDriverActiveJobScreenProps> =
           alignItems: 'center',
           justifyContent: 'center',
           marginRight: spacing.sm,
+          position: 'relative',
         },
         amount: { fontWeight: '700', color: colors.text, marginBottom: spacing.sm },
         nextBtn: {
@@ -739,6 +742,7 @@ export const TowDriverActiveJobScreen: React.FC<TowDriverActiveJobScreenProps> =
             </TouchableOpacity>
             <TouchableOpacity style={styles.iconBtn} onPress={() => onOpenChat(request)} activeOpacity={0.85}>
               <Icon name="chatbubble" size={18} color={colors.primary} />
+              <UnreadRedDot visible={hasUnreadRequestChat} />
             </TouchableOpacity>
           </View>
           <Animated.View style={[styles.statusPill, { transform: [{ scale: pulse }] }]}>

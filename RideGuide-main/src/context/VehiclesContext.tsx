@@ -13,8 +13,8 @@ interface VehiclesContextValue {
     label: string;
     makeModel: string;
     vin: string;
-    year: number;
-    plate: string;
+    year?: number;
+    plate?: string;
   }) => Promise<Vehicle>;
   saveVehicle: (
     id: string,
@@ -45,11 +45,18 @@ export const VehiclesProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     await refreshProfile();
   }, [refreshProfile]);
 
-  const addVehicle = useCallback(async (v: { label: string; makeModel: string; vin: string }) => {
-    const created = await addUserVehicle(v);
-    await refresh();
-    return created;
-  }, [refresh]);
+  const addVehicle = useCallback(
+    async (v: { label: string; makeModel: string; vin: string; year?: number; plate?: string }) => {
+      const created = await addUserVehicle({
+        ...v,
+        year: v.year ?? new Date().getFullYear(),
+        plate: v.plate ?? '',
+      });
+      await refresh();
+      return created;
+    },
+    [refresh]
+  );
 
   const saveVehicle = useCallback(async (id: string, patch: Partial<{ label: string; makeModel: string; vin: string }>) => {
     const updated = await updateUserVehicle(id, patch);

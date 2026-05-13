@@ -10,9 +10,11 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Icon } from './Icon';
+import { UnreadRedDot } from './UnreadRedDot';
 import { colors } from '../constants/theme';
 import { useResponsive } from '../hooks';
 import { useOngoingActivity } from '../context/OngoingActivityContext';
+import { useUnreadRequestChat } from '../context/UnreadRequestChatContext';
 
 const TAB_BAR_HEIGHT = Platform.OS === 'ios' ? 49 : 56;
 
@@ -20,6 +22,7 @@ export const OngoingActivityMiniBar: React.FC = () => {
   const insets = useSafeAreaInsets();
   const { spacing, fontSizes, borderRadius } = useResponsive();
   const { activity, focusedRouteName, navigateToActivity } = useOngoingActivity();
+  const { hasUnreadRequestChat } = useUnreadRequestChat();
   const pulse = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
@@ -87,6 +90,7 @@ export const OngoingActivityMiniBar: React.FC = () => {
       alignItems: 'center',
       justifyContent: 'center',
       marginRight: spacing.sm,
+      position: 'relative',
     },
     textBlock: {
       flex: 1,
@@ -114,6 +118,7 @@ export const OngoingActivityMiniBar: React.FC = () => {
         >
           <View style={styles.iconCircle}>
             <Icon name={iconName} size={20} color={colors.primary} />
+            <UnreadRedDot visible={hasUnreadRequestChat} />
           </View>
           <View style={styles.textBlock}>
             <Text style={styles.title} numberOfLines={1}>

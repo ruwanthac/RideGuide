@@ -90,7 +90,7 @@ export async function subscribeServiceRequests(
       return doc.status === 'pending';
     }
     if (!filter.providerUserId) {
-      return doc.status !== 'completed' && doc.status !== 'cancelled';
+      return true;
     }
     const open =
       (filter.type === 'roadside' && doc.status === 'pending') ||
