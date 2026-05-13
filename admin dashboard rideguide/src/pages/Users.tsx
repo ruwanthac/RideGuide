@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react';
-import { Search, Pencil } from 'lucide-react';
+import { Search, Pencil, Trash2 } from 'lucide-react';
 import { Card, CardHeader, CardContent } from '../components/ui/Card';
 import { Badge } from '../components/ui/Badge';
 import { Table, TableHeader, TableHead, TableBody, TableRow, TableCell } from '../components/ui/Table';
 import { TableSkeleton } from '../components/ui/Skeleton';
 import { Modal } from '../components/ui/Modal';
-import { adminUrl, apiGet, apiPatch, ApiError } from '../lib/api';
+import { adminUrl, apiGet, apiPatch, apiDelete, ApiError, fetchCurrentUser } from '../lib/api';
 import { totalPagesFrom } from '../lib/pagination';
 import { statusToBadgeVariant } from '../components/ui/badgeStatus';
 import type { AdminUser, UserRole, UserStatus } from '../types';
@@ -203,6 +203,63 @@ function EditUserModal({
   );
 }
 
+function DeleteUserModal({
+  user,
+  onClose,
+  onDeleted,
+}: {
+  user: AdminUser;
+  onClose: () => void;
+  onDeleted: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  async function confirmDelete() {
+    setErr(null);
+    setBusy(true);
+    try {
+      await apiDelete(adminUrl(`users/${user.id}`));
+      onDeleted();
+      onClose();
+    } catch (e) {
+      setErr(e instanceof ApiError ? e.message : 'Delete failed');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Modal isOpen onClose={onClose} title="Delete user">
+      <div className="space-y-3 text-sm">
+        {err && <p className="text-red-600 dark:text-red-400">{err}</p>}
+        <p className="text-gray-700 dark:text-gray-300">
+          Permanently delete <span className="font-medium">{user.displayName}</span> ({user.email})? This removes their
+          account, vehicles, diagnosis history, assistant sessions, and service requests tied to them. This cannot be
+          undone.
+        </p>
+        <div className="flex justify-end gap-2 pt-2">
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-lg border border-gray-200 dark:border-gray-700 px-4 py-2 text-sm"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => void confirmDelete()}
+            className="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-60"
+          >
+            {busy ? 'Deleting…' : 'Delete user'}
+          </button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
 export function Users() {
   const [search, setSearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
@@ -213,7 +270,15 @@ export function Users() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [editUser, setEditUser] = useState<AdminUser | null>(null);
+  const [userToDelete, setUserToDelete] = useState<AdminUser | null>(null);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
+
+  useEffect(() => {
+    void fetchCurrentUser()
+      .then((me) => setCurrentUserId(me.id ?? me._id ?? null))
+      .catch(() => setCurrentUserId(null));
+  }, []);
 
   useEffect(() => {
     const t = setTimeout(() => setDebouncedSearch(search), 300);
@@ -336,14 +401,29 @@ export function Users() {
                         <Badge variant={statusToBadgeVariant(u.status ?? 'active')}>{u.status ?? 'active'}</Badge>
                       </TableCell>
                       <TableCell className="text-right">
-                        <button
-                          type="button"
-                          onClick={() => setEditUser(u)}
-                          className="inline-flex items-center gap-1 rounded p-1.5 text-sm text-accent-600 dark:text-accent-400 hover:bg-accent-500/10"
-                          title="Edit"
-                        >
-                          <Pencil className="h-4 w-4" /> Edit
-                        </button>
+                        <div className="flex flex-wrap items-center justify-end gap-1">
+                          <button
+                            type="button"
+                            onClick={() => setEditUser(u)}
+                            className="inline-flex items-center gap-1 rounded p-1.5 text-sm text-accent-600 dark:text-accent-400 hover:bg-accent-500/10"
+                            title="Edit"
+                          >
+                            <Pencil className="h-4 w-4" /> Edit
+                          </button>
+                          <button
+                            type="button"
+                            disabled={currentUserId != null && u.id === currentUserId}
+                            onClick={() => setUserToDelete(u)}
+                            className="inline-flex items-center gap-1 rounded p-1.5 text-sm text-red-600 dark:text-red-400 hover:bg-red-500/10 disabled:cursor-not-allowed disabled:opacity-40"
+                            title={
+                              currentUserId != null && u.id === currentUserId
+                                ? 'You cannot delete your own account'
+                                : 'Delete user'
+                            }
+                          >
+                            <Trash2 className="h-4 w-4" /> Delete
+                          </button>
+                        </div>
                       </TableCell>
                     </TableRow>
                   ))}
@@ -384,6 +464,14 @@ export function Users() {
           user={editUser}
           onClose={() => setEditUser(null)}
           onSaved={() => setRefreshKey((k) => k + 1)}
+        />
+      )}
+
+      {userToDelete && (
+        <DeleteUserModal
+          user={userToDelete}
+          onClose={() => setUserToDelete(null)}
+          onDeleted={() => setRefreshKey((k) => k + 1)}
         />
       )}
     </div>

@@ -1,4 +1,4 @@
-import React, { useState, useRef, useMemo, useEffect } from 'react';
+import React, { useState, useRef, useMemo, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -272,7 +272,7 @@ export const ChatAssistantScreen: React.FC<ChatAssistantScreenProps> = ({
     );
   };
 
-  const scrollToBottom = React.useCallback(() => {
+  const scrollToBottom = useCallback(() => {
     requestAnimationFrame(() => {
       flatListRef.current?.scrollToEnd({ animated: true });
     });

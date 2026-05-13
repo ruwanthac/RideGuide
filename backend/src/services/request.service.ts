@@ -127,7 +127,8 @@ export async function listForRole(userId: string, role: Role, vehicleId?: string
     const rows = await ServiceRequestModel.find({
       type: 'tow',
       $or: [
-        { status: 'requested' },
+        /** Unclaimed only — once a driver accepts, status leaves `requested` and `acceptedBy` is set. */
+        { status: 'requested', acceptedBy: null },
         {
           acceptedBy: new Types.ObjectId(userId),
           status: { $nin: ['completed', 'cancelled'] },
@@ -149,7 +150,7 @@ export async function listForRole(userId: string, role: Role, vehicleId?: string
   const rows = await ServiceRequestModel.find({
     type,
     $or: [
-      { status: 'pending' },
+      { status: 'pending', acceptedBy: null },
       {
         acceptedBy: new Types.ObjectId(userId),
         status: { $nin: ['completed', 'cancelled'] },
@@ -286,14 +287,33 @@ export async function transition(
       }
     }
     if (req.status !== 'pending') throw new HttpError(409, 'not pending');
-    req.status = 'accepted';
-    req.acceptedBy = new Types.ObjectId(userId);
-    if (!(req as any).acceptedAt) (req as any).acceptedAt = new Date();
+
     const provider = await UserModel.findById(userId).lean();
-    if (provider) {
-      (req as any).acceptedProviderDisplayName = provider.displayName ?? '';
-      (req as any).acceptedProviderPhone = provider.phoneNumber ?? '';
+    const acceptedFields = {
+      status: 'accepted' as const,
+      acceptedBy: new Types.ObjectId(userId),
+      acceptedAt: new Date(),
+      acceptedProviderDisplayName: (provider as { displayName?: string } | null)?.displayName ?? '',
+      acceptedProviderPhone: (provider as { phoneNumber?: string } | null)?.phoneNumber ?? '',
+    };
+
+    if (role === 'mechanic') {
+      const updated = await ServiceRequestModel.findOneAndUpdate(
+        { _id: new Types.ObjectId(id), type: 'roadside', status: 'pending', acceptedBy: null },
+        { $set: acceptedFields },
+        { new: true },
+      );
+      if (!updated) {
+        throw new HttpError(409, 'This request was already accepted by another provider.');
+      }
+      return enrichProviderLocation(updated.toObject() as RequestWithProviderLocation);
     }
+
+    req.status = 'accepted';
+    req.acceptedBy = acceptedFields.acceptedBy;
+    (req as any).acceptedAt = acceptedFields.acceptedAt;
+    (req as any).acceptedProviderDisplayName = acceptedFields.acceptedProviderDisplayName;
+    (req as any).acceptedProviderPhone = acceptedFields.acceptedProviderPhone;
   } else if (!isTow && target === 'completed') {
     if (String(req.acceptedBy) !== userId && role !== 'admin') throw new HttpError(403, 'forbidden');
     if (req.status !== 'attending_to_location') throw new HttpError(409, 'must be attending to location first');
@@ -314,8 +334,22 @@ export async function transition(
     if (target !== next) throw new HttpError(409, `next status must be ${next}`);
     if (current === 'requested') {
       if (role === 'tow') await assertProviderApprovedForJob(userId, role);
-      req.acceptedBy = new Types.ObjectId(userId);
-      if (!(req as any).acceptedAt) (req as any).acceptedAt = new Date();
+      const acceptedAt = new Date();
+      const updated = await ServiceRequestModel.findOneAndUpdate(
+        { _id: req._id, type: 'tow', status: 'requested', acceptedBy: null },
+        {
+          $set: {
+            status: target,
+            acceptedBy: new Types.ObjectId(userId),
+            acceptedAt: (req as { acceptedAt?: Date }).acceptedAt ?? acceptedAt,
+          },
+        },
+        { new: true },
+      );
+      if (!updated) {
+        throw new HttpError(409, 'Another driver already accepted this tow.');
+      }
+      return enrichProviderLocation(updated.toObject() as RequestWithProviderLocation);
     }
     req.status = target;
   } else {

@@ -79,6 +79,19 @@ export class ApiError extends Error {
 /** Best-effort `{ error: string }` from response body text. */
 export function parseApiErrorMessage(text: string): string {
   if (!text) return '';
+  const trimmed = text.trim();
+  if (
+    trimmed.startsWith('<!DOCTYPE') ||
+    trimmed.toLowerCase().startsWith('<html') ||
+    /<pre>\s*Cannot\s+(GET|POST|PUT|PATCH|DELETE)\s+\/api\//i.test(trimmed)
+  ) {
+    return (
+      'This request did not reach the RideGuide API (the response was HTML, not JSON). ' +
+      'Fix: run the admin app with `npm run dev` so `/api` is proxied to the backend, ' +
+      'or set `VITE_API_BASE_URL` in `.env` to your API origin (e.g. `http://localhost:3000`). ' +
+      'Also restart the backend after pulling API changes.'
+    );
+  }
   try {
     const j = JSON.parse(text) as { error?: string };
     return j.error ?? text;

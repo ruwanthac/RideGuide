@@ -10,7 +10,7 @@ import {
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { Card, Icon } from '../components';
+import { Card, HistoryDateFilterBar, Icon } from '../components';
 import { colors } from '../constants/theme';
 import { useResponsive } from '../hooks';
 import { useVehicles } from '../context/VehiclesContext';
@@ -18,6 +18,7 @@ import { listAiCallHistory } from '../backend/aiCallHistoryService';
 import { listAssistantChatSessions } from '../backend/assistantChatHistoryService';
 import { extractApiError } from '../backend/apiClient';
 import type { HistoryStackParamList } from '../types/navigation';
+import { isIsoInCalendarRange } from '../utils/historyDateRange';
 
 type Nav = NativeStackNavigationProp<HistoryStackParamList, 'AiChatHistory'>;
 
@@ -37,6 +38,8 @@ export const AiChatHistoryScreen: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [dateFrom, setDateFrom] = useState<Date | null>(null);
+  const [dateTo, setDateTo] = useState<Date | null>(null);
 
   const load = useCallback(async () => {
     setError(null);
@@ -75,6 +78,13 @@ export const AiChatHistoryScreen: React.FC = () => {
     setLoading(true);
     void load();
   }, [load]);
+
+  const filteredRows = useMemo(
+    () => rows.filter((r) => isIsoInCalendarRange(r.sortAt, dateFrom, dateTo)),
+    [rows, dateFrom, dateTo]
+  );
+
+  const hasDateFilter = dateFrom != null || dateTo != null;
 
   const styles = useMemo(
     () =>
@@ -118,12 +128,20 @@ export const AiChatHistoryScreen: React.FC = () => {
         </TouchableOpacity>
         <Text style={styles.title}>AI chat history</Text>
       </View>
+      <HistoryDateFilterBar
+        from={dateFrom}
+        to={dateTo}
+        onChange={({ from, to }) => {
+          setDateFrom(from);
+          setDateTo(to);
+        }}
+      />
       {error ? <Text style={styles.err}>{error}</Text> : null}
       {loading ? (
         <ActivityIndicator style={{ marginTop: 24 }} color={colors.primary} />
       ) : (
         <FlatList
-          data={rows}
+          data={filteredRows}
           keyExtractor={(item) => `${item.kind}-${item.id}`}
           refreshControl={
             <RefreshControl
@@ -137,7 +155,9 @@ export const AiChatHistoryScreen: React.FC = () => {
           contentContainerStyle={styles.list}
           ListEmptyComponent={
             <Text style={styles.empty}>
-              No AI assistant or video call history yet. Use Chat or Video call from Home.
+              {hasDateFilter
+                ? 'Nothing in this date range. Try different dates or clear the filter.'
+                : 'No AI assistant or video call history yet. Use Chat or Video call from Home.'}
             </Text>
           }
           renderItem={({ item }) => (

@@ -91,7 +91,7 @@ describe('email.service', () => {
     expect(smtpSendMailMock).not.toHaveBeenCalled();
   });
 
-  it('throws when sendMail rejects', async () => {
+  it('returns error when sendMail rejects', async () => {
     process.env.SMTP_HOST = 'smtp.example.com';
     process.env.SMTP_USER = 'u';
     process.env.SMTP_PASS = 'p';
@@ -100,6 +100,7 @@ describe('email.service', () => {
 
     const { sendEmail } = await import('../../src/services/email.service');
 
-    await expect(sendEmail({ to: 't@b.com', subject: 'S', html: '<p>x</p>' })).rejects.toThrow('SMTP refused');
+    const r = await sendEmail({ to: 't@b.com', subject: 'S', html: '<p>x</p>' });
+    expect(r).toEqual({ ok: false, error: 'SMTP refused' });
   });
 });

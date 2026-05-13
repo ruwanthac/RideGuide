@@ -21,6 +21,7 @@ import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { useVehicles } from '../context/VehiclesContext';
 import { useAuth } from '../context/AuthContext';
 import { useUnreadRequestChat } from '../context/UnreadRequestChatContext';
+import { useOngoingActivity } from '../context/OngoingActivityContext';
 import { subscribeServiceRequests, updateServiceRequest } from '../backend/serviceRequestsService';
 import type { ServiceRequest } from '../backend/types';
 import { extractApiError } from '../backend/apiClient';
@@ -29,6 +30,22 @@ import {
   recordHomeFunctionAccess,
   type HomeFunctionId,
 } from '../utils/homeLastAccessed';
+import { hasSavedProfilePhone } from '../utils/profilePhone';
+import { navigateToProfilePrivacy } from '../navigation/historyCrossTabNavigate';
+
+function alertProviderPhoneRequired(navigation: { getParent: () => unknown }) {
+  Alert.alert(
+    'Phone number required',
+    'Add your phone number under Profile → Privacy before accepting a job. Vehicle owners need to call you.',
+    [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Open Privacy',
+        onPress: () => navigateToProfilePrivacy(navigation),
+      },
+    ],
+  );
+}
 
 interface MenuItem {
   id: string;
@@ -78,6 +95,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   const { selectedVehicleId, refresh: refreshVehicles } = useVehicles();
   const { refreshProfile, user } = useAuth();
   const { hasUnreadRequestChat } = useUnreadRequestChat();
+  const { syncFromServiceRequest } = useOngoingActivity();
   const greeting = getTimeBasedGreeting();
   const [bannerIndex, setBannerIndex] = useState(0);
   const [refreshing, setRefreshing] = useState(false);
@@ -106,10 +124,10 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
             ? {
                 type: 'roadside' as const,
                 inboxOnly: true as const,
-                mechanicRoadsidePendingOnly: true as const,
+                providerOpenPoolOnly: true as const,
               }
             : role === 'tow' && user?._id
-            ? { type: 'tow' as const, inboxOnly: true as const, providerUserId: user._id }
+            ? { type: 'tow' as const, inboxOnly: true as const, providerOpenPoolOnly: true as const }
             : undefined;
         const off = await subscribeServiceRequests((items) => {
           if (!alive) return;
@@ -131,23 +149,26 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
       .filter((r) => r.type === 'roadside')
       .filter((r) => r.status !== 'completed' && r.status !== 'cancelled');
     if (role !== 'mechanic' || !user?._id) return rows;
-    return rows.filter((r) => r.status === 'pending');
+    return rows.filter((r) => r.status === 'pending' && !r.acceptedBy);
   }, [requests, role, user?._id]);
 
   const towRequests = useMemo(() => {
     const rows = requests.filter((r) => r.type === 'tow');
     if (role !== 'tow' || !user?._id) return rows;
-    return rows.filter((r) => {
-      if (r.status === 'completed' || r.status === 'cancelled') return false;
-      if (r.status === 'requested') return true;
-      return String(r.acceptedBy ?? '') === String(user._id);
-    });
+    /** Tow home inbox: unclaimed hires only; accepted work is on the activity bubble / active job. */
+    return rows.filter((r) => r.status === 'requested' && !r.acceptedBy);
   }, [requests, role, user?._id]);
   const bannerScrollRef = useRef<ScrollView>(null);
+  const navigation = useNavigation<any>();
 
   const handleAcceptRequest = async (request: ServiceRequest) => {
+    if (!hasSavedProfilePhone(user?.phoneNumber)) {
+      alertProviderPhoneRequired(navigation);
+      return;
+    }
     try {
       const updated = await updateServiceRequest(request._id, 'accepted');
+      if (user?.role === 'mechanic') syncFromServiceRequest(updated, user.role);
       navigation.navigate('MechanicActiveJob', { requestId: updated._id });
     } catch (error) {
       Alert.alert('Unable to accept', extractApiError(error, 'Please try again'));
@@ -155,6 +176,10 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   };
 
   const handleAcceptTowRequest = async (request: ServiceRequest) => {
+    if (!hasSavedProfilePhone(user?.phoneNumber)) {
+      alertProviderPhoneRequired(navigation);
+      return;
+    }
     try {
       let updated: ServiceRequest;
       try {
@@ -163,13 +188,12 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
         // Backward compatibility when backend still supports legacy "accepted" only.
         updated = await updateServiceRequest(request._id, 'accepted');
       }
+      if (user?.role === 'tow') syncFromServiceRequest(updated, user.role);
       navigation.navigate('TowDriverActiveJob', { requestId: updated._id });
     } catch (error) {
       Alert.alert('Unable to accept', extractApiError(error, 'Please try again'));
     }
   };
-
-  const navigation = useNavigation<any>();
 
   const openCall = (phoneNumber: string) => {
     Linking.openURL(`tel:${phoneNumber}`);

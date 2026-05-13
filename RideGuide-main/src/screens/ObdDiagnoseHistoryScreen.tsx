@@ -10,7 +10,7 @@ import {
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { Card, Icon } from '../components';
+import { Card, HistoryDateFilterBar, Icon } from '../components';
 import { colors } from '../constants/theme';
 import { useResponsive } from '../hooks';
 import { useVehicles } from '../context/VehiclesContext';
@@ -18,6 +18,7 @@ import { listDiagnosisHistory } from '../backend/diagnosisHistoryService';
 import { extractApiError } from '../backend/apiClient';
 import type { DiagnosisEntry } from '../backend/types';
 import type { HistoryStackParamList } from '../types/navigation';
+import { isIsoInCalendarRange } from '../utils/historyDateRange';
 
 type Nav = NativeStackNavigationProp<HistoryStackParamList, 'ObdDiagnoseHistory'>;
 
@@ -33,6 +34,8 @@ export const ObdDiagnoseHistoryScreen: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [dateFrom, setDateFrom] = useState<Date | null>(null);
+  const [dateTo, setDateTo] = useState<Date | null>(null);
 
   const load = useCallback(async () => {
     setError(null);
@@ -51,6 +54,13 @@ export const ObdDiagnoseHistoryScreen: React.FC = () => {
     setLoading(true);
     void load();
   }, [load]);
+
+  const filteredEntries = useMemo(
+    () => entries.filter((e) => isIsoInCalendarRange(e.createdAt, dateFrom, dateTo)),
+    [entries, dateFrom, dateTo]
+  );
+
+  const hasDateFilter = dateFrom != null || dateTo != null;
 
   const styles = useMemo(
     () =>
@@ -84,12 +94,20 @@ export const ObdDiagnoseHistoryScreen: React.FC = () => {
         </TouchableOpacity>
         <Text style={styles.title}>OBD diagnose history</Text>
       </View>
+      <HistoryDateFilterBar
+        from={dateFrom}
+        to={dateTo}
+        onChange={({ from, to }) => {
+          setDateFrom(from);
+          setDateTo(to);
+        }}
+      />
       {error ? <Text style={styles.err}>{error}</Text> : null}
       {loading ? (
         <ActivityIndicator style={{ marginTop: 24 }} color={colors.primary} />
       ) : (
         <FlatList
-          data={entries}
+          data={filteredEntries}
           keyExtractor={(item) => item._id}
           refreshControl={
             <RefreshControl
@@ -102,7 +120,11 @@ export const ObdDiagnoseHistoryScreen: React.FC = () => {
           }
           contentContainerStyle={styles.list}
           ListEmptyComponent={
-            <Text style={styles.empty}>No saved diagnoses for this vehicle yet. Run a diagnosis from Home.</Text>
+            <Text style={styles.empty}>
+              {hasDateFilter
+                ? 'No diagnoses in this date range. Try different dates or clear the filter.'
+                : 'No saved diagnoses for this vehicle yet. Run a diagnosis from Home.'}
+            </Text>
           }
           renderItem={({ item }) => (
             <Card

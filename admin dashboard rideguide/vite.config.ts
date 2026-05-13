@@ -5,15 +5,20 @@ import react from '@vitejs/plugin-react'
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '')
   const proxyTarget = env.VITE_PROXY_TARGET || 'http://localhost:3000'
+  const apiProxy = {
+    '/api': {
+      target: proxyTarget,
+      changeOrigin: true,
+    },
+  }
   return {
     plugins: [react()],
     server: {
-      proxy: {
-        '/api': {
-          target: proxyTarget,
-          changeOrigin: true,
-        },
-      },
+      proxy: apiProxy,
+    },
+    /** Same as dev: `vite preview` must forward `/api` or relative admin calls hit the static server (HTML "Cannot DELETE /api/…"). */
+    preview: {
+      proxy: apiProxy,
     },
   }
 })

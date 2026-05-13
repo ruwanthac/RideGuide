@@ -10,6 +10,7 @@ import {
   rejectProvider,
   verificationFile,
   patchUser,
+  deleteUser,
   removeRequestAsAdmin,
   getTowPricing,
   patchTowPricing,
@@ -20,12 +21,14 @@ import {
   analytics,
   auditLogs,
   seedDemo,
+  createAdmin,
 } from '../controllers/admin.controller';
 
 const router = Router();
 const analyticsLimiter = rateLimit({ windowMs: 60_000, max: 40 });
 
 router.use(authRequired, roleGuard(['admin']));
+router.post('/admins', createAdmin);
 router.get('/stats', stats);
 router.get('/users', users);
 router.get('/users/:id/verification-file/:field', verificationFile);
@@ -33,6 +36,7 @@ router.get('/users/:id', getAdminUser);
 router.post('/users/:id/verify-provider', verifyProvider);
 router.post('/users/:id/reject-provider', rejectProvider);
 router.patch('/users/:id', patchUser);
+router.delete('/users/:id', deleteUser);
 router.delete('/requests/:id', removeRequestAsAdmin);
 router.get('/pricing/tow', getTowPricing);
 router.patch('/pricing/tow', patchTowPricing);

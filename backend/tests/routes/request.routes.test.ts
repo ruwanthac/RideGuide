@@ -57,6 +57,102 @@ describe('service requests', () => {
     expect(accept.body.status).toBe('accepted');
     expect(accept.body.acceptedBy).toBeTruthy();
   });
+
+  it('only one mechanic wins when two try to accept the same job', async () => {
+    const app = buildApp();
+    const owner = await registerUser({ email: 'o-race@b.com', password: 'secret12', displayName: 'Owner' });
+    const m1 = await registerApprovedProvider({
+      email: 'm1-race@b.com',
+      password: 'secret12',
+      displayName: 'M1',
+      role: 'mechanic',
+    });
+    const m2 = await registerApprovedProvider({
+      email: 'm2-race@b.com',
+      password: 'secret12',
+      displayName: 'M2',
+      role: 'mechanic',
+    });
+
+    const create = await request(app)
+      .post('/api/requests')
+      .set('Authorization', `Bearer ${owner.token}`)
+      .send({
+        type: 'roadside',
+        vehicle: 'Toyota',
+        issue: 'Flat tyre',
+        location: 'Main St',
+        latitude: 1,
+        longitude: 2,
+        phoneNumber: '123',
+      });
+    expect(create.status).toBe(201);
+
+    const [a, b] = await Promise.all([
+      request(app)
+        .patch(`/api/requests/${create.body._id}`)
+        .set('Authorization', `Bearer ${m1.token}`)
+        .send({ status: 'accepted' }),
+      request(app)
+        .patch(`/api/requests/${create.body._id}`)
+        .set('Authorization', `Bearer ${m2.token}`)
+        .send({ status: 'accepted' }),
+    ]);
+    const winners = [a, b].filter((r) => r.status === 200);
+    const losers = [a, b].filter((r) => r.status === 409);
+    expect(winners).toHaveLength(1);
+    expect(losers).toHaveLength(1);
+  });
+
+  it('only one tow driver wins when two try to pick the same hire', async () => {
+    const app = buildApp();
+    const owner = await registerUser({ email: 'o-tow-race@b.com', password: 'secret12', displayName: 'Tow Owner' });
+    const t1 = await registerApprovedProvider({
+      email: 't1-race@b.com',
+      password: 'secret12',
+      displayName: 'Tow1',
+      role: 'tow',
+    });
+    const t2 = await registerApprovedProvider({
+      email: 't2-race@b.com',
+      password: 'secret12',
+      displayName: 'Tow2',
+      role: 'tow',
+    });
+
+    const create = await request(app)
+      .post('/api/requests')
+      .set('Authorization', `Bearer ${owner.token}`)
+      .send({
+        type: 'tow',
+        vehicle: 'Civic',
+        issue: 'Tow',
+        location: 'Pickup',
+        latitude: 6.91,
+        longitude: 79.86,
+        pickupAddress: 'Pickup',
+        dropoffAddress: 'Drop',
+        dropoffLatitude: 6.93,
+        dropoffLongitude: 79.88,
+        phoneNumber: '123',
+      });
+    expect(create.status).toBe(201);
+
+    const [a, b] = await Promise.all([
+      request(app)
+        .patch(`/api/requests/${create.body._id}`)
+        .set('Authorization', `Bearer ${t1.token}`)
+        .send({ status: 'driver_picked_hire' }),
+      request(app)
+        .patch(`/api/requests/${create.body._id}`)
+        .set('Authorization', `Bearer ${t2.token}`)
+        .send({ status: 'driver_picked_hire' }),
+    ]);
+    const winners = [a, b].filter((r) => r.status === 200);
+    const losers = [a, b].filter((r) => r.status === 409);
+    expect(winners).toHaveLength(1);
+    expect(losers).toHaveLength(1);
+  });
 });
 
 describe('service requests — vehicleId scoping', () => {

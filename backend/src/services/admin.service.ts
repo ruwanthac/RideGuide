@@ -6,10 +6,13 @@ import { Types } from 'mongoose';
 import { UserModel } from '../models/User';
 import { VehicleModel } from '../models/Vehicle';
 import { ServiceRequestModel } from '../models/ServiceRequest';
+import { ChatMessageModel } from '../models/ChatMessage';
+import { AssistantChatSessionModel } from '../models/AssistantChatSession';
+import { AiCallTranscriptModel } from '../models/AiCallTranscript';
 import { PricingConfigModel } from '../models/PricingConfig';
 import { DiagnosisHistoryModel } from '../models/DiagnosisHistory';
 import { AdminAuditLogModel } from '../models/AdminAuditLog';
-import { HttpError, registerUser } from './auth.service';
+import { HttpError, registerUser, sanitizeForClient } from './auth.service';
 import { sendEmail } from './email.service';
 import { env } from '../config/env';
 import { parsePagination, paginated, PaginatedPayload } from '../utils/pagination';
@@ -140,7 +143,10 @@ export async function getUserByIdForAdmin(id: string): Promise<Record<string, un
   return withId(u);
 }
 
-export async function verifyProviderApplication(userId: string, adminId: string): Promise<{ ok: boolean }> {
+export async function verifyProviderApplication(
+  userId: string,
+  adminId: string
+): Promise<{ ok: boolean; emailSent: boolean; emailError?: string; oneTimePassword?: string }> {
   const u = await UserModel.findById(userId);
   if (!u) throw new HttpError(404, 'user not found');
   if (u.role !== 'mechanic' && u.role !== 'tow') throw new HttpError(400, 'user is not a mechanic or tow provider');
@@ -159,17 +165,30 @@ export async function verifyProviderApplication(userId: string, adminId: string)
     html: `<p>Hi ${u.displayName},</p><p>Your provider application has been approved.</p><p><strong>Sign-in password (one-time):</strong> <code style="font-size:16px">${otp}</code></p><p>Use this password with your email on the app login screen. You can change it later from your profile if that option is available.</p>`,
     text: `Your RideGuide account is approved. One-time sign-in password: ${otp}`,
   });
-  if (!emailResult.ok) {
-    console.warn('[admin] verify-provider: email skipped or failed; user still approved');
+  const emailSent = emailResult.ok === true;
+  let emailError: string | undefined;
+  if (!emailSent) {
+    if ('skipped' in emailResult && emailResult.skipped) {
+      emailError =
+        'SMTP not configured on the server (set EMAIL_FROM, SMTP_HOST, SMTP_USER, SMTP_PASS in backend .env).';
+    } else if ('error' in emailResult) {
+      emailError = emailResult.error;
+    }
+    console.warn('[admin] verify-provider: email not sent; user approved. Reason:', emailError ?? 'unknown');
   }
   await recordAudit({
     adminId,
     action: 'PROVIDER_VERIFY',
     targetType: 'user',
     targetId: userId,
-    meta: { emailSent: emailResult.ok },
+    meta: { emailSent, emailError },
   });
-  return { ok: true };
+  return {
+    ok: true,
+    emailSent,
+    ...(emailError ? { emailError } : {}),
+    ...(!emailSent ? { oneTimePassword: otp } : {}),
+  };
 }
 
 export async function rejectProviderApplication(userId: string, adminId: string): Promise<{ ok: boolean }> {
@@ -190,6 +209,43 @@ export async function rejectProviderApplication(userId: string, adminId: string)
     meta: {},
   });
   return { ok: true };
+}
+
+export async function createAdminUser(
+  actorAdminId: string,
+  input: { email: string; password: string; displayName: string; phoneNumber?: string | null }
+): Promise<ReturnType<typeof sanitizeForClient>> {
+  const email = input.email.trim().toLowerCase();
+  if (!email) throw new HttpError(400, 'email required');
+  if (!input.password || input.password.length < 8) {
+    throw new HttpError(400, 'password must be at least 8 characters');
+  }
+  const displayName = input.displayName.trim();
+  if (!displayName) throw new HttpError(400, 'displayName required');
+  const exists = await UserModel.findOne({ email }).lean();
+  if (exists) throw new HttpError(409, 'email already registered');
+  const passwordHash = await bcrypt.hash(input.password, 10);
+  const phone =
+    typeof input.phoneNumber === 'string' && input.phoneNumber.trim()
+      ? input.phoneNumber.trim()
+      : undefined;
+  const user = await UserModel.create({
+    email,
+    passwordHash,
+    displayName,
+    role: 'admin',
+    providerVerificationStatus: 'none',
+    status: 'active',
+    ...(phone ? { phoneNumber: phone } : {}),
+  });
+  await recordAudit({
+    adminId: actorAdminId,
+    action: 'ADMIN_CREATE',
+    targetType: 'user',
+    targetId: String(user._id),
+    meta: { email: user.email },
+  });
+  return sanitizeForClient(user);
 }
 
 export async function getVerificationFileAbsolutePath(userId: string, field: string): Promise<string> {
@@ -232,6 +288,45 @@ export async function updateUser(
     meta: { fields: Object.keys(allowed) },
   });
   return withId(u);
+}
+
+export async function deleteUser(userId: string, actorAdminId: string) {
+  if (!Types.ObjectId.isValid(userId)) throw new HttpError(400, 'invalid user id');
+  if (String(userId) === String(actorAdminId)) {
+    throw new HttpError(403, 'cannot delete your own account');
+  }
+  const target = await UserModel.findById(userId).lean();
+  if (!target) throw new HttpError(404, 'user not found');
+  if (target.role === 'admin') {
+    const adminCount = await UserModel.countDocuments({ role: 'admin' });
+    if (adminCount <= 1) throw new HttpError(400, 'cannot delete the last admin account');
+  }
+  const oid = new Types.ObjectId(userId);
+  const vehicleIds = await VehicleModel.find({ ownerId: oid }).distinct('_id');
+  const requestOr: Record<string, unknown>[] = [{ requesterId: oid }, { acceptedBy: oid }];
+  if (vehicleIds.length > 0) requestOr.push({ vehicleId: { $in: vehicleIds } });
+  const requestFilter = { $or: requestOr };
+  const requestIds = await ServiceRequestModel.distinct('_id', requestFilter);
+  if (requestIds.length > 0) {
+    await ChatMessageModel.deleteMany({ requestId: { $in: requestIds } });
+  }
+  await ServiceRequestModel.deleteMany(requestFilter);
+  await DiagnosisHistoryModel.deleteMany({ userId: oid });
+  await AssistantChatSessionModel.deleteMany({ userId: oid });
+  await AiCallTranscriptModel.deleteMany({ userId: oid });
+  if (vehicleIds.length > 0) {
+    await UserModel.updateMany({ selectedVehicleId: { $in: vehicleIds } }, { $unset: { selectedVehicleId: 1 } });
+  }
+  await VehicleModel.deleteMany({ ownerId: oid });
+  const deleted = await UserModel.findByIdAndDelete(oid).lean();
+  if (!deleted) throw new HttpError(404, 'user not found');
+  await recordAudit({
+    adminId: actorAdminId,
+    action: 'USER_DELETE',
+    targetType: 'user',
+    targetId: userId,
+    meta: { email: target.email, role: target.role },
+  });
 }
 
 export async function deleteRequest(id: string, adminId: string) {

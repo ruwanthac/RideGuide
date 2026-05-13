@@ -79,6 +79,11 @@ export async function subscribeServiceRequests(
     inboxOnly?: boolean;
     /** Mechanic home: only unclaimed roadside requests (`pending`). */
     mechanicRoadsidePendingOnly?: boolean;
+    /**
+     * Provider home / badges: only the unclaimed pool. Accepted jobs are not listed here —
+     * the user opens them from the ongoing-activity bubble / active job screen.
+     */
+    providerOpenPoolOnly?: boolean;
     /** When set with inboxOnly, only show open jobs (pending/requested) or jobs accepted by this user. */
     providerUserId?: string;
   },
@@ -86,15 +91,20 @@ export async function subscribeServiceRequests(
   const inboxVisible = (doc: ServiceRequest): boolean => {
     if (!filter?.inboxOnly) return true;
     if (doc.status === 'completed' || doc.status === 'cancelled') return false;
+    if (filter.providerOpenPoolOnly) {
+      if (filter.type === 'roadside') return doc.status === 'pending' && !doc.acceptedBy;
+      if (filter.type === 'tow') return doc.status === 'requested' && !doc.acceptedBy;
+      return false;
+    }
     if (filter.mechanicRoadsidePendingOnly && filter.type === 'roadside') {
-      return doc.status === 'pending';
+      return doc.status === 'pending' && !doc.acceptedBy;
     }
     if (!filter.providerUserId) {
       return true;
     }
     const open =
-      (filter.type === 'roadside' && doc.status === 'pending') ||
-      (filter.type === 'tow' && doc.status === 'requested');
+      (filter.type === 'roadside' && doc.status === 'pending' && !doc.acceptedBy) ||
+      (filter.type === 'tow' && doc.status === 'requested' && !doc.acceptedBy);
     if (open) return true;
     return String(doc.acceptedBy ?? '') === String(filter.providerUserId);
   };

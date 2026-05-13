@@ -32,3 +32,11 @@ export function navigateToTowOwnerTracking(
     params: { requestId },
   });
 }
+
+/** Open Profile tab → Privacy (e.g. provider must add phone before accepting a job). */
+export function navigateToProfilePrivacy(navigation: { getParent: () => unknown }) {
+  const parent = navigation.getParent() as { navigate: (name: string, p?: object) => void } | undefined;
+  parent?.navigate('ProfileTab', {
+    screen: 'Privacy',
+  });
+}

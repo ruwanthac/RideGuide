@@ -10,9 +10,10 @@ import {
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { Card, Icon } from '../components';
+import { Card, HistoryDateFilterBar, Icon } from '../components';
 import { colors } from '../constants/theme';
 import { useResponsive } from '../hooks';
+import { isIsoInCalendarRange } from '../utils/historyDateRange';
 import { listServiceRequests } from '../backend/serviceRequestsService';
 import { extractApiError } from '../backend/apiClient';
 import type { ServiceRequest } from '../backend/types';
@@ -27,6 +28,8 @@ export const TowJobHistoryScreen: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [dateFrom, setDateFrom] = useState<Date | null>(null);
+  const [dateTo, setDateTo] = useState<Date | null>(null);
 
   const load = useCallback(async () => {
     setError(null);
@@ -46,6 +49,13 @@ export const TowJobHistoryScreen: React.FC = () => {
     setLoading(true);
     void load();
   }, [load]);
+
+  const filteredJobs = useMemo(
+    () => jobs.filter((j) => isIsoInCalendarRange(j.createdAt, dateFrom, dateTo)),
+    [jobs, dateFrom, dateTo]
+  );
+
+  const hasDateFilter = dateFrom != null || dateTo != null;
 
   const styles = useMemo(
     () =>
@@ -91,12 +101,20 @@ export const TowJobHistoryScreen: React.FC = () => {
         <Text style={styles.title}>Completed tow jobs</Text>
       </View>
       <Text style={styles.sub}>Tow requests you accepted and marked complete.</Text>
+      <HistoryDateFilterBar
+        from={dateFrom}
+        to={dateTo}
+        onChange={({ from, to }) => {
+          setDateFrom(from);
+          setDateTo(to);
+        }}
+      />
       {error ? <Text style={styles.err}>{error}</Text> : null}
       {loading ? (
         <ActivityIndicator style={{ marginTop: 24 }} color={colors.primary} />
       ) : (
         <FlatList
-          data={jobs}
+          data={filteredJobs}
           keyExtractor={(item) => item._id}
           refreshControl={
             <RefreshControl
@@ -108,7 +126,13 @@ export const TowJobHistoryScreen: React.FC = () => {
             />
           }
           contentContainerStyle={styles.list}
-          ListEmptyComponent={<Text style={styles.empty}>No completed tow jobs yet.</Text>}
+          ListEmptyComponent={
+            <Text style={styles.empty}>
+              {hasDateFilter
+                ? 'No tow jobs in this date range. Try different dates or clear the filter.'
+                : 'No completed tow jobs yet.'}
+            </Text>
+          }
           renderItem={({ item }) => (
             <Card style={styles.card} padded>
               <Text style={styles.date}>{new Date(item.createdAt).toLocaleString()}</Text>

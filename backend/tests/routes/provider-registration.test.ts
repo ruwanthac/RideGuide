@@ -76,6 +76,8 @@ describe('provider registration', () => {
       .post(`/api/admin/users/${userId}/verify-provider`)
       .set('Authorization', `Bearer ${admin.token}`);
     expect(verify.status).toBe(200);
+    expect(verify.body.emailSent).toBe(true);
+    expect(verify.body.oneTimePassword).toBeUndefined();
 
     const badOld = await request(app).post('/api/auth/login').send({ email: 'tow@b.com', password: 'secret1234' });
     expect(badOld.status).toBe(401);
@@ -90,5 +92,37 @@ describe('provider registration', () => {
     expect(login.status).toBe(200);
     expect(login.body.token).toBeTruthy();
     expect(login.body.user.mustChangePassword).toBe(true);
+  });
+
+  it('admin verify returns one-time password when email is skipped', async () => {
+    (sendEmail as jest.Mock).mockResolvedValue({ ok: false, skipped: true });
+    const app = buildApp();
+    const admin = await registerUser({ email: 'adm2@b.com', password: 'secret12', displayName: 'A2', role: 'admin' });
+
+    const reg = await request(app)
+      .post('/api/auth/register-provider')
+      .field('email', 'mech2@b.com')
+      .field('displayName', 'M2')
+      .field('role', 'mechanic')
+      .field('businessName', 'Shop')
+      .field('businessAddress', '123 St')
+      .attach('mechanicBrCopy', tinyPng(), 'br.png')
+      .attach('mechanicNicCopy', tinyPng(), 'nic.png');
+    expect(reg.status).toBe(201);
+    const userId = reg.body.user.id ?? reg.body.user._id;
+
+    const verify = await request(app)
+      .post(`/api/admin/users/${userId}/verify-provider`)
+      .set('Authorization', `Bearer ${admin.token}`);
+    expect(verify.status).toBe(200);
+    expect(verify.body.emailSent).toBe(false);
+    expect(verify.body.emailError).toMatch(/SMTP not configured/);
+    expect(typeof verify.body.oneTimePassword).toBe('string');
+    expect(verify.body.oneTimePassword.length).toBeGreaterThan(0);
+
+    const login = await request(app)
+      .post('/api/auth/login')
+      .send({ email: 'mech2@b.com', password: verify.body.oneTimePassword });
+    expect(login.status).toBe(200);
   });
 });

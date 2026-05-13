@@ -25,7 +25,10 @@ export function isEmailConfigured(): boolean {
   return isSmtpConfigured();
 }
 
-export type SendEmailResult = { ok: true; id: string } | { ok: false; skipped: true };
+export type SendEmailResult =
+  | { ok: true; id: string }
+  | { ok: false; skipped: true }
+  | { ok: false; error: string };
 
 export async function sendEmail(params: {
   to: string;
@@ -47,16 +50,22 @@ export async function sendEmail(params: {
   const transport = getSmtpTransporter();
   if (!transport) return { ok: false, skipped: true };
 
-  const info = await transport.sendMail({
-    from: env.EMAIL_FROM!,
-    to: params.to,
-    subject: params.subject,
-    html: params.html,
-    ...(params.text !== undefined ? { text: params.text } : {}),
-    ...(params.replyTo !== undefined ? { replyTo: params.replyTo } : {}),
-  });
+  try {
+    const info = await transport.sendMail({
+      from: env.EMAIL_FROM!,
+      to: params.to,
+      subject: params.subject,
+      html: params.html,
+      ...(params.text !== undefined ? { text: params.text } : {}),
+      ...(params.replyTo !== undefined ? { replyTo: params.replyTo } : {}),
+    });
 
-  const raw = info.messageId ?? '';
-  const id = raw.replace(/^<|>$/g, '') || 'smtp';
-  return { ok: true, id };
+    const raw = info.messageId ?? '';
+    const id = raw.replace(/^<|>$/g, '') || 'smtp';
+    return { ok: true, id };
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e);
+    console.error('[email] sendMail failed:', message);
+    return { ok: false, error: message };
+  }
 }

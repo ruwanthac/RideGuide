@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useEffect, useCallback } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -7,7 +7,6 @@ import {
   TouchableOpacity,
   TextInput,
   Alert,
-  Linking,
 } from 'react-native';
 import { Card, PrimaryButton, Icon } from '../components';
 import { colors } from '../constants/theme';
@@ -18,42 +17,14 @@ import { TowDashboard } from '../components/dashboards/TowDashboard';
 import { useUserRole } from '../context/UserRoleContext';
 import { useVehicles } from '../context/VehiclesContext';
 import { useAuth } from '../context/AuthContext';
-import { useNavigation, useFocusEffect } from '@react-navigation/native';
+import { useNavigation } from '@react-navigation/native';
 import { extractApiError } from '../backend/apiClient';
-import { listServiceRequests } from '../backend/serviceRequestsService';
-import type { ServiceRequest } from '../backend/types';
 
 const DEFAULT_MAKE_MODEL = 'Toyota Camry 2020';
 const DEFAULT_VIN = '1HGBH41JXMN109186';
 const DEFAULT_YEAR = 2020;
 const DEFAULT_PLATE = 'ABC-1234';
 const MAX_OWNER_VEHICLES = 3;
-
-function isOwnerActiveServiceJob(r: ServiceRequest, ownerId: string): boolean {
-  if (String(r.requesterId) !== String(ownerId)) return false;
-  return r.status !== 'completed' && r.status !== 'cancelled';
-}
-
-function canCallAssignedProvider(r: ServiceRequest): boolean {
-  const phone = r.acceptedProviderPhone?.trim();
-  if (!phone) return false;
-  if (r.type === 'roadside') {
-    return r.status === 'accepted' || r.status === 'attending_to_location' || r.status === 'completed';
-  }
-  return ['driver_picked_hire', 'driver_on_the_way', 'driver_arrived', 'vehicle_in_tow', 'completed'].includes(
-    r.status
-  );
-}
-
-function navigateOwnerToTracking(nav: { getParent: () => unknown }, r: ServiceRequest) {
-  const parent = nav.getParent() as { navigate: (name: string, params: object) => void } | null;
-  if (!parent?.navigate) return;
-  if (r.type === 'tow') {
-    parent.navigate('HomeTab', { screen: 'TowOwnerTracking', params: { requestId: r._id } });
-  } else {
-    parent.navigate('HomeTab', { screen: 'RoadsideOwnerTracking', params: { requestId: r._id } });
-  }
-}
 
 export const ProfileScreen: React.FC = () => {
   const { signOutUser, user } = useAuth();
@@ -70,57 +41,6 @@ export const ProfileScreen: React.FC = () => {
     removeVehicle,
   } = useVehicles();
   const navigation = useNavigation<any>();
-  const [activeOwnerJobs, setActiveOwnerJobs] = useState<ServiceRequest[]>([]);
-
-  const refreshOwnerActiveJobs = useCallback(async () => {
-    if (userRole !== 'owner' || !user?._id) {
-      setActiveOwnerJobs([]);
-      return;
-    }
-    try {
-      const rows = await listServiceRequests();
-      const mine = rows.filter((r) => isOwnerActiveServiceJob(r, user._id));
-      setActiveOwnerJobs(mine);
-    } catch {
-      setActiveOwnerJobs([]);
-    }
-  }, [userRole, user?._id]);
-
-  useFocusEffect(
-    useCallback(() => {
-      void refreshOwnerActiveJobs();
-    }, [refreshOwnerActiveJobs])
-  );
-
-  const openProviderCall = useCallback((r: ServiceRequest) => {
-    if (!canCallAssignedProvider(r)) {
-      Alert.alert(
-        'Not available yet',
-        r.type === 'tow'
-          ? 'You can call your driver after they pick up the job on their side.'
-          : 'You can call your mechanic after they accept your roadside request.'
-      );
-      return;
-    }
-    const phone = r.acceptedProviderPhone?.trim();
-    if (!phone) {
-      Alert.alert(
-        'Phone unavailable',
-        r.type === 'tow'
-          ? 'Your tow driver has not added a phone number yet.'
-          : 'Your mechanic has not added a phone number yet.'
-      );
-      return;
-    }
-    void Linking.openURL(`tel:${phone}`);
-  }, []);
-
-  const openOwnerJobTracking = useCallback(
-    (r: ServiceRequest) => {
-      navigateOwnerToTracking(navigation, r);
-    },
-    [navigation]
-  );
   const [editMakeModel, setEditMakeModel] = useState(DEFAULT_MAKE_MODEL);
   const [editVin, setEditVin] = useState(DEFAULT_VIN);
   const [editPlate, setEditPlate] = useState(DEFAULT_PLATE);
@@ -506,53 +426,6 @@ export const ProfileScreen: React.FC = () => {
           color: colors.primary,
           fontWeight: '500',
         },
-        ownerJobRow: {
-          paddingVertical: spacing.md,
-          borderBottomWidth: StyleSheet.hairlineWidth,
-          borderBottomColor: colors.border,
-        },
-        ownerJobRowLast: {
-          borderBottomWidth: 0,
-        },
-        ownerJobTitle: {
-          fontSize: fontSizes.md,
-          fontWeight: '700',
-          color: colors.text,
-        },
-        ownerJobMeta: {
-          fontSize: fontSizes.sm,
-          color: colors.textSecondary,
-          marginTop: spacing.xs,
-        },
-        ownerJobActions: {
-          flexDirection: 'row',
-          flexWrap: 'wrap',
-          marginTop: spacing.md,
-          gap: spacing.sm,
-        },
-        ownerJobBtn: {
-          flexDirection: 'row',
-          alignItems: 'center',
-          paddingVertical: spacing.sm,
-          paddingHorizontal: spacing.md,
-          borderRadius: borderRadius.md,
-          backgroundColor: 'rgba(37,99,235,0.1)',
-          borderWidth: 1,
-          borderColor: 'rgba(37,99,235,0.25)',
-        },
-        ownerJobBtnSecondary: {
-          backgroundColor: colors.background,
-          borderColor: colors.border,
-        },
-        ownerJobBtnText: {
-          fontSize: fontSizes.sm,
-          fontWeight: '600',
-          color: colors.primary,
-          marginLeft: spacing.xs,
-        },
-        ownerJobBtnTextMuted: {
-          color: colors.text,
-        },
       }),
     [spacing, fontSizes, borderRadius, buttonHeight, iconSizes, scale]
   );
@@ -590,52 +463,6 @@ export const ProfileScreen: React.FC = () => {
         showsVerticalScrollIndicator={false}
       >
         {renderDashboard()}
-
-        {userRole === 'owner' && activeOwnerJobs.length > 0 ? (
-          <Card style={styles.section} padded>
-            <Text style={styles.sectionTitle}>Active service requests</Text>
-            <Text style={[styles.currentProfileText, { marginBottom: spacing.md }]}>
-              Call your mechanic or tow driver once they have accepted the job. Use Open tracking for the live map and
-              status updates.
-            </Text>
-            {activeOwnerJobs.map((r, i) => {
-              const label = r.type === 'tow' ? 'Tow booking' : 'Roadside help';
-              const provider =
-                r.acceptedProviderDisplayName?.trim() || (r.type === 'tow' ? 'Tow driver' : 'Mechanic');
-              const canCall = canCallAssignedProvider(r);
-              return (
-                <View
-                  key={r._id}
-                  style={[styles.ownerJobRow, i === activeOwnerJobs.length - 1 && styles.ownerJobRowLast]}
-                >
-                  <Text style={styles.ownerJobTitle}>{label}</Text>
-                  <Text style={styles.ownerJobMeta} numberOfLines={2}>
-                    {r.vehicle} · {r.issue}
-                  </Text>
-                  <Text style={[styles.ownerJobMeta, { marginTop: 2 }]}>{provider}</Text>
-                  <View style={styles.ownerJobActions}>
-                    <TouchableOpacity
-                      style={[styles.ownerJobBtn, !canCall && styles.ownerJobBtnSecondary]}
-                      onPress={() => openProviderCall(r)}
-                      activeOpacity={0.75}
-                    >
-                      <Icon name="call" size={16} color={canCall ? colors.primary : colors.textSecondary} />
-                      <Text style={[styles.ownerJobBtnText, !canCall && { color: colors.textSecondary }]}>Call</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      style={[styles.ownerJobBtn, styles.ownerJobBtnSecondary]}
-                      onPress={() => openOwnerJobTracking(r)}
-                      activeOpacity={0.75}
-                    >
-                      <Icon name="navigate" size={16} color={colors.primary} />
-                      <Text style={[styles.ownerJobBtnText, styles.ownerJobBtnTextMuted]}>Open tracking</Text>
-                    </TouchableOpacity>
-                  </View>
-                </View>
-              );
-            })}
-          </Card>
-        ) : null}
 
         {userRole === 'owner' && (
           <Card style={styles.section} padded>

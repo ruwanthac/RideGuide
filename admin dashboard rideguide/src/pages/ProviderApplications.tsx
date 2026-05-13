@@ -121,8 +121,24 @@ export function ProviderApplications() {
     setActionBusy(true);
     setBanner(null);
     try {
-      await apiPost<{ ok: boolean }>(adminUrl(`users/${detailId}/verify-provider`));
-      setBanner({ type: 'ok', text: 'Provider approved. OTP emailed (if SMTP is configured).' });
+      const res = await apiPost<{
+        ok: boolean;
+        emailSent?: boolean;
+        emailError?: string;
+        oneTimePassword?: string;
+      }>(adminUrl(`users/${detailId}/verify-provider`));
+      if (res.emailSent) {
+        setBanner({ type: 'ok', text: 'Provider approved. A sign-in email with the one-time password was sent.' });
+      } else {
+        const errHint = res.emailError ? ` (${res.emailError})` : '';
+        const otp = res.oneTimePassword;
+        setBanner({
+          type: 'ok',
+          text: otp
+            ? `Provider approved, but email was not sent${errHint}. Copy this one-time password for the provider: ${otp}`
+            : `Provider approved, but email was not sent${errHint}. Check backend SMTP settings in .env.`,
+        });
+      }
       setDetailId(null);
       setRefreshKey((k) => k + 1);
     } catch (e) {

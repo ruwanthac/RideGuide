@@ -141,4 +141,100 @@ describe('admin', () => {
     const login = await request(app).post('/api/auth/login').send({ email: 'vic@b.com', password: 'secret12' });
     expect(login.status).toBe(403);
   });
+
+  it('non-admin cannot create admin accounts', async () => {
+    const app = buildApp();
+    const owner = await registerUser({ email: 'ownadm@b.com', password: 'secret12', displayName: 'Own' });
+    const res = await request(app)
+      .post('/api/admin/admins')
+      .set('Authorization', `Bearer ${owner.token}`)
+      .send({ email: 'hacker@b.com', password: 'secret1234', displayName: 'X' });
+    expect(res.status).toBe(403);
+  });
+
+  it('admin can create another admin who can log in', async () => {
+    const app = buildApp();
+    const admin = await registerUser({
+      email: 'rootadm@b.com',
+      password: 'secret12',
+      displayName: 'Root',
+      role: 'admin',
+    });
+    const res = await request(app)
+      .post('/api/admin/admins')
+      .set('Authorization', `Bearer ${admin.token}`)
+      .send({
+        email: 'newadmin@b.com',
+        password: 'secret1234',
+        displayName: 'Desk Admin',
+        phoneNumber: '+94770000001',
+      });
+    expect(res.status).toBe(201);
+    expect(res.body.role).toBe('admin');
+    expect(res.body.email).toBe('newadmin@b.com');
+
+    const login = await request(app)
+      .post('/api/auth/login')
+      .send({ email: 'newadmin@b.com', password: 'secret1234' });
+    expect(login.status).toBe(200);
+    expect(login.body.user.role).toBe('admin');
+  });
+
+  it('admin can delete a non-admin user', async () => {
+    const app = buildApp();
+    const admin = await registerUser({
+      email: 'deladm@b.com',
+      password: 'secret12',
+      displayName: 'DelAdm',
+      role: 'admin',
+    });
+    const victim = await registerUser({ email: 'delvic@b.com', password: 'secret12', displayName: 'DelVic' });
+    const del = await request(app)
+      .delete(`/api/admin/users/${victim.user.id}`)
+      .set('Authorization', `Bearer ${admin.token}`);
+    expect(del.status).toBe(204);
+    const get = await request(app)
+      .get(`/api/admin/users/${victim.user.id}`)
+      .set('Authorization', `Bearer ${admin.token}`);
+    expect(get.status).toBe(404);
+  });
+
+  it('admin cannot delete own account', async () => {
+    const app = buildApp();
+    const admin = await registerUser({
+      email: 'selfdel@b.com',
+      password: 'secret12',
+      displayName: 'Self',
+      role: 'admin',
+    });
+    const del = await request(app)
+      .delete(`/api/admin/users/${admin.user.id}`)
+      .set('Authorization', `Bearer ${admin.token}`);
+    expect(del.status).toBe(403);
+  });
+
+  it('admin can delete another admin when more than one admin exists', async () => {
+    const app = buildApp();
+    const admin = await registerUser({
+      email: 'tworoot@b.com',
+      password: 'secret12',
+      displayName: 'Root1',
+      role: 'admin',
+    });
+    const other = await registerUser({
+      email: 'otheradm@b.com',
+      password: 'secret12',
+      displayName: 'Root2',
+      role: 'admin',
+    });
+    const del = await request(app)
+      .delete(`/api/admin/users/${other.user.id}`)
+      .set('Authorization', `Bearer ${admin.token}`);
+    expect(del.status).toBe(204);
+    const list = await request(app).get('/api/admin/users').set('Authorization', `Bearer ${admin.token}`);
+    expect(list.status).toBe(200);
+    const emails = list.body.items.map((u: { email: string }) => u.email);
+    expect(emails).toContain('tworoot@b.com');
+    expect(emails).not.toContain('otheradm@b.com');
+  });
 });

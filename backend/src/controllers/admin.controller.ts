@@ -19,6 +19,13 @@ const patchUserSchema = z
 
 const patchTowPricingSchema = z.object({ towPerKmLkr: z.number().nonnegative() });
 
+const createAdminSchema = z.object({
+  email: z.string().email(),
+  password: z.string().min(8).max(200),
+  displayName: z.string().min(1).max(120),
+  phoneNumber: z.string().max(40).optional().nullable(),
+});
+
 export async function stats(_req: Request, res: Response, next: NextFunction) {
   try {
     res.json(await svc.getStats());
@@ -74,6 +81,15 @@ export async function patchUser(req: Request, res: Response, next: NextFunction)
   try {
     const body = patchUserSchema.parse(req.body);
     res.json(await svc.updateUser(req.params.id, body, req.user!.userId));
+  } catch (e) {
+    next(e);
+  }
+}
+
+export async function deleteUser(req: Request, res: Response, next: NextFunction) {
+  try {
+    await svc.deleteUser(req.params.id, req.user!.userId);
+    res.status(204).send();
   } catch (e) {
     next(e);
   }
@@ -156,6 +172,15 @@ export async function auditLogs(req: Request, res: Response, next: NextFunction)
 export async function seedDemo(req: Request, res: Response, next: NextFunction) {
   try {
     res.json(await svc.seedDemo(req.user!.userId));
+  } catch (e) {
+    next(e);
+  }
+}
+
+export async function createAdmin(req: Request, res: Response, next: NextFunction) {
+  try {
+    const body = createAdminSchema.parse(req.body);
+    res.status(201).json(await svc.createAdminUser(req.user!.userId, body));
   } catch (e) {
     next(e);
   }

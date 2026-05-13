@@ -38,10 +38,6 @@ interface TowTruckAssistantScreenProps {
   onBooked?: (requestId: string, type: TripType) => void;
 }
 
-const SUGGESTED_LOCATIONS = [
-  { id: '1', name: 'Iskole Handiya', address: 'Homagama, Sri Lanka' },
-  { id: '2', name: 'Pettah Bus', address: 'Colombo, Sri Lanka' },
-];
 const MAPBOX_TOKEN = process.env.EXPO_PUBLIC_MAPBOX_ACCESS_TOKEN?.trim() ?? '';
 const MAPBOX_TILE_URL = `https://api.mapbox.com/styles/v1/mapbox/streets-v12/tiles/{z}/{x}/{y}?access_token=${MAPBOX_TOKEN}`;
 const MAPBOX_ATTRIBUTION = '© Mapbox © OpenStreetMap contributors';
@@ -57,14 +53,6 @@ function usablePickupCoords(lat?: number | null, lng?: number | null): boolean {
   if (Math.abs(lat) > 90 || Math.abs(lng) > 180) return false;
   return Math.abs(lat) > 1e-4 || Math.abs(lng) > 1e-4;
 }
-
-const getLocalSuggestions = (query: string): LocationSuggestion[] => {
-  const needle = query.trim().toLowerCase();
-  if (!needle) return [];
-  return SUGGESTED_LOCATIONS
-    .filter((loc) => loc.name.toLowerCase().includes(needle) || loc.address.toLowerCase().includes(needle))
-    .map((item) => ({ ...item, latitude: 0, longitude: 0 }));
-};
 
 export const TowTruckAssistantScreen: React.FC<TowTruckAssistantScreenProps> = ({ onBack, onBooked }) => {
   const { user } = useAuth();
@@ -86,11 +74,7 @@ export const TowTruckAssistantScreen: React.FC<TowTruckAssistantScreenProps> = (
   const [currentLocationAddress, setCurrentLocationAddress] = useState<string>('');
   const [searchQuery, setSearchQuery] = useState('');
   const [showSearchResults, setShowSearchResults] = useState(false);
-  const [searchResults, setSearchResults] = useState<LocationSuggestion[]>(SUGGESTED_LOCATIONS.map((item) => ({
-    ...item,
-    latitude: 0,
-    longitude: 0,
-  })));
+  const [searchResults, setSearchResults] = useState<LocationSuggestion[]>([]);
   const [isSearchingLocations, setIsSearchingLocations] = useState(false);
   const [dropLocationCoords, setDropLocationCoords] = useState<{ latitude: number; longitude: number } | null>(null);
   const [recentDropLocations, setRecentDropLocations] = useState<LocationSuggestion[]>([]);
@@ -112,10 +96,7 @@ export const TowTruckAssistantScreen: React.FC<TowTruckAssistantScreenProps> = (
   const [estimate, setEstimate] = useState<TowEstimate | null>(null);
   const [estimating, setEstimating] = useState(false);
   const visibleRecentDrops = useMemo(
-    () =>
-      recentDropLocations.length > 0
-        ? recentDropLocations.slice(0, 5)
-        : SUGGESTED_LOCATIONS.map((item) => ({ ...item, latitude: 0, longitude: 0 })),
+    () => recentDropLocations.slice(0, MAX_RECENT_DROPS),
     [recentDropLocations]
   );
   const showTowEstimateCard =
@@ -212,7 +193,12 @@ export const TowTruckAssistantScreen: React.FC<TowTruckAssistantScreenProps> = (
         if (!raw) return;
         const parsed = JSON.parse(raw) as LocationSuggestion[];
         if (!Array.isArray(parsed)) return;
-        setRecentDropLocations(parsed.filter((item) => item && typeof item.name === 'string').slice(0, MAX_RECENT_DROPS));
+        setRecentDropLocations(
+          parsed
+            .filter((item) => item && typeof item.name === 'string' && typeof item.address === 'string')
+            .filter((item) => usablePickupCoords(item.latitude, item.longitude))
+            .slice(0, MAX_RECENT_DROPS)
+        );
       } catch {
         // ignore storage errors
       }
@@ -220,6 +206,7 @@ export const TowTruckAssistantScreen: React.FC<TowTruckAssistantScreenProps> = (
   }, []);
 
   const saveRecentDropLocation = (loc: LocationSuggestion) => {
+    if (!usablePickupCoords(loc.latitude, loc.longitude)) return;
     setRecentDropLocations((prev) => {
       const next = [
         loc,
@@ -546,8 +533,7 @@ export const TowTruckAssistantScreen: React.FC<TowTruckAssistantScreenProps> = (
       setIsSearchingLocations(false);
       return;
     }
-    const localResults = getLocalSuggestions(trimmed);
-    setSearchResults(localResults);
+    setSearchResults([]);
     if (!hasMapboxToken) {
       setIsSearchingLocations(false);
       return;
@@ -557,11 +543,11 @@ export const TowTruckAssistantScreen: React.FC<TowTruckAssistantScreenProps> = (
     void searchMapboxPlaces(trimmed, { limit: 3, country: 'lk' })
       .then((results) => {
         if (lastSearchIdRef.current !== searchId) return;
-        setSearchResults(results.length > 0 ? results : localResults);
+        setSearchResults(results);
       })
       .catch(() => {
         if (lastSearchIdRef.current !== searchId) return;
-        setSearchResults(localResults);
+        setSearchResults([]);
       })
       .finally(() => {
         if (lastSearchIdRef.current !== searchId) return;
@@ -594,8 +580,7 @@ export const TowTruckAssistantScreen: React.FC<TowTruckAssistantScreenProps> = (
       setIsSearchingPickupLocations(false);
       return;
     }
-    const localResults = getLocalSuggestions(trimmed);
-    setPickupSearchResults(localResults);
+    setPickupSearchResults([]);
     if (!hasMapboxToken) {
       setIsSearchingPickupLocations(false);
       return;
@@ -610,11 +595,11 @@ export const TowTruckAssistantScreen: React.FC<TowTruckAssistantScreenProps> = (
     })
       .then((results) => {
         if (lastPickupSearchIdRef.current !== searchId) return;
-        setPickupSearchResults(results.length > 0 ? results : localResults);
+        setPickupSearchResults(results);
       })
       .catch(() => {
         if (lastPickupSearchIdRef.current !== searchId) return;
-        setPickupSearchResults(localResults);
+        setPickupSearchResults([]);
       })
       .finally(() => {
         if (lastPickupSearchIdRef.current !== searchId) return;
@@ -970,6 +955,15 @@ export const TowTruckAssistantScreen: React.FC<TowTruckAssistantScreenProps> = (
         idempotencyKey,
       });
       bookingIdempotencyKeyRef.current = null;
+      if (tripType === 'tow' && dropLocationCoords && dropLocation.trim()) {
+        saveRecentDropLocation({
+          id: `recent-booking-${created._id}`,
+          name: dropLocation.split(',')[0]?.trim() || dropLocation.trim(),
+          address: dropLocation.trim(),
+          latitude: dropLocationCoords.latitude,
+          longitude: dropLocationCoords.longitude,
+        });
+      }
       Alert.alert(
         'Booked',
         tripType === 'roadside'
@@ -1739,31 +1733,36 @@ export const TowTruckAssistantScreen: React.FC<TowTruckAssistantScreenProps> = (
           </>
         ) : (
           <>
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.suggestedContainer}
-              keyboardShouldPersistTaps="handled"
-            >
-              {visibleRecentDrops.map((loc, index) => (
-                <TouchableOpacity
-                  key={loc.id}
-                  style={[
-                    styles.suggestedCard,
-                    index === visibleRecentDrops.length - 1 && styles.suggestedCardLast,
-                  ]}
-                  activeOpacity={0.7}
-                  onPress={() => handleSelectDropLocation(loc)}
+            {visibleRecentDrops.length > 0 ? (
+              <>
+                <Text style={styles.sectionTitle}>Recent drop-offs</Text>
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={styles.suggestedContainer}
+                  keyboardShouldPersistTaps="handled"
                 >
-                  <Text style={styles.suggestedName} numberOfLines={1}>
-                    {loc.name}
-                  </Text>
-                  <Text style={styles.suggestedAddress} numberOfLines={1}>
-                    {loc.address}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
+                  {visibleRecentDrops.map((loc, index) => (
+                    <TouchableOpacity
+                      key={loc.id}
+                      style={[
+                        styles.suggestedCard,
+                        index === visibleRecentDrops.length - 1 && styles.suggestedCardLast,
+                      ]}
+                      activeOpacity={0.7}
+                      onPress={() => handleSelectDropLocation(loc)}
+                    >
+                      <Text style={styles.suggestedName} numberOfLines={1}>
+                        {loc.name}
+                      </Text>
+                      <Text style={styles.suggestedAddress} numberOfLines={1}>
+                        {loc.address}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+              </>
+            ) : null}
             <View style={styles.confirmButtonContainer}>
               <PrimaryButton
                 title={submitting ? 'Booking…' : 'Confirm Tow Truck Hire'}

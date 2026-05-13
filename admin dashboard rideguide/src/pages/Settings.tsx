@@ -8,12 +8,6 @@ export function Settings() {
   const [notifications, setNotifications] = useState(true);
   const [emailAlerts, setEmailAlerts] = useState(true);
   const [maintenanceMode, setMaintenanceMode] = useState(false);
-  const [profile, setProfile] = useState({
-    name: 'Admin User',
-    email: 'admin@rideguide.lk',
-    phone: '+94770000000',
-  });
-
   const [seeding, setSeeding] = useState(false);
   const [seedMessage, setSeedMessage] = useState<string | null>(null);
 
@@ -21,6 +15,14 @@ export function Settings() {
   const [towLoading, setTowLoading] = useState(true);
   const [towSaving, setTowSaving] = useState(false);
   const [towErr, setTowErr] = useState<string | null>(null);
+
+  const [newAdminEmail, setNewAdminEmail] = useState('');
+  const [newAdminPassword, setNewAdminPassword] = useState('');
+  const [newAdminDisplayName, setNewAdminDisplayName] = useState('');
+  const [newAdminPhone, setNewAdminPhone] = useState('');
+  const [createAdminBusy, setCreateAdminBusy] = useState(false);
+  const [createAdminErr, setCreateAdminErr] = useState<string | null>(null);
+  const [createAdminMsg, setCreateAdminMsg] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -59,12 +61,111 @@ export function Settings() {
     }
   }
 
+  async function createAdminAccount() {
+    setCreateAdminErr(null);
+    setCreateAdminMsg(null);
+    const email = newAdminEmail.trim();
+    const displayName = newAdminDisplayName.trim();
+    const phone = newAdminPhone.trim();
+    if (!email || !newAdminPassword || !displayName) {
+      setCreateAdminErr('Email, password, and display name are required.');
+      return;
+    }
+    if (newAdminPassword.length < 8) {
+      setCreateAdminErr('Password must be at least 8 characters.');
+      return;
+    }
+    setCreateAdminBusy(true);
+    try {
+      await apiPost<{ email: string; displayName: string; role: string }>(adminUrl('admins'), {
+        email,
+        password: newAdminPassword,
+        displayName,
+        phoneNumber: phone || null,
+      });
+      setCreateAdminMsg(
+        'Admin account created. The new user can sign in on this dashboard with the email and password you set.',
+      );
+      setNewAdminEmail('');
+      setNewAdminPassword('');
+      setNewAdminDisplayName('');
+      setNewAdminPhone('');
+    } catch (e) {
+      setCreateAdminErr(e instanceof ApiError ? e.message : 'Failed to create admin');
+    } finally {
+      setCreateAdminBusy(false);
+    }
+  }
+
   return (
     <div className="space-y-6 animate-fade-in">
       <div>
         <h1 className="text-2xl font-semibold text-gray-900 dark:text-white">Settings</h1>
-        <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">Profile and system configuration</p>
+        <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">System configuration</p>
       </div>
+
+      <Card>
+        <CardHeader
+          title="Create admin account"
+          subtitle="POST /api/admin/admins — adds another dashboard admin (same role as you). Share credentials securely."
+        />
+        <CardContent className="space-y-3">
+          {createAdminErr && <p className="text-sm text-red-600 dark:text-red-400">{createAdminErr}</p>}
+          {createAdminMsg && <p className="text-sm text-emerald-700 dark:text-emerald-400">{createAdminMsg}</p>}
+          <div className="grid max-w-lg gap-3 sm:grid-cols-2">
+            <div className="sm:col-span-2">
+              <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">Email</label>
+              <input
+                type="email"
+                autoComplete="off"
+                value={newAdminEmail}
+                onChange={(e) => setNewAdminEmail(e.target.value)}
+                className="w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-sm"
+                placeholder="admin@example.com"
+              />
+            </div>
+            <div className="sm:col-span-2">
+              <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">Temporary password</label>
+              <input
+                type="password"
+                autoComplete="new-password"
+                value={newAdminPassword}
+                onChange={(e) => setNewAdminPassword(e.target.value)}
+                className="w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-sm"
+                placeholder="At least 8 characters"
+              />
+            </div>
+            <div className="sm:col-span-2">
+              <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">Display name</label>
+              <input
+                type="text"
+                value={newAdminDisplayName}
+                onChange={(e) => setNewAdminDisplayName(e.target.value)}
+                className="w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-sm"
+                placeholder="Operations team"
+              />
+            </div>
+            <div className="sm:col-span-2">
+              <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">Phone (optional)</label>
+              <input
+                type="tel"
+                value={newAdminPhone}
+                onChange={(e) => setNewAdminPhone(e.target.value)}
+                className="w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-sm"
+                placeholder="+94…"
+              />
+            </div>
+          </div>
+          <button
+            type="button"
+            disabled={createAdminBusy}
+            onClick={() => void createAdminAccount()}
+            className="rounded-lg bg-accent-500 px-4 py-2 text-sm font-medium text-white hover:bg-accent-600 disabled:opacity-60"
+          >
+            {createAdminBusy ? 'Creating…' : 'Create admin'}
+          </button>
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader title="Tow pricing" subtitle="GET/PATCH /api/admin/pricing/tow — LKR per km" />
@@ -99,45 +200,6 @@ export function Settings() {
               </div>
             </>
           )}
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader title="Admin profile" subtitle="Local UI only — not wired to PATCH user yet" />
-        <CardContent className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Name</label>
-            <input
-              type="text"
-              value={profile.name}
-              onChange={(e) => setProfile((p) => ({ ...p, name: e.target.value }))}
-              className="w-full max-w-md rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-sm focus:border-accent-500 focus:outline-none focus:ring-2 focus:ring-accent-500/20"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Email</label>
-            <input
-              type="email"
-              value={profile.email}
-              onChange={(e) => setProfile((p) => ({ ...p, email: e.target.value }))}
-              className="w-full max-w-md rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-sm focus:border-accent-500 focus:outline-none focus:ring-2 focus:ring-accent-500/20"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Phone</label>
-            <input
-              type="tel"
-              value={profile.phone}
-              onChange={(e) => setProfile((p) => ({ ...p, phone: e.target.value }))}
-              className="w-full max-w-md rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-sm focus:border-accent-500 focus:outline-none focus:ring-2 focus:ring-accent-500/20"
-            />
-          </div>
-          <button
-            type="button"
-            className="rounded-lg bg-accent-500 px-4 py-2 text-sm font-medium text-white hover:bg-accent-600 transition-colors"
-          >
-            Save changes
-          </button>
         </CardContent>
       </Card>
 

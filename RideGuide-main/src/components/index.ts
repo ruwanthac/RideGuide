@@ -11,3 +11,4 @@ export { UnreadRedDot } from './UnreadRedDot';
 export { TypingIndicator } from './TypingIndicator';
 export { BottomTabBar } from './BottomTabBar';
 export type { TabId } from './BottomTabBar';
+export { HistoryDateFilterBar } from './HistoryDateFilterBar';

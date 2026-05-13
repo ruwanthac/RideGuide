@@ -204,12 +204,12 @@ export const MechanicDashboard: React.FC<MechanicDashboardProps> = ({ shopName }
         const off = await subscribeServiceRequests(
           (items) => {
             if (!alive) return;
-            setIncomingPendingCount(items.filter((r) => r.status === 'pending').length);
+            setIncomingPendingCount(items.filter((r) => r.status === 'pending' && !r.acceptedBy).length);
           },
           {
             type: 'roadside',
             inboxOnly: true,
-            providerUserId: user._id,
+            providerOpenPoolOnly: true,
           },
         );
         unsub = off;
