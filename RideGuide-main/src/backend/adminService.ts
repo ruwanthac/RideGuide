@@ -16,12 +16,38 @@ export async function setAdminUserRole(id: string, role: AuthUser['role']): Prom
   return data;
 }
 
-export async function fetchTowPricing(): Promise<{ towPerKmLkr: number }> {
-  const { data } = await api.get<{ towPerKmLkr: number }>('/admin/pricing/tow');
-  return data;
+export async function fetchTowPricing(): Promise<{
+  towPerKmLkr: number;
+  providerMatchRadiusKm: number;
+  openRequestExpiryMinutes: number;
+}> {
+  const { data } = await api.get<{
+    towPerKmLkr: number;
+    providerMatchRadiusKm?: number;
+    openRequestExpiryMinutes?: number;
+  }>('/admin/pricing/tow');
+  return {
+    towPerKmLkr: data.towPerKmLkr,
+    providerMatchRadiusKm:
+      typeof data.providerMatchRadiusKm === 'number' && data.providerMatchRadiusKm >= 1
+        ? data.providerMatchRadiusKm
+        : 15,
+    openRequestExpiryMinutes:
+      typeof data.openRequestExpiryMinutes === 'number' && data.openRequestExpiryMinutes >= 1
+        ? data.openRequestExpiryMinutes
+        : 30,
+  };
 }
 
-export async function updateTowPricing(towPerKmLkr: number): Promise<{ towPerKmLkr: number }> {
-  const { data } = await api.patch<{ towPerKmLkr: number }>('/admin/pricing/tow', { towPerKmLkr });
+export async function updateTowPricing(input: {
+  towPerKmLkr: number;
+  providerMatchRadiusKm: number;
+  openRequestExpiryMinutes: number;
+}): Promise<{ towPerKmLkr: number; providerMatchRadiusKm: number; openRequestExpiryMinutes: number }> {
+  const { data } = await api.patch<{
+    towPerKmLkr: number;
+    providerMatchRadiusKm: number;
+    openRequestExpiryMinutes: number;
+  }>('/admin/pricing/tow', input);
   return data;
 }

@@ -280,6 +280,11 @@ export const TowDriverActiveJobScreen: React.FC<TowDriverActiveJobScreenProps> =
         const items = await listServiceRequests();
         if (alive) setRequest(items.find((item) => item._id === requestId) ?? null);
         off = await subscribeRequestById(requestId, (doc) => {
+          if (!doc) {
+            setRequest(null);
+            scheduleDoneOnce();
+            return;
+          }
           setRequest(doc);
           if (doc.status === 'completed') scheduleDoneOnce();
         });

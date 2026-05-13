@@ -12,6 +12,8 @@ export function Settings() {
   const [seedMessage, setSeedMessage] = useState<string | null>(null);
 
   const [towPerKm, setTowPerKm] = useState('');
+  const [providerRadiusKm, setProviderRadiusKm] = useState('');
+  const [openRequestExpiryMin, setOpenRequestExpiryMin] = useState('');
   const [towLoading, setTowLoading] = useState(true);
   const [towSaving, setTowSaving] = useState(false);
   const [towErr, setTowErr] = useState<string | null>(null);
@@ -30,8 +32,16 @@ export function Settings() {
       setTowLoading(true);
       setTowErr(null);
       try {
-        const res = await apiGet<{ towPerKmLkr: number }>(adminUrl('pricing/tow'));
-        if (!cancelled) setTowPerKm(String(res.towPerKmLkr ?? ''));
+        const res = await apiGet<{
+          towPerKmLkr: number;
+          providerMatchRadiusKm?: number;
+          openRequestExpiryMinutes?: number;
+        }>(adminUrl('pricing/tow'));
+        if (!cancelled) {
+          setTowPerKm(String(res.towPerKmLkr ?? ''));
+          setProviderRadiusKm(String(res.providerMatchRadiusKm ?? 15));
+          setOpenRequestExpiryMin(String(res.openRequestExpiryMinutes ?? 30));
+        }
       } catch (e) {
         if (!cancelled) setTowErr(e instanceof ApiError ? e.message : 'Failed to load pricing');
       } finally {
@@ -45,15 +55,35 @@ export function Settings() {
 
   async function saveTowPricing() {
     const n = Number(towPerKm);
+    const r = Number(providerRadiusKm);
+    const expMin = Number(openRequestExpiryMin);
     if (!Number.isFinite(n) || n < 0) {
-      setTowErr('Enter a valid non-negative number');
+      setTowErr('Tow per km must be a valid non-negative number');
+      return;
+    }
+    if (!Number.isFinite(r) || r < 1 || r > 500) {
+      setTowErr('Provider match radius must be between 1 and 500 km');
+      return;
+    }
+    if (!Number.isFinite(expMin) || expMin < 1 || expMin > 10080) {
+      setTowErr('Open request expiry must be between 1 and 10080 minutes (7 days max)');
       return;
     }
     setTowSaving(true);
     setTowErr(null);
     try {
-      const res = await apiPatch<{ towPerKmLkr: number }>(adminUrl('pricing/tow'), { towPerKmLkr: n });
+      const res = await apiPatch<{
+        towPerKmLkr: number;
+        providerMatchRadiusKm: number;
+        openRequestExpiryMinutes: number;
+      }>(adminUrl('pricing/tow'), {
+        towPerKmLkr: n,
+        providerMatchRadiusKm: r,
+        openRequestExpiryMinutes: Math.round(expMin),
+      });
       setTowPerKm(String(res.towPerKmLkr));
+      setProviderRadiusKm(String(res.providerMatchRadiusKm ?? r));
+      setOpenRequestExpiryMin(String(res.openRequestExpiryMinutes ?? expMin));
     } catch (e) {
       setTowErr(e instanceof ApiError ? e.message : 'Save failed');
     } finally {
@@ -168,26 +198,68 @@ export function Settings() {
       </Card>
 
       <Card>
-        <CardHeader title="Tow pricing" subtitle="GET/PATCH /api/admin/pricing/tow — LKR per km" />
+        <CardHeader
+          title="Tow pricing, job radius & request expiry"
+          subtitle="GET/PATCH /api/admin/pricing/tow — hire rate (LKR/km), max distance for open-job lists, and how long unclaimed tow/roadside requests stay before auto-removal."
+        />
         <CardContent className="space-y-3">
           {towLoading ? (
             <p className="text-sm text-gray-500">Loading…</p>
           ) : (
             <>
               {towErr && <p className="text-sm text-red-600 dark:text-red-400">{towErr}</p>}
-              <div>
-                <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
-                  towPerKmLkr
-                </label>
-                <div className="flex max-w-md flex-wrap gap-2">
+              <p className="text-xs text-gray-500 dark:text-gray-400 max-w-xl">
+                Providers must share live location in the app. If they have no location saved, all open jobs are listed
+                (legacy). When location exists, only jobs within this radius of their position appear in the job list.
+                Unclaimed open requests (no provider accepted yet) are removed after the expiry window; scheduled tow
+                requests use the scheduled time plus this window.
+              </p>
+              <div className="grid max-w-md gap-3">
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    Tow hire rate (LKR per km)
+                  </label>
                   <input
                     type="number"
                     min={0}
                     step={1}
                     value={towPerKm}
                     onChange={(e) => setTowPerKm(e.target.value)}
-                    className="flex-1 min-w-[120px] rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-sm"
+                    className="w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-sm"
                   />
+                </div>
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    Provider job radius (km)
+                  </label>
+                  <input
+                    type="number"
+                    min={1}
+                    max={500}
+                    step={1}
+                    value={providerRadiusKm}
+                    onChange={(e) => setProviderRadiusKm(e.target.value)}
+                    className="w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    Unclaimed request expiry (minutes)
+                  </label>
+                  <input
+                    type="number"
+                    min={1}
+                    max={10080}
+                    step={1}
+                    value={openRequestExpiryMin}
+                    onChange={(e) => setOpenRequestExpiryMin(e.target.value)}
+                    className="w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-sm"
+                  />
+                  <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                    Default 30. Applies to new requests; max 10080 (7 days).
+                  </p>
+                </div>
+                <div>
                   <button
                     type="button"
                     disabled={towSaving}

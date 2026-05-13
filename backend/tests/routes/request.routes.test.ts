@@ -1,6 +1,8 @@
 import request from 'supertest';
 import { buildApp } from '../../src/app';
+import { ServiceRequestModel } from '../../src/models/ServiceRequest';
 import { registerUser, registerApprovedProvider } from '../../src/services/auth.service';
+import { removeExpiredOpenRequests } from '../../src/services/request.service';
 import { startInMemoryMongo, stopInMemoryMongo, clearDb } from '../helpers/mongo';
 
 beforeAll(startInMemoryMongo);
@@ -47,6 +49,11 @@ describe('service requests', () => {
     expect(create.status).toBe(201);
     expect(create.body.status).toBe('pending');
 
+    await request(app)
+      .patch('/api/users/me')
+      .set('Authorization', `Bearer ${mech.token}`)
+      .send({ location: { lat: 1, lng: 2 } });
+
     const list = await request(app).get('/api/requests').set('Authorization', `Bearer ${mech.token}`);
     expect(list.status).toBe(200);
     expect(list.body).toHaveLength(1);
@@ -87,6 +94,15 @@ describe('service requests', () => {
         phoneNumber: '123',
       });
     expect(create.status).toBe(201);
+
+    await request(app)
+      .patch('/api/users/me')
+      .set('Authorization', `Bearer ${m1.token}`)
+      .send({ location: { lat: 1, lng: 2 } });
+    await request(app)
+      .patch('/api/users/me')
+      .set('Authorization', `Bearer ${m2.token}`)
+      .send({ location: { lat: 1, lng: 2 } });
 
     const [a, b] = await Promise.all([
       request(app)
@@ -138,6 +154,15 @@ describe('service requests', () => {
       });
     expect(create.status).toBe(201);
 
+    await request(app)
+      .patch('/api/users/me')
+      .set('Authorization', `Bearer ${t1.token}`)
+      .send({ location: { lat: 6.91, lng: 79.86 } });
+    await request(app)
+      .patch('/api/users/me')
+      .set('Authorization', `Bearer ${t2.token}`)
+      .send({ location: { lat: 6.91, lng: 79.86 } });
+
     const [a, b] = await Promise.all([
       request(app)
         .patch(`/api/requests/${create.body._id}`)
@@ -152,6 +177,67 @@ describe('service requests', () => {
     const losers = [a, b].filter((r) => r.status === 409);
     expect(winners).toHaveLength(1);
     expect(losers).toHaveLength(1);
+  });
+
+  it('mechanic with live location only sees pending jobs within providerMatchRadiusKm', async () => {
+    const app = buildApp();
+    const admin = await registerUser({
+      email: 'adm-radius@b.com',
+      password: 'secret12',
+      displayName: 'AdminR',
+      role: 'admin',
+    });
+    const patchPricing = await request(app)
+      .patch('/api/admin/pricing/tow')
+      .set('Authorization', `Bearer ${admin.token}`)
+      .send({ towPerKmLkr: 320, providerMatchRadiusKm: 8 });
+    expect(patchPricing.status).toBe(200);
+
+    const owner = await registerUser({ email: 'own-radius@b.com', password: 'secret12', displayName: 'OwnR' });
+    const mechNear = await registerApprovedProvider({
+      email: 'mech-near@b.com',
+      password: 'secret12',
+      displayName: 'Near',
+      role: 'mechanic',
+    });
+    const mechFar = await registerApprovedProvider({
+      email: 'mech-far@b.com',
+      password: 'secret12',
+      displayName: 'Far',
+      role: 'mechanic',
+    });
+
+    const jobLat = 6.9;
+    const jobLng = 79.99;
+    const create = await request(app)
+      .post('/api/requests')
+      .set('Authorization', `Bearer ${owner.token}`)
+      .send({
+        type: 'roadside',
+        vehicle: 'Toyota',
+        issue: 'Flat',
+        location: 'Here',
+        latitude: jobLat,
+        longitude: jobLng,
+        phoneNumber: '1',
+      });
+    expect(create.status).toBe(201);
+
+    await request(app)
+      .patch('/api/users/me')
+      .set('Authorization', `Bearer ${mechNear.token}`)
+      .send({ location: { lat: 6.901, lng: jobLng } });
+    const listNear = await request(app).get('/api/requests').set('Authorization', `Bearer ${mechNear.token}`);
+    expect(listNear.status).toBe(200);
+    expect(listNear.body).toHaveLength(1);
+
+    await request(app)
+      .patch('/api/users/me')
+      .set('Authorization', `Bearer ${mechFar.token}`)
+      .send({ location: { lat: 7.25, lng: jobLng } });
+    const listFar = await request(app).get('/api/requests').set('Authorization', `Bearer ${mechFar.token}`);
+    expect(listFar.status).toBe(200);
+    expect(listFar.body).toHaveLength(0);
   });
 });
 
@@ -243,6 +329,11 @@ describe('service requests — tow lifecycle and estimate', () => {
     expect(create.status).toBe(201);
     expect(create.body.status).toBe('requested');
 
+    await request(app)
+      .patch('/api/users/me')
+      .set('Authorization', `Bearer ${tow.token}`)
+      .send({ location: { lat: 6.91, lng: 79.86 } });
+
     const invalidSkip = await request(app)
       .patch(`/api/requests/${create.body._id}`)
       .set('Authorization', `Bearer ${tow.token}`)
@@ -261,5 +352,92 @@ describe('service requests — tow lifecycle and estimate', () => {
       .set('Authorization', `Bearer ${tow.token}`)
       .send({ status: 'driver_on_the_way' });
     expect(onWay.status).toBe(200);
+  });
+
+  it('assigns expiresAt on new open requests (default window)', async () => {
+    const app = buildApp();
+    const owner = await registerUser({ email: 'exp-at@b.com', password: 'secret12', displayName: 'OwnerExp' });
+    const create = await request(app)
+      .post('/api/requests')
+      .set('Authorization', `Bearer ${owner.token}`)
+      .send({
+        type: 'roadside',
+        vehicle: 'Toyota',
+        issue: 'Flat',
+        location: 'Main St',
+        latitude: 1,
+        longitude: 2,
+        phoneNumber: '123',
+      });
+    expect(create.status).toBe(201);
+    expect(create.body.expiresAt).toBeTruthy();
+    const exp = new Date(create.body.expiresAt).getTime();
+    const minAt = Date.now() + 28 * 60 * 1000;
+    const maxAt = Date.now() + 33 * 60 * 1000;
+    expect(exp).toBeGreaterThanOrEqual(minAt);
+    expect(exp).toBeLessThanOrEqual(maxAt);
+  });
+
+  it('removeExpiredOpenRequests deletes unclaimed expired pool jobs', async () => {
+    const app = buildApp();
+    const owner = await registerUser({ email: 'sweep@b.com', password: 'secret12', displayName: 'OwnerSweep' });
+    const create = await request(app)
+      .post('/api/requests')
+      .set('Authorization', `Bearer ${owner.token}`)
+      .send({
+        type: 'roadside',
+        vehicle: 'Toyota',
+        issue: 'Flat',
+        location: 'Main St',
+        latitude: 1,
+        longitude: 2,
+        phoneNumber: '123',
+      });
+    expect(create.status).toBe(201);
+    const id = create.body._id as string;
+    await ServiceRequestModel.findByIdAndUpdate(id, { $set: { expiresAt: new Date(Date.now() - 60_000) } });
+    const n = await removeExpiredOpenRequests();
+    expect(n).toBe(1);
+    const list = await request(app).get('/api/requests').set('Authorization', `Bearer ${owner.token}`);
+    expect(list.body.some((r: { _id: string }) => r._id === id)).toBe(false);
+  });
+
+  it('removeExpiredOpenRequests does not delete accepted jobs', async () => {
+    const app = buildApp();
+    const owner = await registerUser({ email: 'sweep-ok@b.com', password: 'secret12', displayName: 'OwnerOk' });
+    const mech = await registerApprovedProvider({
+      email: 'sweep-m@b.com',
+      password: 'secret12',
+      displayName: 'MechOk',
+      role: 'mechanic',
+    });
+    const create = await request(app)
+      .post('/api/requests')
+      .set('Authorization', `Bearer ${owner.token}`)
+      .send({
+        type: 'roadside',
+        vehicle: 'Toyota',
+        issue: 'Flat',
+        location: 'Main St',
+        latitude: 1,
+        longitude: 2,
+        phoneNumber: '123',
+      });
+    expect(create.status).toBe(201);
+    const id = create.body._id as string;
+    await request(app)
+      .patch('/api/users/me')
+      .set('Authorization', `Bearer ${mech.token}`)
+      .send({ location: { lat: 1, lng: 2 } });
+    const accept = await request(app)
+      .patch(`/api/requests/${id}`)
+      .set('Authorization', `Bearer ${mech.token}`)
+      .send({ status: 'accepted' });
+    expect(accept.status).toBe(200);
+    await ServiceRequestModel.findByIdAndUpdate(id, { $set: { expiresAt: new Date(Date.now() - 60_000) } });
+    const n = await removeExpiredOpenRequests();
+    expect(n).toBe(0);
+    const still = await ServiceRequestModel.findById(id).lean();
+    expect(still).toBeTruthy();
   });
 });

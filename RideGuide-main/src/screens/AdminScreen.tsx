@@ -19,6 +19,8 @@ export const AdminScreen: React.FC<Props> = ({ onBack }) => {
   const [users, setUsers] = useState<AuthUser[]>([]);
   const [usersTotal, setUsersTotal] = useState(0);
   const [towPerKmDraft, setTowPerKmDraft] = useState('320');
+  const [radiusKmDraft, setRadiusKmDraft] = useState('15');
+  const [openRequestExpiryDraft, setOpenRequestExpiryDraft] = useState('30');
   const [savingPricing, setSavingPricing] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -32,6 +34,8 @@ export const AdminScreen: React.FC<Props> = ({ onBack }) => {
       setUsersTotal(u.total);
       setError(null);
       setTowPerKmDraft(String(pricing.towPerKmLkr));
+      setRadiusKmDraft(String(pricing.providerMatchRadiusKm));
+      setOpenRequestExpiryDraft(String(pricing.openRequestExpiryMinutes));
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load');
     } finally {
@@ -41,14 +45,30 @@ export const AdminScreen: React.FC<Props> = ({ onBack }) => {
 
   const saveTowPricing = async () => {
     const parsed = Number(towPerKmDraft);
+    const radius = Number(radiusKmDraft);
+    const expiryMin = Number(openRequestExpiryDraft);
     if (!Number.isFinite(parsed) || parsed < 0) {
       setError('Tow per-km rate must be a non-negative number');
       return;
     }
+    if (!Number.isFinite(radius) || radius < 1 || radius > 500) {
+      setError('Job radius must be between 1 and 500 km');
+      return;
+    }
+    if (!Number.isFinite(expiryMin) || expiryMin < 1 || expiryMin > 10080) {
+      setError('Open request expiry must be 1–10080 minutes');
+      return;
+    }
     setSavingPricing(true);
     try {
-      const updated = await updateTowPricing(parsed);
+      const updated = await updateTowPricing({
+        towPerKmLkr: parsed,
+        providerMatchRadiusKm: radius,
+        openRequestExpiryMinutes: Math.round(expiryMin),
+      });
       setTowPerKmDraft(String(updated.towPerKmLkr));
+      setRadiusKmDraft(String(updated.providerMatchRadiusKm));
+      setOpenRequestExpiryDraft(String(updated.openRequestExpiryMinutes));
       setError(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to update pricing');
@@ -82,7 +102,7 @@ export const AdminScreen: React.FC<Props> = ({ onBack }) => {
             <Stat label="Requests" value={stats?.requestCount ?? 0} />
             <Stat label="Pending" value={stats?.pendingCount ?? 0} />
           </View>
-          <Text style={styles.section}>Tow Pricing</Text>
+          <Text style={styles.section}>Tow & dispatch</Text>
           <View style={styles.pricingCard}>
             <Text style={styles.pricingLabel}>Per km hire amount (LKR)</Text>
             <View style={styles.pricingRow}>
@@ -92,6 +112,26 @@ export const AdminScreen: React.FC<Props> = ({ onBack }) => {
                 keyboardType="numeric"
                 style={styles.pricingInput}
                 placeholder="320"
+              />
+            </View>
+            <Text style={[styles.pricingLabel, { marginTop: 12 }]}>Mechanic/tow job radius (km)</Text>
+            <View style={styles.pricingRow}>
+              <TextInput
+                value={radiusKmDraft}
+                onChangeText={setRadiusKmDraft}
+                keyboardType="numeric"
+                style={styles.pricingInput}
+                placeholder="15"
+              />
+            </View>
+            <Text style={[styles.pricingLabel, { marginTop: 12 }]}>Unclaimed request expiry (min)</Text>
+            <View style={styles.pricingRow}>
+              <TextInput
+                value={openRequestExpiryDraft}
+                onChangeText={setOpenRequestExpiryDraft}
+                keyboardType="numeric"
+                style={styles.pricingInput}
+                placeholder="30"
               />
               <TouchableOpacity style={[styles.btn, savingPricing && { opacity: 0.7 }]} onPress={saveTowPricing} disabled={savingPricing}>
                 <Text style={styles.btnText}>{savingPricing ? 'Saving...' : 'Save'}</Text>

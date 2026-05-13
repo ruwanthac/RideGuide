@@ -17,7 +17,22 @@ const patchUserSchema = z
   })
   .strict();
 
-const patchTowPricingSchema = z.object({ towPerKmLkr: z.number().nonnegative() });
+const patchTowPricingSchema = z
+  .object({
+    towPerKmLkr: z.number().nonnegative().optional(),
+    providerMatchRadiusKm: z.number().min(1).max(500).optional(),
+    openRequestExpiryMinutes: z.number().min(1).max(10080).optional(),
+  })
+  .strict()
+  .refine(
+    (b) =>
+      b.towPerKmLkr !== undefined ||
+      b.providerMatchRadiusKm !== undefined ||
+      b.openRequestExpiryMinutes !== undefined,
+    {
+      message: 'Provide at least one of towPerKmLkr, providerMatchRadiusKm, openRequestExpiryMinutes',
+    },
+  );
 
 const createAdminSchema = z.object({
   email: z.string().email(),

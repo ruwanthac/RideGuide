@@ -149,27 +149,44 @@ export async function subscribeServiceRequests(
     onChange(items);
   };
 
+  const onRemoved = (payload: { id?: string; _id?: string; removed?: boolean }) => {
+    if (!payload.removed) return;
+    const rid = String(payload.id ?? payload._id ?? '');
+    if (!rid) return;
+    if (!items.some((i) => i._id === rid)) return;
+    items = items.filter((i) => i._id !== rid);
+    onChange(items);
+  };
+
   socket.on('request:new', onNew);
   socket.on('request:updated', onUpdated);
+  socket.on('request:removed', onRemoved);
 
   return () => {
     socket.off('request:new', onNew);
     socket.off('request:updated', onUpdated);
+    socket.off('request:removed', onRemoved);
   };
 }
 
 export async function subscribeRequestById(
   requestId: string,
-  onChange: (item: ServiceRequest) => void,
+  onChange: (item: ServiceRequest | null) => void,
 ): Promise<() => void> {
   await joinRequestRoom(requestId);
   const socket = await getSocket();
   const onUpdated = (doc: ServiceRequest) => {
     if (doc._id === requestId) onChange(doc);
   };
+  const onRemoved = (payload: { id?: string; _id?: string; removed?: boolean }) => {
+    const rid = String(payload.id ?? payload._id ?? '');
+    if (payload.removed && rid === requestId) onChange(null);
+  };
   socket.on('request:updated', onUpdated);
+  socket.on('request:removed', onRemoved);
   return () => {
     socket.off('request:updated', onUpdated);
+    socket.off('request:removed', onRemoved);
     void leaveRequestRoom(requestId);
   };
 }

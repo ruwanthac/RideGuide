@@ -50,6 +50,8 @@ const ServiceRequestSchema = new Schema(
     phoneNumber: { type: String, required: true },
     /** Optional client idempotency key: duplicate POST with same key returns the same request. */
     idempotencyKey: { type: String, default: null },
+    /** When set, unclaimed open jobs (pending / requested, no acceptedBy) are auto-deleted after this instant. */
+    expiresAt: { type: Date, default: null, index: true },
   },
   { timestamps: true }
 );

@@ -105,6 +105,8 @@ export interface ServiceRequest {
   paymentMethod?: 'cash_manual';
   paymentState?: 'unpaid' | 'paid_offline';
   phoneNumber: string;
+  /** ISO: when an unclaimed open job should auto-expire (server). */
+  expiresAt?: string | null;
   createdAt: string;
   updatedAt: string;
 }

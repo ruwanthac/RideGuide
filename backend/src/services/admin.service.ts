@@ -344,29 +344,74 @@ export async function deleteRequest(id: string, adminId: string) {
 export async function getTowPricing() {
   const doc =
     (await PricingConfigModel.findOne({ key: 'tow' }).lean()) ??
-    (await PricingConfigModel.create({ key: 'tow', towPerKmLkr: 320 }));
-  return { towPerKmLkr: Number(doc.towPerKmLkr ?? 320) };
+    (await PricingConfigModel.create({
+      key: 'tow',
+      towPerKmLkr: 320,
+      providerMatchRadiusKm: 15,
+      openRequestExpiryMinutes: 30,
+    }));
+  const towPerKmLkr = Number(doc.towPerKmLkr ?? 320);
+  const rawR = (doc as { providerMatchRadiusKm?: number }).providerMatchRadiusKm;
+  const providerMatchRadiusKm =
+    typeof rawR === 'number' && Number.isFinite(rawR) && rawR >= 1 && rawR <= 500 ? rawR : 15;
+  const rawM = (doc as { openRequestExpiryMinutes?: number }).openRequestExpiryMinutes;
+  const openRequestExpiryMinutes =
+    typeof rawM === 'number' && Number.isFinite(rawM) && rawM >= 1 && rawM <= 10080 ? Math.round(rawM) : 30;
+  return { towPerKmLkr, providerMatchRadiusKm, openRequestExpiryMinutes };
 }
 
-export async function updateTowPricing(patch: { towPerKmLkr?: number }, adminId: string) {
-  const nextTowPerKm = patch.towPerKmLkr;
-  const update: { towPerKmLkr?: number } = {};
-  if (typeof nextTowPerKm === 'number') {
-    if (!Number.isFinite(nextTowPerKm) || nextTowPerKm < 0) throw new HttpError(400, 'invalid towPerKmLkr');
-    update.towPerKmLkr = Math.round(nextTowPerKm);
+export async function updateTowPricing(
+  patch: { towPerKmLkr?: number; providerMatchRadiusKm?: number; openRequestExpiryMinutes?: number },
+  adminId: string
+) {
+  const update: {
+    towPerKmLkr?: number;
+    providerMatchRadiusKm?: number;
+    openRequestExpiryMinutes?: number;
+  } = {};
+  if (patch.towPerKmLkr !== undefined) {
+    if (!Number.isFinite(patch.towPerKmLkr) || patch.towPerKmLkr < 0) throw new HttpError(400, 'invalid towPerKmLkr');
+    update.towPerKmLkr = Math.round(patch.towPerKmLkr);
   }
+  if (patch.providerMatchRadiusKm !== undefined) {
+    const r = patch.providerMatchRadiusKm;
+    if (!Number.isFinite(r) || r < 1 || r > 500) throw new HttpError(400, 'invalid providerMatchRadiusKm (1–500)');
+    update.providerMatchRadiusKm = Math.round(r * 100) / 100;
+  }
+  if (patch.openRequestExpiryMinutes !== undefined) {
+    const m = patch.openRequestExpiryMinutes;
+    if (!Number.isFinite(m) || m < 1 || m > 10080) {
+      throw new HttpError(400, 'invalid openRequestExpiryMinutes (1–10080)');
+    }
+    update.openRequestExpiryMinutes = Math.round(m);
+  }
+  if (Object.keys(update).length === 0) throw new HttpError(400, 'no fields to update');
+  const setOnInsert: Record<string, unknown> = { key: 'tow' };
+  if (update.towPerKmLkr === undefined) setOnInsert.towPerKmLkr = 320;
+  if (update.providerMatchRadiusKm === undefined) setOnInsert.providerMatchRadiusKm = 15;
+  if (update.openRequestExpiryMinutes === undefined) setOnInsert.openRequestExpiryMinutes = 30;
   const doc = await PricingConfigModel.findOneAndUpdate(
     { key: 'tow' },
-    { $set: update, $setOnInsert: { key: 'tow' } },
+    { $set: update, $setOnInsert: setOnInsert },
     { upsert: true, new: true }
   ).lean();
-  const out = { towPerKmLkr: Number(doc?.towPerKmLkr ?? 320) };
+  const out = {
+    towPerKmLkr: Number(doc?.towPerKmLkr ?? 320),
+    providerMatchRadiusKm: (() => {
+      const x = (doc as { providerMatchRadiusKm?: number })?.providerMatchRadiusKm;
+      return typeof x === 'number' && Number.isFinite(x) && x >= 1 && x <= 500 ? x : 15;
+    })(),
+    openRequestExpiryMinutes: (() => {
+      const x = (doc as { openRequestExpiryMinutes?: number })?.openRequestExpiryMinutes;
+      return typeof x === 'number' && Number.isFinite(x) && x >= 1 && x <= 10080 ? Math.round(x) : 30;
+    })(),
+  };
   await recordAudit({
     adminId,
     action: 'PRICING_UPDATE',
     targetType: 'pricingConfig',
     targetId: 'tow',
-    meta: { towPerKmLkr: out.towPerKmLkr },
+    meta: { ...out },
   });
   return out;
 }
@@ -657,6 +702,7 @@ export async function seedDemo(adminId: string) {
     longitude: 79.8612,
     phoneNumber: '+94771234567',
     vehicleId: vA._id,
+    expiresAt: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
   });
 
   await ServiceRequestModel.create({

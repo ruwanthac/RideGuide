@@ -50,6 +50,74 @@ function coordinatesToGeoPoint(coords: unknown): { latitude: number; longitude: 
   return { latitude, longitude };
 }
 
+function haversineKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const R = 6371;
+  const toRad = (d: number) => (d * Math.PI) / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+}
+
+/** Pickup / incident coordinates for distance checks (tow uses pickup when set). */
+function requestJobPoint(req: Record<string, unknown>): { lat: number; lng: number } | null {
+  const plat = req.pickupLatitude;
+  const plng = req.pickupLongitude;
+  if (typeof plat === 'number' && typeof plng === 'number' && Number.isFinite(plat) && Number.isFinite(plng)) {
+    return { lat: plat, lng: plng };
+  }
+  const lat = req.latitude;
+  const lng = req.longitude;
+  if (typeof lat === 'number' && typeof lng === 'number' && Number.isFinite(lat) && Number.isFinite(lng)) {
+    return { lat, lng };
+  }
+  return null;
+}
+
+async function getProviderMatchRadiusKm(): Promise<number> {
+  const doc = await PricingConfigModel.findOne({ key: 'tow' }).select('providerMatchRadiusKm').lean();
+  const r = (doc as { providerMatchRadiusKm?: number } | null)?.providerMatchRadiusKm;
+  if (typeof r === 'number' && Number.isFinite(r) && r >= 1 && r <= 500) return r;
+  return 15;
+}
+
+async function getOpenRequestExpiryMinutes(): Promise<number> {
+  const doc = await PricingConfigModel.findOne({ key: 'tow' }).select('openRequestExpiryMinutes').lean();
+  const m = (doc as { openRequestExpiryMinutes?: number } | null)?.openRequestExpiryMinutes;
+  if (typeof m === 'number' && Number.isFinite(m) && m >= 1 && m <= 10080) return Math.round(m);
+  return 30;
+}
+
+/**
+ * Open pool jobs (roadside pending / tow requested) are only shown when the provider has saved a live location
+ * and the job is within `providerMatchRadiusKm`. If the provider has no location, behaviour matches legacy (all pool jobs).
+ */
+async function filterProviderPoolByRadius(
+  userId: string,
+  role: 'mechanic' | 'tow',
+  rows: RequestWithProviderLocation[]
+): Promise<RequestWithProviderLocation[]> {
+  const radiusKm = await getProviderMatchRadiusKm();
+  const me = await UserModel.findById(userId).select('location').lean();
+  const mePt = coordinatesToGeoPoint(me?.location?.coordinates);
+  if (!mePt) return rows;
+
+  return rows.filter((row) => {
+    if (row.acceptedBy && String(row.acceptedBy) === String(userId)) return true;
+    const pool =
+      role === 'mechanic'
+        ? row.status === 'pending' && !row.acceptedBy
+        : row.type === 'tow' && row.status === 'requested' && !row.acceptedBy;
+    if (!pool) return true;
+    const job = requestJobPoint(row as Record<string, unknown>);
+    if (!job) return false;
+    return haversineKm(mePt.latitude, mePt.longitude, job.lat, job.lng) <= radiusKm;
+  });
+}
+
 async function enrichProviderLocations<T extends RequestWithProviderLocation>(rows: T[]): Promise<T[]> {
   if (rows.length === 0) return [];
 
@@ -122,7 +190,6 @@ export async function listForRole(userId: string, role: Role, vehicleId?: string
     }
     return [];
   }
-  const type = role === 'mechanic' ? 'roadside' : 'tow';
   if (role === 'tow') {
     const rows = await ServiceRequestModel.find({
       type: 'tow',
@@ -135,7 +202,8 @@ export async function listForRole(userId: string, role: Role, vehicleId?: string
         },
       ],
     }).sort({ createdAt: -1 }).lean();
-    return enrichProviderLocations(rows as RequestWithProviderLocation[]);
+    const filtered = await filterProviderPoolByRadius(userId, 'tow', rows as RequestWithProviderLocation[]);
+    return enrichProviderLocations(filtered);
   }
   const mechanicUser = await UserModel.findById(userId).select('mechanicAvailable').lean();
   const mechanicReceiving = mechanicUser?.mechanicAvailable !== false;
@@ -148,7 +216,7 @@ export async function listForRole(userId: string, role: Role, vehicleId?: string
     return enrichProviderLocations(rows as RequestWithProviderLocation[]);
   }
   const rows = await ServiceRequestModel.find({
-    type,
+    type: 'roadside',
     $or: [
       { status: 'pending', acceptedBy: null },
       {
@@ -157,7 +225,8 @@ export async function listForRole(userId: string, role: Role, vehicleId?: string
       },
     ],
   }).sort({ createdAt: -1 }).lean();
-  return enrichProviderLocations(rows as RequestWithProviderLocation[]);
+  const filtered = await filterProviderPoolByRadius(userId, 'mechanic', rows as RequestWithProviderLocation[]);
+  return enrichProviderLocations(filtered);
 }
 
 export async function createRequest(userId: string, input: {
@@ -213,6 +282,22 @@ export async function createRequest(userId: string, input: {
       }
     }
   }
+
+  const expiryMinutes = await getOpenRequestExpiryMinutes();
+  const expiryMs = expiryMinutes * 60 * 1000;
+  const nowMs = Date.now();
+  let expiresAt: Date;
+  if (isTow && input.bookingType === 'scheduled' && input.scheduledAt) {
+    const schedule = new Date(input.scheduledAt);
+    if (!Number.isNaN(schedule.getTime())) {
+      expiresAt = new Date(Math.max(nowMs, schedule.getTime()) + expiryMs);
+    } else {
+      expiresAt = new Date(nowMs + expiryMs);
+    }
+  } else {
+    expiresAt = new Date(nowMs + expiryMs);
+  }
+
   const payload = {
     requesterId: new Types.ObjectId(userId),
     userName: user.displayName,
@@ -239,6 +324,7 @@ export async function createRequest(userId: string, input: {
     paymentMethod: 'cash_manual' as const,
     paymentState: 'unpaid' as const,
     vehicleId: input.vehicleId ? new Types.ObjectId(input.vehicleId) : null,
+    expiresAt,
     ...(trimmedKey ? { idempotencyKey: trimmedKey } : {}),
   };
   try {
@@ -359,20 +445,6 @@ export async function transition(
   return enrichProviderLocation(req.toObject() as RequestWithProviderLocation);
 }
 
-function haversineKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
-  const R = 6371;
-  const dLat = (lat2 - lat1) * (Math.PI / 180);
-  const dLon = (lon2 - lon1) * (Math.PI / 180);
-  const a =
-    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos(lat1 * (Math.PI / 180)) *
-      Math.cos(lat2 * (Math.PI / 180)) *
-      Math.sin(dLon / 2) *
-      Math.sin(dLon / 2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  return R * c;
-}
-
 export function estimateTowPrice(input: {
   pickupLatitude: number;
   pickupLongitude: number;
@@ -409,9 +481,44 @@ export async function estimateTowPriceWithConfig(input: {
 }) {
   const pricing =
     (await PricingConfigModel.findOne({ key: 'tow' }).lean()) ??
-    (await PricingConfigModel.create({ key: 'tow', towPerKmLkr: 320 }));
+    (await PricingConfigModel.create({
+      key: 'tow',
+      towPerKmLkr: 320,
+      providerMatchRadiusKm: 15,
+      openRequestExpiryMinutes: 30,
+    }));
   const towPerKmLkr = Number(pricing.towPerKmLkr ?? 320);
   return estimateTowPrice({ ...input, towPerKmLkr });
+}
+
+/** Deletes unclaimed open pool jobs whose `expiresAt` has passed; emits `request:removed` per row. */
+export async function removeExpiredOpenRequests(): Promise<number> {
+  const now = new Date();
+  const filter = {
+    acceptedBy: null,
+    expiresAt: { $lte: now, $ne: null },
+    $or: [
+      { type: 'roadside', status: 'pending' },
+      { type: 'tow', status: 'requested' },
+    ],
+  };
+  const doomed = await ServiceRequestModel.find(filter).select('_id type requesterId').lean();
+  if (!doomed.length) return 0;
+  const ids = doomed.map((d) => d._id);
+  await ServiceRequestModel.deleteMany({ _id: { $in: ids } });
+  const { emitRequestRemoved } = await import('../sockets/requests.socket');
+  for (const d of doomed) {
+    try {
+      emitRequestRemoved({
+        id: String(d._id),
+        type: d.type as 'roadside' | 'tow',
+        requesterId: String(d.requesterId),
+      });
+    } catch {
+      /* socket may be unavailable in tests */
+    }
+  }
+  return doomed.length;
 }
 
 export async function removeRequest(userId: string, role: Role, id: string) {

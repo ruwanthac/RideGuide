@@ -153,6 +153,12 @@ export const TowOwnerTrackingScreen: React.FC<TowOwnerTrackingScreenProps> = ({
         const found = items.find((item) => item._id === requestId) ?? null;
         if (alive) setRequest(found);
         off = await subscribeRequestById(requestId, (doc) => {
+          if (!doc) {
+            setRequest(null);
+            clearForRequest(requestId);
+            scheduleBackHomeOnce();
+            return;
+          }
           setRequest(doc);
           if (doc.status === 'completed') scheduleBackHomeOnce();
         });
