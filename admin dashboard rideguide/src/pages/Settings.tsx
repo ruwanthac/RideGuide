@@ -194,10 +194,7 @@ export function Settings() {
       </Card>
 
       <Card>
-        <CardHeader
-          title="Tow pricing, job radius & request expiry"
-          subtitle="GET/PATCH /api/admin/pricing/tow — hire rate (LKR/km), max distance for open-job lists, and how long unclaimed tow/roadside requests stay before auto-removal."
-        />
+        <CardHeader title="Tow pricing, job radius & request expiry" />
         <CardContent className="space-y-3">
           {towLoading ? (
             <p className="text-sm text-gray-500">Loading…</p>

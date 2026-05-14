@@ -50,8 +50,10 @@ const DIAGNOSIS_SYSTEM = `You are an automotive diagnostic assistant. Return str
 likelyCauses: string[] (1-4), severity: 'minor'|'moderate'|'critical', steps: string[] (3-7 non-technical inspection/repair steps),
 diagnosis: one-paragraph plain-English summary, disclaimer: short safety note. Do not invent part numbers.`;
 
-const CHAT_SYSTEM = `You are a vehicle-support assistant. Keep replies concise, practical, non-technical.
-Only discuss vehicle diagnosis, maintenance, and roadside advice. If off-topic, politely redirect.
+const CHAT_SYSTEM = `You are a vehicle-support assistant. Keep replies concise, practical, and appropriate for voice when relevant.
+Only discuss vehicle diagnosis, maintenance, and roadside advice. If off-topic, politely redirect in the user's language.
+When the user attaches a vehicle photo, use it carefully: identify make/model/trim if visible, note body style and era, and answer questions (for example horsepower) using visible badges or your best reasonable estimate for that generation—say when you are estimating vs reading a badge.
+Language: If the user writes in Sinhala (සිංහල), reply entirely in Sinhala. If they write in English, reply in English. Never claim you cannot use Sinhala.
 If a captured image is not vehicle-related, ignore that image silently and continue answering the user's conversation.
 If a captured image is vehicle-related, use visible vehicle cues to improve diagnosis and identify likely model details when clear.`;
 
@@ -95,7 +97,8 @@ export async function analyzeDiagnosis(input: {
 }
 
 const SUMMARIZE_CALL_SYSTEM = `You summarize a short vehicle-related AI video/voice chat for the car owner.
-Output plain text only: 2–6 short sentences or bullet lines. Focus on what the user asked, symptoms, and advice given. No markdown headings.`;
+Output plain text only: 2–6 short sentences or bullet lines. Focus on what the user asked, symptoms, and advice given. No markdown headings.
+Use the same language as the conversation: if the user mainly used Sinhala (සිංහල), write the entire summary in Sinhala; if mainly English, use English.`;
 
 export async function summarizeAiCallMessages(
   turns: { role: 'user' | 'model'; content: string }[]
@@ -124,21 +127,59 @@ export async function summarizeAiCallMessages(
   }
 }
 
-export async function chatReply(messages: { role: 'user' | 'model'; content: string }[]): Promise<string> {
+export type ChatApiMessage = {
+  role: 'user' | 'model';
+  content: string;
+  /** Raw base64 (no data: prefix). User turns only. */
+  imageBase64?: string;
+  imageMimeType?: string;
+};
+
+function stripDataUrlBase64(raw: string): string {
+  return raw.replace(/^data:[^;]+;base64,/i, '').trim();
+}
+
+function partsForChatMessage(m: ChatApiMessage): Array<{ text: string } | { inlineData: { mimeType: string; data: string } }> {
+  const parts: Array<{ text: string } | { inlineData: { mimeType: string; data: string } }> = [];
+  if (m.role === 'model') {
+    parts.push({ text: m.content || '' });
+    return parts;
+  }
+  const text = (m.content || '').trim();
+  if (text) parts.push({ text });
+  if (m.imageBase64 && m.imageMimeType) {
+    const data = stripDataUrlBase64(m.imageBase64);
+    if (data.length > 0) {
+      parts.push({
+        inlineData: {
+          mimeType: m.imageMimeType,
+          data,
+        },
+      });
+    }
+  }
+  if (parts.length === 0) {
+    parts.push({ text: 'Vehicle image attached — describe what you see and help with diagnosis.' });
+  }
+  return parts;
+}
+
+export async function chatReply(messages: ChatApiMessage[]): Promise<string> {
   try {
     const client = getClient();
     const model = client.getGenerativeModel({
       model: CHEAP_MODEL,
       systemInstruction: CHAT_SYSTEM,
     });
-    const history = messages
-      .slice(0, -1)
-      .map((m) => ({ role: m.role, parts: [{ text: m.content }] }));
+    const history = messages.slice(0, -1).map((m) => ({
+      role: m.role,
+      parts: partsForChatMessage(m),
+    }));
     while (history.length && history[0].role !== 'user') history.shift();
     const last = messages[messages.length - 1];
     if (last.role !== 'user') throw new Error('last message must be from user');
     const chat = model.startChat({ history });
-    const r = await chat.sendMessage(last.content);
+    const r = await chat.sendMessage(partsForChatMessage(last));
     return r.response.text();
   } catch (err) {
     if (isQuotaExceededError(err)) {

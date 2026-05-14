@@ -1,6 +1,11 @@
 import { api } from './apiClient';
 
-export interface AssistantMsg { role: 'user' | 'model'; content: string }
+export interface AssistantMsg {
+  role: 'user' | 'model';
+  content: string;
+  imageBase64?: string;
+  imageMimeType?: string;
+}
 
 export async function askAssistant(
   messages: AssistantMsg[],

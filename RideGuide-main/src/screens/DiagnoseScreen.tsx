@@ -1,5 +1,14 @@
-import React, { useState, useMemo, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, Alert, Platform } from 'react-native';
+import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  ScrollView,
+  Alert,
+  Platform,
+  KeyboardAvoidingView,
+  Keyboard,
+} from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Header, InputField, PrimaryButton, Card } from '../components';
 import { colors, shadows } from '../constants/theme';
@@ -35,6 +44,8 @@ export const DiagnoseScreen: React.FC<DiagnoseScreenProps> = ({ onBack }) => {
   const [inlineError, setInlineError] = useState<string | null>(null);
   const { spacing, fontSizes, verticalScale, borderRadius } = useResponsive();
   const insets = useSafeAreaInsets();
+  const scrollRef = useRef<ScrollView>(null);
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
 
   const styles = useMemo(
     () =>
@@ -143,6 +154,27 @@ export const DiagnoseScreen: React.FC<DiagnoseScreenProps> = ({ onBack }) => {
     setInlineError(null);
   }, [symptoms, obdCode, manualMakeModel, manualVin]);
 
+  useEffect(() => {
+    const showEvt = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvt = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+    const subShow = Keyboard.addListener(showEvt, (e) => {
+      setKeyboardHeight(e.endCoordinates.height);
+    });
+    const subHide = Keyboard.addListener(hideEvt, () => {
+      setKeyboardHeight(0);
+    });
+    return () => {
+      subShow.remove();
+      subHide.remove();
+    };
+  }, []);
+
+  const scrollFocusedFieldIntoView = useCallback(() => {
+    requestAnimationFrame(() => {
+      setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 160);
+    });
+  }, []);
+
   const hasVehicleContext = !!effectiveVehicle || manualMakeModel.trim().length > 0;
   const hasSymptomOrCode = !!(symptoms.trim() || obdCode.trim());
 
@@ -199,7 +231,14 @@ export const DiagnoseScreen: React.FC<DiagnoseScreenProps> = ({ onBack }) => {
     }
   };
 
-  const scrollBottomPad = spacing.xl * 2 + Math.max(insets.bottom, spacing.md);
+  const scrollBottomPad =
+    spacing.xl * 2 +
+    Math.max(insets.bottom, spacing.md) +
+    (keyboardHeight > 0
+      ? Platform.OS === 'android'
+        ? keyboardHeight + spacing.md
+        : spacing.lg
+      : 0);
 
   return (
     <View style={styles.container}>
@@ -212,11 +251,19 @@ export const DiagnoseScreen: React.FC<DiagnoseScreenProps> = ({ onBack }) => {
         />
       </View>
 
-      <ScrollView
+      <KeyboardAvoidingView
         style={styles.scroll}
-        contentContainerStyle={[styles.content, { paddingBottom: scrollBottomPad }]}
-        keyboardShouldPersistTaps="always"
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        keyboardVerticalOffset={0}
       >
+        <ScrollView
+          ref={scrollRef}
+          style={styles.scroll}
+          contentContainerStyle={[styles.content, { paddingBottom: scrollBottomPad }]}
+          keyboardShouldPersistTaps="always"
+          keyboardDismissMode="on-drag"
+          automaticallyAdjustKeyboardInsets={Platform.OS === 'ios'}
+        >
         <View style={styles.vehiclePanel}>
           {effectiveVehicle ? (
             <Text style={styles.vehiclePanelText}>
@@ -238,6 +285,7 @@ export const DiagnoseScreen: React.FC<DiagnoseScreenProps> = ({ onBack }) => {
               placeholder="e.g. 2019 Audi A4 2.0T"
               value={manualMakeModel}
               onChangeText={setManualMakeModel}
+              onFocus={scrollFocusedFieldIntoView}
             />
             <InputField
               label="VIN (optional)"
@@ -245,6 +293,7 @@ export const DiagnoseScreen: React.FC<DiagnoseScreenProps> = ({ onBack }) => {
               value={manualVin}
               onChangeText={setManualVin}
               autoCapitalize="characters"
+              onFocus={scrollFocusedFieldIntoView}
             />
           </>
         ) : null}
@@ -258,6 +307,7 @@ export const DiagnoseScreen: React.FC<DiagnoseScreenProps> = ({ onBack }) => {
           numberOfLines={4}
           scrollEnabled={false}
           style={styles.textArea}
+          onFocus={scrollFocusedFieldIntoView}
         />
         <InputField
           label="OBD code"
@@ -265,6 +315,7 @@ export const DiagnoseScreen: React.FC<DiagnoseScreenProps> = ({ onBack }) => {
           value={obdCode}
           onChangeText={(t) => setObdCode(t.toUpperCase())}
           autoCapitalize="characters"
+          onFocus={scrollFocusedFieldIntoView}
         />
 
         {inlineError ? <Text style={styles.inlineError}>{inlineError}</Text> : null}
@@ -322,7 +373,8 @@ export const DiagnoseScreen: React.FC<DiagnoseScreenProps> = ({ onBack }) => {
             ) : null}
           </Card>
         ) : null}
-      </ScrollView>
+        </ScrollView>
+      </KeyboardAvoidingView>
     </View>
   );
 };

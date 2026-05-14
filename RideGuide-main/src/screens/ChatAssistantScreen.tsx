@@ -11,6 +11,7 @@ import {
   Alert,
   Image,
   StatusBar,
+  Keyboard,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -20,6 +21,26 @@ import { useResponsive } from '../hooks';
 import { askAssistant, AssistantMsg } from '../backend/assistantService';
 import { getAssistantChatSession } from '../backend/assistantChatHistoryService';
 import { useVehicles } from '../context/VehiclesContext';
+
+async function imageUriToBase64(uri: string): Promise<{ base64: string; mime: string }> {
+  const res = await fetch(uri);
+  const blob = await res.blob();
+  const mime =
+    blob.type && /^image\//i.test(blob.type)
+      ? blob.type
+      : uri.toLowerCase().includes('png')
+        ? 'image/png'
+        : 'image/jpeg';
+  const dataUrl = await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => resolve(String(reader.result));
+    reader.onerror = () => reject(new Error('Could not read image'));
+    reader.readAsDataURL(blob);
+  });
+  const comma = dataUrl.indexOf(',');
+  const base64 = comma >= 0 ? dataUrl.slice(comma + 1) : dataUrl;
+  return { base64, mime };
+}
 
 interface Message {
   id: string;
@@ -54,6 +75,7 @@ export const ChatAssistantScreen: React.FC<ChatAssistantScreenProps> = ({
   const [inputText, setInputText] = useState('');
   const [pendingImageUri, setPendingImageUri] = useState<string | null>(null);
   const [isTyping, setIsTyping] = useState(false);
+  const [keyboardVisible, setKeyboardVisible] = useState(false);
   const flatListRef = useRef<FlatList>(null);
   const assistantSessionIdRef = useRef<string | null>(null);
   const { selectedVehicle, vehicles, selectedVehicleId } = useVehicles();
@@ -90,6 +112,17 @@ export const ChatAssistantScreen: React.FC<ChatAssistantScreenProps> = ({
     };
   }, [initialSessionId]);
 
+  useEffect(() => {
+    const showEvt = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvt = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+    const subShow = Keyboard.addListener(showEvt, () => setKeyboardVisible(true));
+    const subHide = Keyboard.addListener(hideEvt, () => setKeyboardVisible(false));
+    return () => {
+      subShow.remove();
+      subHide.remove();
+    };
+  }, []);
+
   const requestMediaLibraryPermission = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== 'granted') {
@@ -121,7 +154,7 @@ export const ChatAssistantScreen: React.FC<ChatAssistantScreenProps> = ({
         mediaTypes: ['images'],
         allowsEditing: true,
         aspect: [4, 3],
-        quality: 0.8,
+        quality: 0.65,
       });
       if (!result.canceled && result.assets[0]) {
         setPendingImageUri(result.assets[0].uri);
@@ -138,7 +171,7 @@ export const ChatAssistantScreen: React.FC<ChatAssistantScreenProps> = ({
         mediaTypes: ['images'],
         allowsEditing: true,
         aspect: [4, 3],
-        quality: 0.8,
+        quality: 0.65,
       });
       if (!result.canceled && result.assets[0]) {
         setPendingImageUri(result.assets[0].uri);
@@ -297,11 +330,35 @@ export const ChatAssistantScreen: React.FC<ChatAssistantScreenProps> = ({
     setIsTyping(true);
     scrollToBottom();
 
+    let imageBase64: string | undefined;
+    let imageMimeType: string | undefined;
+    if (imgUri) {
+      try {
+        const conv = await imageUriToBase64(imgUri);
+        imageBase64 = conv.base64;
+        imageMimeType = conv.mime;
+      } catch {
+        setMessages((prev) => prev.filter((x) => x.id !== userMessage.id));
+        setIsTyping(false);
+        Alert.alert('Image error', 'Could not read the photo. Try another image or take a new photo.');
+        return;
+      }
+    }
+
     try {
-      const history: AssistantMsg[] = [...messages, userMessage].map((m) => ({
-        role: m.isUser ? 'user' : 'model',
-        content: m.text,
-      }));
+      const combined = [...messages, userMessage];
+      const history: AssistantMsg[] = combined.map((m, i) => {
+        const isLast = i === combined.length - 1;
+        if (isLast && m.isUser && imageBase64 && imageMimeType) {
+          return {
+            role: 'user',
+            content: m.text || '',
+            imageBase64,
+            imageMimeType,
+          };
+        }
+        return { role: m.isUser ? 'user' : 'model', content: m.text };
+      });
       const { reply, sessionId } = await askAssistant(history, {
         sessionId: assistantSessionIdRef.current ?? undefined,
         vehicleId: effectiveVehicleId ?? undefined,
@@ -360,7 +417,7 @@ export const ChatAssistantScreen: React.FC<ChatAssistantScreenProps> = ({
       <KeyboardAvoidingView
         style={styles.chatContainer}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? insets.top + spacing.sm : 0}
+        keyboardVerticalOffset={0}
       >
         <FlatList
           ref={flatListRef}
@@ -383,7 +440,11 @@ export const ChatAssistantScreen: React.FC<ChatAssistantScreenProps> = ({
         <View
           style={[
             styles.inputBar,
-            { paddingBottom: Math.max(insets.bottom, spacing.md) },
+            {
+              paddingBottom: keyboardVisible
+                ? spacing.sm
+                : Math.max(insets.bottom, spacing.md),
+            },
           ]}
         >
           <TouchableOpacity

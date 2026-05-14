@@ -130,7 +130,7 @@ export function registerLiveAiHandlers(io: Server, socket: Socket) {
             {
               role: 'model',
               content:
-                'Connected. Ask your vehicle question and I will help in real time.',
+                'Connected. Ask your vehicle question in English or Sinhala (සිංහල)—I will help in real time in the same language.',
             },
           ],
         });

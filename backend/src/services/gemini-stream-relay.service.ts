@@ -34,7 +34,8 @@ export async function createGeminiStreamRelaySession(params: {
     history: [
       {
         role: 'model',
-        content: 'Connected. Ask your vehicle question and I will help in real time.',
+        content:
+          'Connected. Ask your vehicle question in English or Sinhala (සිංහල)—I will help in real time in the same language.',
       },
     ],
     liveSession: null,
