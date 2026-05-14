@@ -6,6 +6,8 @@ import {
   Image,
   ScrollView,
   TouchableOpacity,
+  Pressable,
+  Platform,
   NativeSyntheticEvent,
   NativeScrollEvent,
   RefreshControl,
@@ -32,7 +34,7 @@ import {
 } from '../utils/homeLastAccessed';
 import { hasSavedProfilePhone } from '../utils/profilePhone';
 import { navigateToProfilePrivacy } from '../navigation/historyCrossTabNavigate';
-import { haversineKm } from '../utils/geoDistance';
+import { fetchDrivingDistanceKm } from '../utils/drivingDistance';
 import { formatCurrencyAmount } from '../utils/formatMoneyAmount';
 
 function alertProviderPhoneRequired(navigation: { getParent: () => unknown }) {
@@ -105,6 +107,8 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   /** Bumped on pull-to-refresh so the service-request subscription reloads from the API (resets socket listener state). */
   const [requestReloadToken, setRequestReloadToken] = useState(0);
   const [lastAccessedIds, setLastAccessedIds] = useState<HomeFunctionId[]>([]);
+  /** Open-job card chip: driving distance (km) per request; `null` = route API failed. */
+  const [drivingKmByRequestId, setDrivingKmByRequestId] = useState<Record<string, number | null>>({});
 
   useEffect(() => {
     let unsub: (() => void) | null = null;
@@ -262,7 +266,62 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
       ownerLatitude: lat,
       ownerLongitude: lng,
       customerName: request.userName,
+      providerRole: user?.role === 'mechanic' ? 'mechanic' : 'tow',
     });
+  };
+
+  const mapboxTokenForRoutes = process.env.EXPO_PUBLIC_MAPBOX_ACCESS_TOKEN?.trim() ?? '';
+
+  const openJobPoolForDriving = useMemo(
+    () => (role === 'tow' ? towRequests : role === 'mechanic' ? roadsideRequests : []),
+    [role, towRequests, roadsideRequests],
+  );
+
+  useEffect(() => {
+    const me = coordsFromUserLocation(user);
+    const pool = openJobPoolForDriving;
+    if (!me || pool.length === 0) {
+      setDrivingKmByRequestId({});
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      const entries = await Promise.all(
+        pool.map(async (req) => {
+          const o = resolveOwnerJobPoint(req);
+          if (!o) return [req._id, null] as const;
+          const km = await fetchDrivingDistanceKm(me, o, mapboxTokenForRoutes);
+          return [req._id, km] as const;
+        }),
+      );
+      if (cancelled) return;
+      setDrivingKmByRequestId(Object.fromEntries(entries) as Record<string, number | null>);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [openJobPoolForDriving, user?.location, mapboxTokenForRoutes]);
+
+  const getMapPreviewMeta = (req: ServiceRequest) => {
+    const o = resolveOwnerJobPoint(req);
+    const me = coordsFromUserLocation(user);
+    if (!o || !me) {
+      return {
+        hasCoords: false,
+        primary: 'Distance unavailable',
+      };
+    }
+    const road = drivingKmByRequestId[req._id];
+    if (road === undefined) {
+      return { hasCoords: true, primary: 'Road distance…' };
+    }
+    if (road === null) {
+      return { hasCoords: true, primary: 'Road route unavailable' };
+    }
+    return {
+      hasCoords: true,
+      primary: `≈ ${road.toFixed(1)} km`,
+    };
   };
 
   const loadLastAccessed = useCallback(async () => {
@@ -747,53 +806,102 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
           fontWeight: '600',
           color: '#FFFFFF',
         },
-        viewMapBtn: {
-          flexDirection: 'row',
-          alignItems: 'center',
-          marginTop: spacing.sm,
-          paddingVertical: spacing.xs,
-          paddingHorizontal: 0,
-          alignSelf: 'flex-start',
+        mapPreviewStrip: {
+          marginTop: spacing.md,
+          borderRadius: 12,
+          borderWidth: StyleSheet.hairlineWidth,
+          borderColor: colors.border,
+          backgroundColor: colors.card,
+          overflow: 'hidden',
+          ...Platform.select({
+            ios: {
+              shadowColor: '#000',
+              shadowOffset: { width: 0, height: 1 },
+              shadowOpacity: 0.06,
+              shadowRadius: 3,
+            },
+            android: { elevation: 2 },
+            default: {},
+          }),
         },
-        viewMapBtnText: {
-          fontSize: fontSizes.sm,
-          fontWeight: '500',
-          color: colors.primary,
-          marginLeft: spacing.xs,
+        mapPreviewStripPressed: {
+          backgroundColor: colors.primary + '0C',
+          borderColor: colors.primary + '40',
         },
-        mapPreviewRow: {
+        mapPreviewContent: {
+          paddingHorizontal: spacing.md,
+          paddingTop: spacing.md,
+          paddingBottom: spacing.md,
+        },
+        mapPreviewTopRow: {
           flexDirection: 'row',
           alignItems: 'center',
           justifyContent: 'space-between',
-          marginTop: spacing.sm,
-          paddingTop: spacing.sm,
-          borderTopWidth: StyleSheet.hairlineWidth,
-          borderTopColor: colors.border,
+          gap: spacing.sm,
         },
-        mapPreviewBtn: {
+        mapPreviewDivider: {
+          height: StyleSheet.hairlineWidth,
+          backgroundColor: colors.border,
+          marginVertical: spacing.sm,
+        },
+        mapPreviewBottomRow: {
           flexDirection: 'row',
           alignItems: 'center',
-          paddingVertical: spacing.xs,
-          paddingRight: spacing.sm,
+          justifyContent: 'flex-end',
         },
-        mapPreviewDistance: {
-          flexShrink: 1,
-          marginLeft: spacing.sm,
-          fontSize: isSmallScreen ? fontSizes.xs : fontSizes.sm,
-          color: colors.textSecondary,
-          textAlign: 'right',
+        mapPreviewLeft: {
+          flexDirection: 'row',
+          alignItems: 'center',
+          flex: 1,
+          minWidth: 0,
         },
-        liveBadge: {
-          marginLeft: spacing.xs,
-          paddingHorizontal: spacing.xs,
-          paddingVertical: 2,
-          borderRadius: 4,
-          backgroundColor: colors.success + '22',
+        mapIconCircle: {
+          width: 44,
+          height: 44,
+          borderRadius: 22,
+          alignItems: 'center',
+          justifyContent: 'center',
+          backgroundColor: colors.primary + '18',
+          marginRight: spacing.sm,
         },
-        liveBadgeText: {
+        mapPreviewTitles: {
+          flex: 1,
+          minWidth: 0,
+        },
+        mapPreviewTitle: {
+          fontSize: isSmallScreen ? fontSizes.sm : fontSizes.md,
+          fontWeight: '700',
+          color: colors.text,
+        },
+        mapPreviewSubtitle: {
           fontSize: fontSizes.xs,
-          fontWeight: '600',
-          color: colors.success,
+          color: colors.textSecondary,
+          marginTop: 2,
+        },
+        mapDistanceChip: {
+          flexDirection: 'row',
+          alignItems: 'center',
+          gap: 4,
+          paddingVertical: spacing.xs,
+          paddingHorizontal: spacing.sm,
+          borderRadius: 10,
+          backgroundColor: colors.background,
+          borderWidth: StyleSheet.hairlineWidth,
+          borderColor: colors.border,
+          maxWidth: '100%',
+        },
+        mapDistancePrimary: {
+          fontSize: fontSizes.xs,
+          fontWeight: '700',
+          color: colors.text,
+        },
+        mapPreviewChevron: {
+          marginLeft: spacing.xs,
+          opacity: 0.55,
+        },
+        mapPreviewDistanceCol: {
+          alignItems: 'flex-end',
+          flexShrink: 1,
         },
         emptyRequestsText: {
           fontSize: fontSizes.sm,
@@ -879,7 +987,9 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
             {(role === 'mechanic' || role === 'tow') && item.id === 'tow' ? (
               (() => {
                 const isTow = role === 'tow';
-                const mechanicOffline = !isTow && role === 'mechanic' && user?.mechanicAvailable === false;
+                const providerOffline =
+                  (role === 'mechanic' && user?.mechanicAvailable === false) ||
+                  (role === 'tow' && user?.towAvailable === false);
                 const sectionTitle = isTow ? 'Tow truck requests' : 'Roadside help requests';
                 const requests = isTow ? towRequests : roadsideRequests;
                 const onAccept = isTow
@@ -906,8 +1016,8 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                         <Text style={styles.emptyRequestsText}>
                           {isTow
                             ? 'New tow requests will appear here instantly.'
-                            : mechanicOffline
-                            ? 'Turn on availability in Profile to receive new roadside requests. Finished jobs stay in Roadside help history.'
+                            : providerOffline
+                            ? 'Turn on availability in Profile to receive new requests. Finished jobs stay in history.'
                             : 'New roadside requests will appear here instantly.'}
                         </Text>
                       </View>
@@ -983,41 +1093,59 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                               )}
                             </View>
                           </View>
-                          <View style={styles.mapPreviewRow}>
-                            <TouchableOpacity
-                              style={styles.mapPreviewBtn}
-                              onPress={() => openRequestOnMap(req)}
-                              activeOpacity={0.8}
-                              accessibilityRole="button"
-                              accessibilityLabel="View vehicle owner on map with route and distance"
-                            >
-                              <Icon name="map" size={22} color={colors.primary} />
-                              <Text style={styles.viewMapBtnText}>Map & route</Text>
-                            </TouchableOpacity>
-                            {req.requesterLiveLocation &&
-                            typeof req.requesterLiveLocation.latitude === 'number' ? (
-                              <View style={styles.liveBadge}>
-                                <Text style={styles.liveBadgeText}>Live location</Text>
+                          <Pressable
+                            onPress={() => openRequestOnMap(req)}
+                            style={({ pressed }) => [
+                              styles.mapPreviewStrip,
+                              pressed && styles.mapPreviewStripPressed,
+                            ]}
+                            android_ripple={{ color: colors.primary + '22' }}
+                            accessibilityRole="button"
+                            accessibilityLabel="Map and route to vehicle owner"
+                            accessibilityHint="Opens full map with driving route and distance from your position"
+                          >
+                            <View style={styles.mapPreviewContent}>
+                              <View style={styles.mapPreviewTopRow}>
+                                <View style={styles.mapPreviewLeft}>
+                                  <View style={styles.mapIconCircle}>
+                                    <Icon name="map" size={22} color={colors.primary} />
+                                  </View>
+                                  <View style={styles.mapPreviewTitles}>
+                                    <Text style={styles.mapPreviewTitle}>Map & route</Text>
+                                    <Text style={styles.mapPreviewSubtitle} numberOfLines={2}>
+                                      Tap for full map, road route, and driving distance
+                                    </Text>
+                                  </View>
+                                </View>
+                                <Icon
+                                  name="chevron-forward"
+                                  size={22}
+                                  color={colors.textSecondary}
+                                  style={styles.mapPreviewChevron}
+                                />
                               </View>
-                            ) : null}
-                            {(() => {
-                              const o = resolveOwnerJobPoint(req);
-                              const me = coordsFromUserLocation(user);
-                              if (!o || !me) {
+                              <View style={styles.mapPreviewDivider} />
+                              {(() => {
+                                const meta = getMapPreviewMeta(req);
                                 return (
-                                  <Text style={styles.mapPreviewDistance} numberOfLines={2}>
-                                    Save your location in Profile to see distance here
-                                  </Text>
+                                  <View style={styles.mapPreviewBottomRow}>
+                                    <View style={styles.mapPreviewDistanceCol}>
+                                      <View style={styles.mapDistanceChip}>
+                                        <Icon
+                                          name="navigate"
+                                          size={14}
+                                          color={meta.hasCoords ? colors.primary : colors.textSecondary}
+                                        />
+                                        <Text style={styles.mapDistancePrimary} numberOfLines={1}>
+                                          {meta.primary}
+                                        </Text>
+                                      </View>
+                                    </View>
+                                  </View>
                                 );
-                              }
-                              const km = haversineKm(me.lat, me.lng, o.lat, o.lng);
-                              return (
-                                <Text style={styles.mapPreviewDistance} numberOfLines={2}>
-                                  ≈ {km.toFixed(1)} km to owner (straight line)
-                                </Text>
-                              );
-                            })()}
-                          </View>
+                              })()}
+                            </View>
+                          </Pressable>
                           <View style={styles.requestActions}>
                             {isTow || req.status === 'pending' ? (
                               <TouchableOpacity

@@ -14,7 +14,7 @@ import { Icon } from '../components';
 import { colors } from '../constants/theme';
 import { useResponsive } from '../hooks';
 import type { HomeStackParamList } from '../types/navigation';
-import { haversineKm } from '../utils/geoDistance';
+import { fetchDrivingDistanceKm } from '../utils/drivingDistance';
 
 const MAPBOX_TOKEN = process.env.EXPO_PUBLIC_MAPBOX_ACCESS_TOKEN?.trim() ?? '';
 const MAP_TILE_URL = MAPBOX_TOKEN
@@ -28,8 +28,23 @@ function escapeForJsSingleQuoted(s: string): string {
   return s.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/</g, '\\u003c').replace(/>/g, '\\u003e');
 }
 
-function buildLeafletHtml(lat: number, lng: number, locationLabel: string): string {
+/** Same pin HTML as TowDriverActiveJob / MechanicActiveJob WebView maps. */
+const OWNER_VEHICLE_PIN_HTML =
+  '<div style="background:#2563EB;color:#fff;width:34px;height:34px;border-radius:999px;display:flex;align-items:center;justify-content:center;font-size:16px;border:3px solid #fff;box-shadow:0 2px 8px rgba(0,0,0,0.35);">🚗</div>';
+const PROVIDER_TRUCK_PIN_HTML =
+  '<div style="background:#111;color:#fff;width:40px;height:40px;border-radius:999px;display:flex;align-items:center;justify-content:center;font-size:18px;border:3px solid #fff;box-shadow:0 2px 8px rgba(0,0,0,0.35);">🚚</div>';
+const PROVIDER_MECH_PIN_HTML =
+  '<div style="background:#111;color:#fff;width:40px;height:40px;border-radius:999px;display:flex;align-items:center;justify-content:center;font-size:18px;border:3px solid #fff;box-shadow:0 2px 8px rgba(0,0,0,0.35);">🛠️</div>';
+
+function buildLeafletHtml(
+  lat: number,
+  lng: number,
+  locationLabel: string,
+  opts?: { ownerVehiclePin?: boolean },
+): string {
   const escapedLabel = escapeForJsSingleQuoted(locationLabel);
+  const pinHtml = opts?.ownerVehiclePin ? escapeForJsSingleQuoted(OWNER_VEHICLE_PIN_HTML) : '';
+  const useVehicle = Boolean(opts?.ownerVehiclePin);
   return `
 <!DOCTYPE html>
 <html>
@@ -52,7 +67,14 @@ function buildLeafletHtml(lat: number, lng: number, locationLabel: string): stri
     L.tileLayer('${MAP_TILE_URL}', {
       attribution: '${MAP_ATTRIBUTION}'
     }).addTo(map);
-    var marker = L.marker([${lat}, ${lng}]).addTo(map);
+    ${
+      useVehicle
+        ? `var pinH = '${pinHtml}';
+    var marker = L.marker([${lat}, ${lng}], {
+      icon: L.divIcon({ className: 'owner-pin', html: pinH, iconSize: [34, 34], iconAnchor: [17, 17] })
+    }).addTo(map);`
+        : `var marker = L.marker([${lat}, ${lng}]).addTo(map);`
+    }
     marker.bindPopup('<b>${escapedLabel}</b><br>Request location').openPopup();
   </script>
 </body>
@@ -71,10 +93,18 @@ function buildProviderPreviewHtml(
   mapboxToken: string,
   ownerPopup: string,
   mePopup: string,
+  providerRole: 'tow' | 'mechanic',
 ): string {
   const oPop = escapeForJsSingleQuoted(ownerPopup);
   const mPop = escapeForJsSingleQuoted(mePopup);
   const tokenJs = escapeForJsSingleQuoted(mapboxToken);
+  const ownerPinHtmlJs = escapeForJsSingleQuoted(OWNER_VEHICLE_PIN_HTML);
+  const providerPinHtmlJs = escapeForJsSingleQuoted(
+    providerRole === 'mechanic' ? PROVIDER_MECH_PIN_HTML : PROVIDER_TRUCK_PIN_HTML,
+  );
+  const meSub =
+    providerRole === 'mechanic' ? 'Mechanic · live GPS' : 'Tow truck · live GPS';
+  const meSubJs = escapeForJsSingleQuoted(meSub);
   return `
 <!DOCTYPE html>
 <html>
@@ -86,11 +116,14 @@ function buildProviderPreviewHtml(
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     html, body, #map { width: 100%; height: 100%; }
+    /* Above Leaflet panes/controls (z-index ~400–1000) so text is never hidden */
     #banner {
-      position: absolute; top: 10px; left: 10px; right: 10px; z-index: 1000;
-      background: rgba(255,255,255,0.95); padding: 10px 12px; border-radius: 10px;
+      position: absolute; top: 10px; left: 10px; right: 10px; z-index: 10000;
+      background: rgba(255,255,255,0.97); padding: 10px 12px; border-radius: 10px;
       font-family: system-ui, -apple-system, sans-serif; font-size: 13px;
       box-shadow: 0 1px 4px rgba(0,0,0,0.12); line-height: 1.35;
+      max-height: 42%; overflow-y: auto; -webkit-overflow-scrolling: touch;
+      pointer-events: auto;
     }
     #banner b { color: #111; }
   </style>
@@ -102,11 +135,14 @@ function buildProviderPreviewHtml(
     var owner = [${ownerLat}, ${ownerLng}];
     var me = [${meLat}, ${meLng}];
     var map = L.map('map').setView(owner, 13);
+    if (map.zoomControl && typeof map.zoomControl.setPosition === 'function') {
+      map.zoomControl.setPosition('bottomright');
+    }
     L.tileLayer('${MAP_TILE_URL}', { attribution: '${MAP_ATTRIBUTION}' }).addTo(map);
-    var ownerIcon = L.divIcon({ className: 'owner-pin', html: '<div style="width:14px;height:14px;border-radius:50%;background:#0d9488;border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,.35)"></div>', iconSize: [14,14], iconAnchor: [7,7] });
-    var meIcon = L.divIcon({ className: 'me-pin', html: '<div style="width:14px;height:14px;border-radius:50%;background:#1d4ed8;border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,.35)"></div>', iconSize: [14,14], iconAnchor: [7,7] });
+    var ownerIcon = L.divIcon({ className: 'owner-pin', html: '${ownerPinHtmlJs}', iconSize: [34, 34], iconAnchor: [17, 17] });
+    var meIcon = L.divIcon({ className: 'me-pin', html: '${providerPinHtmlJs}', iconSize: [40, 40], iconAnchor: [20, 20] });
     L.marker(owner, { icon: ownerIcon }).addTo(map).bindPopup('<b>${oPop}</b><br>Vehicle owner (pickup / live)');
-    L.marker(me, { icon: meIcon }).addTo(map).bindPopup('<b>${mPop}</b><br>Your position');
+    L.marker(me, { icon: meIcon }).addTo(map).bindPopup('<b>${mPop}</b><br>${meSubJs}');
     var banner = document.getElementById('banner');
     function straightKm() {
       var R = 6371, toR = Math.PI/180;
@@ -114,12 +150,28 @@ function buildProviderPreviewHtml(
       var a = Math.sin(dLat/2)*Math.sin(dLat/2) + Math.cos(toR*me[0])*Math.cos(toR*owner[0])*Math.sin(dLon/2)*Math.sin(dLon/2);
       return (2 * R * Math.atan2(Math.sqrt(a), Math.sqrt(1-a)));
     }
-    function drawLine(latlngs, distLabel, note) {
+    function drawLine(latlngs, distLabel, isRoadRoute) {
       L.polyline(latlngs, { color: '#111111', weight: 5, opacity: 0.92 }).addTo(map);
-      map.fitBounds(L.latLngBounds(latlngs), { padding: [36, 36] });
-      var sk = straightKm();
-      banner.innerHTML = '<b>' + distLabel + '</b>' + (note ? '<br><span style="color:#555;font-size:12px">' + note + '</span>' : '') +
-        '<br><span style="color:#666;font-size:12px">Straight line ≈ ' + sk.toFixed(1) + ' km</span>';
+      try {
+        var b = L.latLngBounds(latlngs);
+        b.extend(L.latLng(owner[0], owner[1]));
+        b.extend(L.latLng(me[0], me[1]));
+        var spanM = b.getNorthEast().distanceTo(b.getSouthWest());
+        if (b.isValid() && spanM > 3) {
+          map.fitBounds(b, { padding: [56, 56], maxZoom: 16 });
+        } else {
+          map.fitBounds(b, { padding: [80, 80], maxZoom: 17 });
+        }
+      } catch (e) {
+        map.setView([(owner[0] + me[0]) / 2, (owner[1] + me[1]) / 2], 15, { animate: false });
+      }
+      if (isRoadRoute) {
+        banner.innerHTML = '<b>' + distLabel + '</b>';
+      } else {
+        var sk = straightKm();
+        banner.innerHTML = '<b>' + distLabel + '</b><br><span style="color:#555;font-size:12px">Straight line (no road route).</span>' +
+          '<br><span style="color:#666;font-size:12px">As the crow flies ≈ ' + sk.toFixed(1) + ' km</span>';
+      }
     }
     var token = '${tokenJs}';
     function tryMapbox() {
@@ -130,7 +182,7 @@ function buildProviderPreviewHtml(
         if (!data.routes || !data.routes[0]) throw new Error('no route');
         var coords = data.routes[0].geometry.coordinates.map(function(c) { return [c[1], c[0]]; });
         var km = (data.routes[0].distance / 1000).toFixed(1);
-        drawLine(coords, 'Driving distance ≈ ' + km + ' km', 'Route via Mapbox (roads).');
+        drawLine(coords, 'Driving distance ≈ ' + km + ' km', true);
       });
     }
     function tryOsrm() {
@@ -139,13 +191,13 @@ function buildProviderPreviewHtml(
         if (!data.routes || !data.routes[0]) throw new Error('no route');
         var coords = data.routes[0].geometry.coordinates.map(function(c) { return [c[1], c[0]]; });
         var km = (data.routes[0].distance / 1000).toFixed(1);
-        drawLine(coords, 'Driving distance ≈ ' + km + ' km', 'Route via OSRM (OpenStreetMap roads).');
+        drawLine(coords, 'Driving distance ≈ ' + km + ' km', true);
       });
     }
     tryMapbox().catch(function() {
       return tryOsrm();
     }).catch(function() {
-      drawLine([me, owner], 'Road route unavailable', 'Showing straight line between you and the owner.');
+      drawLine([me, owner], 'Road route unavailable', false);
     });
   </script>
 </body>
@@ -171,7 +223,10 @@ export const RequestMapScreen: React.FC<RequestMapScreenProps> = ({ onBack }) =>
     ownerLatitude,
     ownerLongitude,
     customerName,
+    providerRole: providerRoleParam,
   } = route.params;
+
+  const providerRole = providerRoleParam === 'mechanic' ? 'mechanic' : 'tow';
 
   const ownerLat = typeof ownerLatitude === 'number' ? ownerLatitude : latitude;
   const ownerLng = typeof ownerLongitude === 'number' ? ownerLongitude : longitude;
@@ -181,6 +236,8 @@ export const RequestMapScreen: React.FC<RequestMapScreenProps> = ({ onBack }) =>
   const [locStatus, setLocStatus] = useState<'loading' | 'ok' | 'denied' | 'idle'>(
     preview ? 'loading' : 'idle',
   );
+  /** Prefetch driving km (same as before); value intentionally not shown under the header. */
+  const [, setBannerRoadKm] = useState<number | null | undefined>(undefined);
 
   const loadMyLocation = useCallback(async () => {
     if (!preview) return;
@@ -205,10 +262,25 @@ export const RequestMapScreen: React.FC<RequestMapScreenProps> = ({ onBack }) =>
     void loadMyLocation();
   }, [loadMyLocation]);
 
-  const straightKm =
-    meCoords && preview
-      ? haversineKm(meCoords.lat, meCoords.lng, ownerLat, ownerLng)
-      : null;
+  useEffect(() => {
+    if (!preview || !meCoords) {
+      setBannerRoadKm(undefined);
+      return;
+    }
+    let cancelled = false;
+    setBannerRoadKm(undefined);
+    void (async () => {
+      const k = await fetchDrivingDistanceKm(
+        { lat: meCoords.lat, lng: meCoords.lng },
+        { lat: ownerLat, lng: ownerLng },
+        MAPBOX_TOKEN,
+      );
+      if (!cancelled) setBannerRoadKm(k);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [preview, meCoords, ownerLat, ownerLng]);
 
   const html = useMemo(() => {
     if (preview && meCoords) {
@@ -220,12 +292,26 @@ export const RequestMapScreen: React.FC<RequestMapScreenProps> = ({ onBack }) =>
         MAPBOX_TOKEN,
         customerName?.trim() || 'Vehicle owner',
         'You',
+        providerRole,
       );
     }
-    return buildLeafletHtml(latitude, longitude, location);
-  }, [preview, meCoords, ownerLat, ownerLng, latitude, longitude, location, customerName]);
+    return buildLeafletHtml(latitude, longitude, location, { ownerVehiclePin: preview });
+  }, [
+    preview,
+    meCoords,
+    ownerLat,
+    ownerLng,
+    latitude,
+    longitude,
+    location,
+    customerName,
+    providerRole,
+  ]);
 
-  const webKey = preview && meCoords ? `route-${meCoords.lat}-${meCoords.lng}-${ownerLat}-${ownerLng}` : `pin-${latitude}-${longitude}`;
+  const webKey =
+    preview && meCoords
+      ? `route-${providerRole}-${meCoords.lat}-${meCoords.lng}-${ownerLat}-${ownerLng}`
+      : `pin-${preview ? 'pv' : 'np'}-${latitude}-${longitude}`;
 
   const styles = useMemo(
     () =>
@@ -293,7 +379,7 @@ export const RequestMapScreen: React.FC<RequestMapScreenProps> = ({ onBack }) =>
         </Text>
         {headerRight}
       </View>
-      {preview ? (
+      {preview && (locStatus === 'loading' || locStatus === 'denied' || !meCoords) ? (
         <View style={styles.subBanner}>
           {locStatus === 'loading' ? (
             <View style={{ flexDirection: 'row', alignItems: 'center' }}>
@@ -302,16 +388,9 @@ export const RequestMapScreen: React.FC<RequestMapScreenProps> = ({ onBack }) =>
                 Getting your position for distance and route…
               </Text>
             </View>
-          ) : locStatus === 'denied' || !meCoords ? (
-            <Text style={styles.subBannerText}>
-              Location disabled — map shows the vehicle owner only. Enable location to see driving distance and a black
-              route on roads to the owner.
-            </Text>
           ) : (
-            <Text style={styles.subBannerText}>
-              {customerName ? `${customerName} · ` : ''}
-              Straight line ≈ {straightKm != null ? `${straightKm.toFixed(1)} km` : '—'} to vehicle owner
-              {typeof ownerLatitude === 'number' && typeof ownerLongitude === 'number' ? ' (live or pickup pin)' : ''}
+            <Text style={styles.subBannerText} numberOfLines={3}>
+              Location off — map shows owner only. Turn on location to see distance and route to them.
             </Text>
           )}
         </View>

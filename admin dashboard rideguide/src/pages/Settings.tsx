@@ -2,14 +2,10 @@ import { useEffect, useState } from 'react';
 import { Card, CardHeader, CardContent } from '../components/ui/Card';
 import { adminUrl, apiGet, apiPatch, apiPost, ApiError, getPublicApiOrigin } from '../lib/api';
 
-const isProdBuild = import.meta.env.PROD;
-
 export function Settings() {
   const [notifications, setNotifications] = useState(true);
   const [emailAlerts, setEmailAlerts] = useState(true);
   const [maintenanceMode, setMaintenanceMode] = useState(false);
-  const [seeding, setSeeding] = useState(false);
-  const [seedMessage, setSeedMessage] = useState<string | null>(null);
 
   const [towPerKm, setTowPerKm] = useState('');
   const [providerRadiusKm, setProviderRadiusKm] = useState('');
@@ -320,62 +316,6 @@ export function Settings() {
               />
             </button>
           </div>
-          {!isProdBuild && (
-            <div className="pt-2 border-t border-dashed border-gray-200 dark:border-gray-800">
-              <div className="flex items-center justify-between gap-4">
-                <div>
-                  <p className="text-sm font-medium text-gray-900 dark:text-white">Seed demo data</p>
-                  <p className="text-xs text-gray-500 dark:text-gray-400">
-                    POST /api/admin/seed-demo — requires ALLOW_ADMIN_SEED=true on the API. Disabled when NODE_ENV=production
-                    on the server. Optional ADMIN_SEED_CLEAR=true wipes non-admin data first.
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  disabled={seeding}
-                  onClick={async () => {
-                    setSeedMessage(null);
-                    try {
-                      setSeeding(true);
-                      const res = await apiPost<{ ok: boolean; error?: string }>(adminUrl('seed-demo'));
-                      if (res.ok) {
-                        window.location.reload();
-                      } else {
-                        setSeedMessage(res.error ?? 'Seed did not run.');
-                      }
-                    } catch (e) {
-                      const msg =
-                        e instanceof ApiError
-                          ? (() => {
-                              try {
-                                return (JSON.parse(e.body) as { error?: string }).error ?? e.message;
-                              } catch {
-                                return e.message;
-                              }
-                            })()
-                          : e instanceof Error
-                            ? e.message
-                            : 'Seed failed.';
-                      setSeedMessage(msg);
-                    } finally {
-                      setSeeding(false);
-                    }
-                  }}
-                  className="shrink-0 rounded-lg border border-accent-500 px-4 py-2 text-sm font-medium text-accent-600 dark:text-accent-400 disabled:opacity-60 hover:bg-accent-500/10 transition-colors"
-                >
-                  {seeding ? 'Seeding…' : 'Seed demo data'}
-                </button>
-              </div>
-              {seedMessage && (
-                <p className="mt-2 text-xs text-amber-600 dark:text-amber-400">{seedMessage}</p>
-              )}
-            </div>
-          )}
-          {isProdBuild && (
-            <p className="text-xs text-gray-500 dark:text-gray-400 pt-2 border-t border-dashed border-gray-200 dark:border-gray-800">
-              Demo seed controls are hidden in production builds of the admin app.
-            </p>
-          )}
         </CardContent>
       </Card>
 

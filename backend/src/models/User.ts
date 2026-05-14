@@ -33,6 +33,8 @@ const UserSchema = new Schema(
     phoneNumber: { type: String, default: null },
     /** When false, mechanic list omits open pending roadside pool and cannot accept new jobs. */
     mechanicAvailable: { type: Boolean, default: true },
+    /** When false, tow open hire pool is hidden and drivers cannot pick new hires (mirrors mechanic toggle). */
+    towAvailable: { type: Boolean, default: true },
     status: { type: String, enum: ['active', 'suspended'], default: 'active', index: true },
     providerVerificationStatus: {
       type: String,

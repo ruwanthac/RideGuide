@@ -25,6 +25,7 @@ import * as Location from 'expo-location';
 import { Icon, PrimaryButton } from '../components';
 import { colors } from '../constants/theme';
 import { useResponsive } from '../hooks';
+import { extractApiError } from '../backend/apiClient';
 import { createServiceRequest, getTowEstimate } from '../backend/serviceRequestsService';
 import { hasMapboxToken, reverseGeocodeMapbox, searchMapboxPlaces, type LocationSuggestion } from '../backend/mapboxService';
 import { useAuth } from '../context/AuthContext';
@@ -974,7 +975,7 @@ export const TowTruckAssistantScreen: React.FC<TowTruckAssistantScreenProps> = (
       if (onBooked) onBooked(created._id, tripType);
       else onBack();
     } catch (e) {
-      Alert.alert('Booking failed', e instanceof Error ? e.message : 'Try again');
+      Alert.alert('Booking failed', extractApiError(e, 'Try again'));
     } finally {
       setSubmitting(false);
     }

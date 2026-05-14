@@ -1,4 +1,4 @@
-import { Search, Bell, Moon, Sun, Menu, LogOut } from 'lucide-react';
+import { Search, Moon, Sun, Menu, LogOut } from 'lucide-react';
 
 interface NavbarProps {
   onMenuClick: () => void;
@@ -35,14 +35,6 @@ export function Navbar({ onMenuClick, onDarkModeToggle, onLogout, isDark }: Navb
             aria-label={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
           >
             {isDark ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
-          </button>
-          <button
-            type="button"
-            className="relative rounded-lg p-2 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
-            aria-label="Notifications"
-          >
-            <Bell className="h-5 w-5" />
-            <span className="absolute right-1 top-1 h-2 w-2 rounded-full bg-accent-500" />
           </button>
           <button
             type="button"

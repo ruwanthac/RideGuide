@@ -69,7 +69,7 @@ export async function getStats() {
     ServiceRequestModel.countDocuments({ status: 'pending' }),
     ServiceRequestModel.countDocuments({ createdAt: { $gte: startOfDay } }),
     UserModel.countDocuments({ role: 'mechanic', mechanicAvailable: true }),
-    UserModel.countDocuments({ role: 'tow' }),
+    UserModel.countDocuments({ role: 'tow', towAvailable: true }),
   ]);
   return {
     userCount,
@@ -87,6 +87,7 @@ export type UserPatch = Partial<{
   displayName: string;
   phoneNumber: string | null;
   mechanicAvailable: boolean;
+  towAvailable: boolean;
   businessName: string | null;
   businessAddress: string | null;
   truckName: string | null;
@@ -272,6 +273,7 @@ export async function updateUser(
   if (patch.displayName !== undefined) allowed.displayName = patch.displayName;
   if (patch.phoneNumber !== undefined) allowed.phoneNumber = patch.phoneNumber;
   if (patch.mechanicAvailable !== undefined) allowed.mechanicAvailable = patch.mechanicAvailable;
+  if (patch.towAvailable !== undefined) allowed.towAvailable = patch.towAvailable;
   if (patch.businessName !== undefined) allowed.businessName = patch.businessName;
   if (patch.businessAddress !== undefined) allowed.businessAddress = patch.businessAddress;
   if (patch.truckName !== undefined) allowed.truckName = patch.truckName;
@@ -598,7 +600,7 @@ export async function getAnalytics(query: Record<string, unknown>) {
     meta: {
       assumptions: [
         'Diagnosis flows use DiagnosisHistory, not ServiceRequest.type=diagnosis.',
-        'activeMechanics = users with role mechanic and mechanicAvailable true; activeTow = count of users with role tow.',
+        'activeMechanics = mechanics with mechanicAvailable true; activeTowDrivers = tow users with towAvailable true.',
         'Average acceptance time = acceptedAt - createdAt for requests accepted in the selected window.',
       ],
     },

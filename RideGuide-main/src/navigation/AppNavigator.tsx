@@ -13,6 +13,7 @@ import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { useAuth } from '../context/AuthContext';
 import { OngoingActivityProvider } from '../context/OngoingActivityContext';
 import { UnreadRequestChatProvider } from '../context/UnreadRequestChatContext';
+import { ProfileNotificationsProvider } from '../context/ProfileNotificationsContext';
 import { OngoingActivityMiniBar } from '../components/OngoingActivityMiniBar';
 import { PasswordChangePromptGate } from '../components/PasswordChangePromptGate';
 
@@ -46,6 +47,7 @@ import {
   RequestChatScreen,
   AdminScreen,
   VehicleRecordsScreen,
+  ProfileNotificationsScreen,
 } from '../screens';
 
 import type {
@@ -249,6 +251,11 @@ const MainTabNavigator = () => (
       {() => (
         <ProfileStack.Navigator screenOptions={{ headerShown: false }}>
           <ProfileStack.Screen name="Profile" component={ProfileScreen} />
+          <ProfileStack.Screen name="ProfileNotifications">
+            {({ navigation }) => (
+              <ProfileNotificationsScreen onBack={() => navigation.goBack()} />
+            )}
+          </ProfileStack.Screen>
           <ProfileStack.Screen name="Privacy">
             {({ navigation }) => <PrivacyScreen onBack={() => navigation.goBack()} />}
           </ProfileStack.Screen>
@@ -325,11 +332,13 @@ export const AppNavigator = () => {
             {() => (
               <OngoingActivityProvider navigationRef={navigationRef}>
                 <UnreadRequestChatProvider>
+                  <ProfileNotificationsProvider>
                   <View style={{ flex: 1 }}>
                     <PasswordChangePromptGate />
                     <MainTabNavigator />
                     <OngoingActivityMiniBar />
                   </View>
+                  </ProfileNotificationsProvider>
                 </UnreadRequestChatProvider>
               </OngoingActivityProvider>
             )}

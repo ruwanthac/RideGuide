@@ -19,6 +19,7 @@ export { DiagnosisHistoryDetailScreen } from './DiagnosisHistoryDetailScreen';
 export { AiVideoHistoryDetailScreen } from './AiVideoHistoryDetailScreen';
 export { AssistantHistoryDetailScreen } from './AssistantHistoryDetailScreen';
 export { AssistanceScreen } from './AssistanceScreen';
+export { ProfileNotificationsScreen } from './ProfileNotificationsScreen';
 export { ProfileScreen } from './ProfileScreen';
 export { PrivacyScreen } from './PrivacyScreen';
 export { VideoCallScreen } from './VideoCallScreen';

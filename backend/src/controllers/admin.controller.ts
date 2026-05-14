@@ -9,6 +9,7 @@ const patchUserSchema = z
     displayName: z.string().min(1).max(120).optional(),
     phoneNumber: z.string().max(40).nullable().optional(),
     mechanicAvailable: z.boolean().optional(),
+    towAvailable: z.boolean().optional(),
     businessName: z.string().max(200).nullable().optional(),
     businessAddress: z.string().max(500).nullable().optional(),
     truckName: z.string().max(120).nullable().optional(),

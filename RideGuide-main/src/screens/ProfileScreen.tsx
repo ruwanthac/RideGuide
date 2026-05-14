@@ -18,6 +18,7 @@ import { useUserRole } from '../context/UserRoleContext';
 import { useVehicles } from '../context/VehiclesContext';
 import { useAuth } from '../context/AuthContext';
 import { useNavigation } from '@react-navigation/native';
+import { useProfileNotifications } from '../context/ProfileNotificationsContext';
 import { extractApiError } from '../backend/apiClient';
 
 const DEFAULT_MAKE_MODEL = 'Toyota Camry 2020';
@@ -41,6 +42,7 @@ export const ProfileScreen: React.FC = () => {
     removeVehicle,
   } = useVehicles();
   const navigation = useNavigation<any>();
+  const { hasUnread: hasProfileNotificationsUnread } = useProfileNotifications();
   const [editMakeModel, setEditMakeModel] = useState(DEFAULT_MAKE_MODEL);
   const [editVin, setEditVin] = useState(DEFAULT_VIN);
   const [editPlate, setEditPlate] = useState(DEFAULT_PLATE);
@@ -624,12 +626,31 @@ export const ProfileScreen: React.FC = () => {
 
         <Card style={styles.section} padded>
         <Text style={styles.sectionTitle}>Settings</Text>
-        <TouchableOpacity style={styles.menuItem}>
-          <Text style={styles.menuText}>Notifications</Text>
-          <Text style={styles.menuArrow}>›</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.menuItem, userRole !== 'admin' && styles.menuItemLast]}
+        {(userRole === 'owner' || userRole === 'mechanic' || userRole === 'tow') && (
+          <TouchableOpacity
+            style={styles.menuItem}
+            onPress={() => navigation.navigate('ProfileNotifications' as never)}
+            activeOpacity={0.7}
+          >
+            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+              <Text style={styles.menuText}>Notifications</Text>
+              {hasProfileNotificationsUnread ? (
+                <View
+                  style={{
+                    width: 8,
+                    height: 8,
+                    borderRadius: 4,
+                    backgroundColor: '#EF4444',
+                    marginLeft: spacing.sm,
+                  }}
+                  accessibilityLabel="Unread notifications"
+                />
+              ) : null}
+            </View>
+            <Text style={styles.menuArrow}>›</Text>
+          </TouchableOpacity>
+        )}
+        <TouchableOpacity style={[styles.menuItem, userRole !== 'admin' && styles.menuItemLast]}
           onPress={() => navigation.navigate('Privacy' as never)}
           activeOpacity={0.7}
         >

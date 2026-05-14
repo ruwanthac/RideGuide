@@ -9,6 +9,7 @@ interface ChatBubbleProps {
   timestamp?: string;
   imageUri?: string | null;
   alignRight?: boolean;
+  /** @deprecated Kept for API compatibility; bubbles are styled by sent vs received only. */
   bubbleTone?: 'owner' | 'tow' | 'default';
 }
 
@@ -18,7 +19,6 @@ export const ChatBubble: React.FC<ChatBubbleProps> = ({
   timestamp,
   imageUri,
   alignRight,
-  bubbleTone = 'default',
 }) => {
   const { spacing, borderRadius, fontSizes, scale } = useResponsive();
 
@@ -40,19 +40,13 @@ export const ChatBubble: React.FC<ChatBubbleProps> = ({
           borderRadius: borderRadius.md,
           marginBottom: spacing.sm,
         },
-        userBubble: {
+        /** Sent by current user */
+        sentBubble: {
           backgroundColor: colors.primary,
           borderBottomRightRadius: borderRadius.sm,
         },
-        ownerBubble: {
-          backgroundColor: '#1D4ED8',
-          borderBottomRightRadius: borderRadius.sm,
-        },
-        towBubble: {
-          backgroundColor: '#0F766E',
-          borderBottomLeftRadius: borderRadius.sm,
-        },
-        aiBubble: {
+        /** Received from the other party */
+        receivedBubble: {
           backgroundColor: colors.card,
           borderBottomLeftRadius: borderRadius.sm,
           borderWidth: 1,
@@ -63,35 +57,22 @@ export const ChatBubble: React.FC<ChatBubbleProps> = ({
           fontSize: fontSizes.md,
           lineHeight: Math.round(fontSizes.md * 1.45),
         },
-        userText: { color: colors.card },
-        roleText: { color: '#FFFFFF' },
-        aiText: { color: colors.text },
+        sentText: { color: '#FFFFFF' },
+        receivedText: { color: colors.text },
         timestamp: {
           fontSize: fontSizes.xs - 1,
           marginTop: spacing.xs,
         },
-        userTimestamp: { color: 'rgba(255, 255, 255, 0.8)' },
-        aiTimestamp: { color: colors.textSecondary },
+        sentTimestamp: { color: 'rgba(255, 255, 255, 0.85)' },
+        receivedTimestamp: { color: colors.textSecondary },
       }),
     [spacing, borderRadius, fontSizes, scale]
   );
 
   const rightAligned = typeof alignRight === 'boolean' ? alignRight : isUser;
-  const bubbleStyle =
-    bubbleTone === 'owner'
-      ? styles.ownerBubble
-      : bubbleTone === 'tow'
-        ? styles.towBubble
-        : isUser
-          ? styles.userBubble
-          : styles.aiBubble;
-  const textStyle = bubbleTone === 'default' ? (isUser ? styles.userText : styles.aiText) : styles.roleText;
-  const timestampStyle =
-    bubbleTone === 'default'
-      ? isUser
-        ? styles.userTimestamp
-        : styles.aiTimestamp
-      : styles.userTimestamp;
+  const bubbleStyle = rightAligned ? styles.sentBubble : styles.receivedBubble;
+  const textStyle = rightAligned ? styles.sentText : styles.receivedText;
+  const timestampStyle = rightAligned ? styles.sentTimestamp : styles.receivedTimestamp;
 
   return (
     <View style={[styles.container, rightAligned ? styles.userContainer : styles.aiContainer]}>

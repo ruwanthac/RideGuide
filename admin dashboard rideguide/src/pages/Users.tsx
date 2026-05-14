@@ -17,6 +17,12 @@ const roleLabels: Record<UserRole, string> = {
   admin: 'Admin',
 };
 
+function jobFeedLabel(u: AdminUser): string {
+  if (u.role === 'mechanic') return u.mechanicAvailable !== false ? 'Online' : 'Offline';
+  if (u.role === 'tow') return u.towAvailable !== false ? 'Online' : 'Offline';
+  return '—';
+}
+
 interface PaginatedUsers {
   items: AdminUser[];
   page: number;
@@ -38,6 +44,7 @@ function EditUserModal({
   const [displayName, setDisplayName] = useState(user.displayName);
   const [phoneNumber, setPhoneNumber] = useState(user.phoneNumber ?? '');
   const [mechanicAvailable, setMechanicAvailable] = useState(user.mechanicAvailable !== false);
+  const [towAvailable, setTowAvailable] = useState(user.towAvailable !== false);
   const [businessName, setBusinessName] = useState(user.businessName ?? '');
   const [businessAddress, setBusinessAddress] = useState(user.businessAddress ?? '');
   const [truckName, setTruckName] = useState(user.truckName ?? '');
@@ -56,6 +63,9 @@ function EditUserModal({
       if (phoneNumber.trim() !== (user.phoneNumber ?? '')) body.phoneNumber = phoneNumber.trim();
       if (user.role === 'mechanic' && mechanicAvailable !== (user.mechanicAvailable !== false)) {
         body.mechanicAvailable = mechanicAvailable;
+      }
+      if (user.role === 'tow' && towAvailable !== (user.towAvailable !== false)) {
+        body.towAvailable = towAvailable;
       }
       if ((user.role === 'tow' || role === 'tow') && businessName.trim() !== (user.businessName ?? '')) {
         body.businessName = businessName.trim();
@@ -143,6 +153,12 @@ function EditUserModal({
               onChange={(e) => setMechanicAvailable(e.target.checked)}
             />
             Mechanic available
+          </label>
+        )}
+        {(role === 'tow' || user.role === 'tow') && (
+          <label className="flex items-center gap-2">
+            <input type="checkbox" checked={towAvailable} onChange={(e) => setTowAvailable(e.target.checked)} />
+            Tow online (receiving open hire requests)
           </label>
         )}
         {(role === 'tow' || user.role === 'tow') && (
@@ -376,7 +392,7 @@ export function Users() {
             />
           </div>
           {loading ? (
-            <TableSkeleton rows={5} cols={6} />
+            <TableSkeleton rows={5} cols={7} />
           ) : (
             <>
               <Table>
@@ -385,6 +401,7 @@ export function Users() {
                   <TableHead>Email</TableHead>
                   <TableHead>Phone</TableHead>
                   <TableHead>Role</TableHead>
+                  <TableHead>Job feed</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
                 </TableHeader>
@@ -396,6 +413,15 @@ export function Users() {
                       <TableCell>{u.phoneNumber || '—'}</TableCell>
                       <TableCell>
                         <Badge variant="default">{roleLabels[u.role]}</Badge>
+                      </TableCell>
+                      <TableCell>
+                        {u.role === 'mechanic' || u.role === 'tow' ? (
+                          <Badge variant={jobFeedLabel(u) === 'Online' ? 'success' : 'default'}>
+                            {jobFeedLabel(u)}
+                          </Badge>
+                        ) : (
+                          '—'
+                        )}
                       </TableCell>
                       <TableCell>
                         <Badge variant={statusToBadgeVariant(u.status ?? 'active')}>{u.status ?? 'active'}</Badge>

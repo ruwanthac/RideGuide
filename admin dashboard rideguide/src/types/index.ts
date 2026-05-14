@@ -23,6 +23,7 @@ export interface AdminUser {
   status?: UserStatus;
   phoneNumber?: string | null;
   mechanicAvailable?: boolean;
+  towAvailable?: boolean;
   businessName?: string;
   businessAddress?: string;
   truckName?: string;

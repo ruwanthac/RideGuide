@@ -25,7 +25,6 @@ interface AnalyticsApi {
   diagnosesInRange: number;
   acceptanceTimeAvgMinutes: { roadside: number | null; tow: number | null };
   acceptanceSamples: { roadside: number; tow: number };
-  meta?: { assumptions?: string[] };
 }
 
 const COLORS = ['#0ea5e9', '#10b981', '#f59e0b', '#a855f7', '#ec4899', '#64748b'];
@@ -236,19 +235,6 @@ export function Analytics() {
           </CardContent>
         </Card>
       </div>
-
-      {data.meta?.assumptions?.length ? (
-        <Card>
-          <CardHeader title="Assumptions" subtitle="From API" />
-          <CardContent>
-            <ul className="list-inside list-disc text-sm text-gray-600 dark:text-gray-400">
-              {data.meta.assumptions.map((a) => (
-                <li key={a}>{a}</li>
-              ))}
-            </ul>
-          </CardContent>
-        </Card>
-      ) : null}
     </div>
   );
 }

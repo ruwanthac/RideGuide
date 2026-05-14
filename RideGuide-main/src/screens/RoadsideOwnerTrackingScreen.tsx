@@ -11,6 +11,7 @@ import {
   Linking,
   Alert,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { WebView } from 'react-native-webview';
 import { Icon, UnreadRedDot } from '../components';
 import { colors } from '../constants/theme';
@@ -50,6 +51,7 @@ export const RoadsideOwnerTrackingScreen: React.FC<RoadsideOwnerTrackingScreenPr
   onBackHome,
 }) => {
   const { spacing, fontSizes, borderRadius } = useResponsive();
+  const insets = useSafeAreaInsets();
   const { role } = useUserRole();
   const { user } = useAuth();
   const { syncFromServiceRequest, clearForRequest } = useOngoingActivity();
@@ -526,7 +528,7 @@ export const RoadsideOwnerTrackingScreen: React.FC<RoadsideOwnerTrackingScreenPr
         },
         topBar: {
           position: 'absolute',
-          top: spacing.xl + spacing.sm,
+          top: (insets.top > 0 ? insets.top : spacing.xl) + spacing.sm,
           left: spacing.md,
           right: spacing.md,
           zIndex: 10,
@@ -557,7 +559,18 @@ export const RoadsideOwnerTrackingScreen: React.FC<RoadsideOwnerTrackingScreenPr
         },
         cancelOutlineText: { color: colors.error, fontSize: fontSizes.xs, fontWeight: '700' },
       }),
-    [borderRadius.full, borderRadius.lg, fontSizes.lg, fontSizes.xs, spacing.lg, spacing.md, spacing.sm, spacing.xl, spacing.xs]
+    [
+      borderRadius.full,
+      borderRadius.lg,
+      fontSizes.lg,
+      fontSizes.xs,
+      insets.top,
+      spacing.lg,
+      spacing.md,
+      spacing.sm,
+      spacing.xl,
+      spacing.xs,
+    ]
   );
 
   if (loading || !request) {

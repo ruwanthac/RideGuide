@@ -191,6 +191,18 @@ export async function listForRole(userId: string, role: Role, vehicleId?: string
     return [];
   }
   if (role === 'tow') {
+    const towUser = await UserModel.findById(userId).select('towAvailable').lean();
+    const towReceiving = towUser?.towAvailable !== false;
+    if (!towReceiving) {
+      const rows = await ServiceRequestModel.find({
+        type: 'tow',
+        acceptedBy: new Types.ObjectId(userId),
+        status: { $nin: ['completed', 'cancelled'] },
+      })
+        .sort({ createdAt: -1 })
+        .lean();
+      return enrichProviderLocations(rows as RequestWithProviderLocation[]);
+    }
     const rows = await ServiceRequestModel.find({
       type: 'tow',
       $or: [
@@ -229,6 +241,30 @@ export async function listForRole(userId: string, role: Role, vehicleId?: string
   return enrichProviderLocations(filtered);
 }
 
+/** Owner may have only one active tow or roadside at a time (until completed, cancelled, deleted, or expired-unclaimed removed). */
+async function assertOwnerHasNoActiveHelpRequest(requesterId: string): Promise<void> {
+  const now = new Date();
+  const existing = await ServiceRequestModel.findOne({
+    requesterId: new Types.ObjectId(requesterId),
+    type: { $in: ['roadside', 'tow'] },
+    status: { $nin: ['completed', 'cancelled'] },
+    $nor: [
+      {
+        acceptedBy: null,
+        expiresAt: { $lte: now, $ne: null },
+      },
+    ],
+  })
+    .select('_id')
+    .lean();
+  if (existing) {
+    throw new HttpError(
+      409,
+      'You already have an active tow or roadside request. Cancel or finish it before starting another.',
+    );
+  }
+}
+
 export async function createRequest(userId: string, input: {
   type: 'roadside' | 'tow';
   vehicle: string;
@@ -262,6 +298,8 @@ export async function createRequest(userId: string, input: {
     }).lean();
     if (dup) return enrichProviderLocation(dup as RequestWithProviderLocation);
   }
+
+  await assertOwnerHasNoActiveHelpRequest(userId);
 
   const user = await UserModel.findById(userId).lean();
   if (!user) throw new HttpError(401, 'no user');
@@ -419,7 +457,13 @@ export async function transition(
     if (!next) throw new HttpError(409, 'request is not active');
     if (target !== next) throw new HttpError(409, `next status must be ${next}`);
     if (current === 'requested') {
-      if (role === 'tow') await assertProviderApprovedForJob(userId, role);
+      if (role === 'tow') {
+        await assertProviderApprovedForJob(userId, role);
+        const towAvailRow = await UserModel.findById(userId).select('towAvailable').lean();
+        if (towAvailRow?.towAvailable === false) {
+          throw new HttpError(400, 'turn on availability to accept new hires');
+        }
+      }
       const acceptedAt = new Date();
       const updated = await ServiceRequestModel.findOneAndUpdate(
         { _id: req._id, type: 'tow', status: 'requested', acceptedBy: null },

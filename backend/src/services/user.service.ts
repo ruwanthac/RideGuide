@@ -13,6 +13,7 @@ export interface ProfilePatch {
   plateNumber?: string | null;
   phoneNumber?: string | null;
   mechanicAvailable?: boolean;
+  towAvailable?: boolean;
   location?: { lat: number; lng: number } | null;
 }
 

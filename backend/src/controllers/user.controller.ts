@@ -13,6 +13,7 @@ const schema = z.object({
   plateNumber: z.string().nullable().optional(),
   phoneNumber: z.string().nullable().optional(),
   mechanicAvailable: z.boolean().optional(),
+  towAvailable: z.boolean().optional(),
   location: z.object({ lat: z.number(), lng: z.number() }).nullable().optional(),
 });
 
@@ -25,6 +26,9 @@ export async function patchMe(req: Request, res: Response, next: NextFunction) {
     }
     if (req.user!.role !== 'mechanic') {
       delete payload.mechanicAvailable;
+    }
+    if (req.user!.role !== 'tow') {
+      delete payload.towAvailable;
     }
     res.json(await svc.updateProfile(req.user!.userId, payload as any));
   } catch (e) { next(e); }

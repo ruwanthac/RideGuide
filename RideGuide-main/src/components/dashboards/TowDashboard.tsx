@@ -1,11 +1,12 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useFocusEffect } from '@react-navigation/native';
-import { View, Text, StyleSheet, Switch, Animated, Easing, Platform } from 'react-native';
+import { View, Text, StyleSheet, Switch, Animated, Easing, Platform, Alert } from 'react-native';
 import * as Location from 'expo-location';
 import { Card } from '../';
 import { colors } from '../../constants/theme';
 import { useResponsive } from '../../hooks';
 import { updateUserProfile } from '../../backend/userProfileService';
+import { extractApiError } from '../../backend/apiClient';
 import { fetchMe } from '../../backend/authService';
 import { listServiceRequests } from '../../backend/serviceRequestsService';
 import type { ServiceRequest } from '../../backend/types';
@@ -59,12 +60,14 @@ function verificationCopy(status: string | undefined, company: string) {
 }
 
 export const TowDashboard: React.FC<TowDashboardProps> = ({ driverName }) => {
-  const { user } = useAuth();
+  const { user, refreshProfile } = useAuth();
   const { spacing, fontSizes, borderRadius, scale } = useResponsive();
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const [activeRequestsCount, setActiveRequestsCount] = useState(0);
   const [completedJobs30Count, setCompletedJobs30Count] = useState(0);
-  const [isAvailable, setIsAvailable] = useState(true);
+  const [availabilityBusy, setAvailabilityBusy] = useState(false);
+
+  const towReceiving = user?.towAvailable !== false;
 
   const [liveLocationLabel, setLiveLocationLabel] = useState<string>(
     'Turn on availability to share live GPS with the network.',
@@ -259,7 +262,7 @@ export const TowDashboard: React.FC<TowDashboardProps> = ({ driverName }) => {
 
   useEffect(() => {
     void loadTowMetrics();
-  }, [isAvailable, loadTowMetrics]);
+  }, [towReceiving, loadTowMetrics]);
 
   useEffect(() => {
     let cancelled = false;
@@ -301,7 +304,7 @@ export const TowDashboard: React.FC<TowDashboardProps> = ({ driverName }) => {
     };
 
     void (async () => {
-      if (!isAvailable) {
+      if (!towReceiving) {
         stopWatch();
         hasSentLocationOnce.current = false;
         lastServerPatchAt.current = 0;
@@ -338,7 +341,7 @@ export const TowDashboard: React.FC<TowDashboardProps> = ({ driverName }) => {
       }
 
       const { status } = await Location.requestForegroundPermissionsAsync();
-      if (cancelled || !isAvailable) return;
+      if (cancelled || !towReceiving) return;
 
       if (status !== 'granted') {
         if (!cancelled) {
@@ -399,7 +402,20 @@ export const TowDashboard: React.FC<TowDashboardProps> = ({ driverName }) => {
       cancelled = true;
       stopWatch();
     };
-  }, [isAvailable]);
+  }, [towReceiving]);
+
+  const onTowAvailabilityChange = async (next: boolean) => {
+    if (!user?._id || availabilityBusy) return;
+    setAvailabilityBusy(true);
+    try {
+      await updateUserProfile({ towAvailable: next });
+      await refreshProfile();
+    } catch (e) {
+      Alert.alert('Could not update availability', extractApiError(e, 'Please try again.'));
+    } finally {
+      setAvailabilityBusy(false);
+    }
+  };
 
   const badgeColors =
     v.tone === 'warn'
@@ -435,15 +451,18 @@ export const TowDashboard: React.FC<TowDashboardProps> = ({ driverName }) => {
             <Text style={styles.statusSubtitle}>Control your availability for new tow requests.</Text>
             <View style={styles.availabilityPill}>
               <Text style={styles.availabilityPillText}>
-                {isAvailable ? 'Live · visible to nearby drivers' : 'Offline · not visible to drivers'}
+                {towReceiving ? 'Live · visible to nearby drivers' : 'Offline · not visible to drivers'}
               </Text>
             </View>
           </View>
           <Switch
-            value={isAvailable}
-            onValueChange={setIsAvailable}
+            value={towReceiving}
+            disabled={availabilityBusy}
+            onValueChange={(v) => {
+              void onTowAvailabilityChange(v);
+            }}
             trackColor={switchTrack}
-            thumbColor={isAvailable ? switchThumb.true : switchThumb.false}
+            thumbColor={towReceiving ? switchThumb.true : switchThumb.false}
           />
         </View>
       </Card>
@@ -477,7 +496,7 @@ export const TowDashboard: React.FC<TowDashboardProps> = ({ driverName }) => {
             style={[
               styles.locationStatusDot,
               {
-                backgroundColor: !isAvailable
+                backgroundColor: !towReceiving
                   ? colors.textSecondary
                   : locationPermissionHint
                   ? colors.error

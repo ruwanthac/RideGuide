@@ -137,8 +137,8 @@ export function Dashboard() {
       { label: 'Requests (roadside + tow)', value: stats.requestCount, icon: ClipboardList, color: 'text-violet-600 dark:text-violet-400' },
       { label: 'Pending requests', value: stats.pendingCount, icon: AlertCircle, color: 'text-amber-600 dark:text-amber-400' },
       { label: 'Requests today', value: stats.requestsToday, icon: ClipboardList, color: 'text-indigo-600 dark:text-indigo-400' },
-      { label: 'Active mechanics', value: stats.activeMechanics, icon: Wrench, color: 'text-emerald-600 dark:text-emerald-400' },
-      { label: 'Active tow drivers', value: stats.activeTowDrivers, icon: Truck, color: 'text-orange-600 dark:text-orange-400' },
+      { label: 'Mechanics online', value: stats.activeMechanics, icon: Wrench, color: 'text-emerald-600 dark:text-emerald-400' },
+      { label: 'Tow drivers online', value: stats.activeTowDrivers, icon: Truck, color: 'text-orange-600 dark:text-orange-400' },
     ];
   }, [stats]);
 

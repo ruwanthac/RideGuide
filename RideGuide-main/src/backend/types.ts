@@ -15,6 +15,8 @@ export interface AuthUser {
   phoneNumber?: string | null;
   /** Mechanics only: when false, pending roadside pool is hidden and accept is blocked server-side. */
   mechanicAvailable?: boolean;
+  /** Tow drivers: when false, open hire pool is hidden and picking hires is blocked server-side. */
+  towAvailable?: boolean;
   location?: { type: 'Point'; coordinates: [number, number] } | null;
   status?: 'active' | 'suspended';
   /** Mechanic/tow pipeline; omitted or `none` for owners and legacy accounts. */
@@ -78,6 +80,7 @@ export interface ServiceRequest {
     | 'completed'
     | 'cancelled';
   acceptedBy: string | null;
+  acceptedAt?: string | null;
   /** Set when a provider accepts (mechanic for roadside). */
   acceptedProviderDisplayName?: string | null;
   acceptedProviderPhone?: string | null;

@@ -39,6 +39,8 @@ export type HomeStackParamList = {
     ownerLatitude?: number;
     ownerLongitude?: number;
     customerName?: string;
+    /** Tow vs mechanic — picks truck vs wrench marker on the preview map. */
+    providerRole?: 'tow' | 'mechanic';
   };
   RequestChat: { requestId: string; userName: string; vehicle: string; issue: string };
 };
@@ -61,4 +63,5 @@ export type ProfileStackParamList = {
   Activities: undefined;
   Admin: undefined;
   VehicleRecords: { vehicleId: string };
+  ProfileNotifications: undefined;
 };

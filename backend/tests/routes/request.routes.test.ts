@@ -34,6 +34,127 @@ describe('service requests', () => {
     expect(list.body).toHaveLength(1);
   });
 
+  it('owner cannot create a second tow or roadside while one is active', async () => {
+    const app = buildApp();
+    const owner = await registerUser({
+      email: 'one-active@b.com',
+      password: 'secret12',
+      displayName: 'OneActive',
+    });
+    const h = { Authorization: `Bearer ${owner.token}` };
+    const body = {
+      type: 'roadside' as const,
+      vehicle: 'Toyota',
+      issue: 'Flat',
+      location: 'Main St',
+      latitude: 1,
+      longitude: 2,
+      phoneNumber: '123',
+    };
+    const first = await request(app).post('/api/requests').set(h).send(body);
+    expect(first.status).toBe(201);
+    const second = await request(app)
+      .post('/api/requests')
+      .set(h)
+      .send({ ...body, idempotencyKey: 'another-booking-attempt' });
+    expect(second.status).toBe(409);
+    expect(String(second.body.error ?? '')).toMatch(/active tow or roadside/i);
+  });
+
+  it('owner cannot mix tow while roadside is active', async () => {
+    const app = buildApp();
+    const owner = await registerUser({
+      email: 'mix-type@b.com',
+      password: 'secret12',
+      displayName: 'Mix',
+    });
+    const h = { Authorization: `Bearer ${owner.token}` };
+    const road = await request(app)
+      .post('/api/requests')
+      .set(h)
+      .send({
+        type: 'roadside',
+        vehicle: 'Toyota',
+        issue: 'Flat',
+        location: 'Main St',
+        latitude: 1,
+        longitude: 2,
+        phoneNumber: '123',
+      });
+    expect(road.status).toBe(201);
+    const tow = await request(app)
+      .post('/api/requests')
+      .set(h)
+      .send({
+        type: 'tow',
+        vehicle: 'Toyota',
+        issue: 'Tow',
+        location: 'Pick',
+        latitude: 1,
+        longitude: 2,
+        phoneNumber: '123',
+        dropoffAddress: 'Drop St',
+        dropoffLatitude: 1.1,
+        dropoffLongitude: 2.1,
+        idempotencyKey: 'tow-after-road',
+      });
+    expect(tow.status).toBe(409);
+  });
+
+  it('owner can create again after cancelling an open request', async () => {
+    const app = buildApp();
+    const owner = await registerUser({
+      email: 'after-cancel@b.com',
+      password: 'secret12',
+      displayName: 'AfterCancel',
+    });
+    const h = { Authorization: `Bearer ${owner.token}` };
+    const body = {
+      type: 'roadside' as const,
+      vehicle: 'Toyota',
+      issue: 'Flat',
+      location: 'Main St',
+      latitude: 1,
+      longitude: 2,
+      phoneNumber: '123',
+    };
+    const first = await request(app).post('/api/requests').set(h).send(body);
+    expect(first.status).toBe(201);
+    const cancel = await request(app)
+      .patch(`/api/requests/${first.body._id}`)
+      .set(h)
+      .send({ status: 'cancelled' });
+    expect(cancel.status).toBe(200);
+    const second = await request(app).post('/api/requests').set(h).send(body);
+    expect(second.status).toBe(201);
+    expect(second.body._id).not.toBe(first.body._id);
+  });
+
+  it('owner can create again after deleting an open request', async () => {
+    const app = buildApp();
+    const owner = await registerUser({
+      email: 'after-delete@b.com',
+      password: 'secret12',
+      displayName: 'AfterDelete',
+    });
+    const h = { Authorization: `Bearer ${owner.token}` };
+    const body = {
+      type: 'roadside' as const,
+      vehicle: 'Toyota',
+      issue: 'Flat',
+      location: 'Main St',
+      latitude: 1,
+      longitude: 2,
+      phoneNumber: '123',
+    };
+    const first = await request(app).post('/api/requests').set(h).send(body);
+    expect(first.status).toBe(201);
+    const del = await request(app).delete(`/api/requests/${first.body._id}`).set(h);
+    expect(del.status).toBe(204);
+    const second = await request(app).post('/api/requests').set(h).send(body);
+    expect(second.status).toBe(201);
+  });
+
   it('owner posts, mechanic lists pending and accepts', async () => {
     const app = buildApp();
     const owner = await registerUser({ email: 'o@b.com', password: 'secret12', displayName: 'Owner' });
@@ -239,6 +360,45 @@ describe('service requests', () => {
     expect(listFar.status).toBe(200);
     expect(listFar.body).toHaveLength(0);
   });
+
+  it('tow with availability off does not see open hire pool', async () => {
+    const app = buildApp();
+    const owner = await registerUser({
+      email: 'tow-avail-off-owner@b.com',
+      password: 'secret12',
+      displayName: 'OwnTowOff',
+    });
+    const tow = await registerApprovedProvider({
+      email: 'tow-avail-off@b.com',
+      password: 'secret12',
+      displayName: 'TowOff',
+      role: 'tow',
+    });
+    await request(app)
+      .patch('/api/users/me')
+      .set('Authorization', `Bearer ${tow.token}`)
+      .send({ towAvailable: false, location: { lat: 6.91, lng: 79.86 } });
+    const create = await request(app)
+      .post('/api/requests')
+      .set('Authorization', `Bearer ${owner.token}`)
+      .send({
+        type: 'tow',
+        vehicle: 'Civic',
+        issue: 'Tow',
+        location: 'Pickup',
+        latitude: 6.91,
+        longitude: 79.86,
+        pickupAddress: 'Pickup',
+        dropoffAddress: 'Drop',
+        dropoffLatitude: 6.93,
+        dropoffLongitude: 79.88,
+        phoneNumber: '123',
+      });
+    expect(create.status).toBe(201);
+    const list = await request(app).get('/api/requests').set('Authorization', `Bearer ${tow.token}`);
+    expect(list.status).toBe(200);
+    expect(list.body).toHaveLength(0);
+  });
 });
 
 describe('service requests — vehicleId scoping', () => {
@@ -278,8 +438,14 @@ describe('service requests — vehicleId scoping', () => {
     });
 
     const r1 = await request(app).post('/api/requests').set(h).send(towPayload(v1.body._id, 'A'));
-    const r2 = await request(app).post('/api/requests').set(h).send(towPayload(v2.body._id, 'B'));
     expect(r1.status).toBe(201);
+    const r2Blocked = await request(app).post('/api/requests').set(h).send(towPayload(v2.body._id, 'B'));
+    expect(r2Blocked.status).toBe(409);
+
+    const cancel = await request(app).patch(`/api/requests/${r1.body._id}`).set(h).send({ status: 'cancelled' });
+    expect(cancel.status).toBe(200);
+
+    const r2 = await request(app).post('/api/requests').set(h).send(towPayload(v2.body._id, 'B'));
     expect(r2.status).toBe(201);
 
     const all = await request(app).get('/api/requests').set(h);
