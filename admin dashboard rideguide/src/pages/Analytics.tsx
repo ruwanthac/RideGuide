@@ -104,7 +104,7 @@ export function Analytics() {
         <div>
           <h1 className="text-2xl font-semibold text-gray-900 dark:text-white">Analytics</h1>
           <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-            Aggregates from the RideGuide API (rate-limited)
+            Request volumes and breakdowns for the period you select.
           </p>
         </div>
         <div>

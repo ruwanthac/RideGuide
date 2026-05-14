@@ -1,12 +1,9 @@
 import { useEffect, useState } from 'react';
+import { Eye, EyeOff } from 'lucide-react';
 import { Card, CardHeader, CardContent } from '../components/ui/Card';
-import { adminUrl, apiGet, apiPatch, apiPost, ApiError, getPublicApiOrigin } from '../lib/api';
+import { adminUrl, apiGet, apiPatch, apiPost, ApiError } from '../lib/api';
 
 export function Settings() {
-  const [notifications, setNotifications] = useState(true);
-  const [emailAlerts, setEmailAlerts] = useState(true);
-  const [maintenanceMode, setMaintenanceMode] = useState(false);
-
   const [towPerKm, setTowPerKm] = useState('');
   const [providerRadiusKm, setProviderRadiusKm] = useState('');
   const [openRequestExpiryMin, setOpenRequestExpiryMin] = useState('');
@@ -18,6 +15,7 @@ export function Settings() {
   const [newAdminPassword, setNewAdminPassword] = useState('');
   const [newAdminDisplayName, setNewAdminDisplayName] = useState('');
   const [newAdminPhone, setNewAdminPhone] = useState('');
+  const [showAdminPassword, setShowAdminPassword] = useState(false);
   const [createAdminBusy, setCreateAdminBusy] = useState(false);
   const [createAdminErr, setCreateAdminErr] = useState<string | null>(null);
   const [createAdminMsg, setCreateAdminMsg] = useState<string | null>(null);
@@ -114,6 +112,7 @@ export function Settings() {
       );
       setNewAdminEmail('');
       setNewAdminPassword('');
+      setShowAdminPassword(false);
       setNewAdminDisplayName('');
       setNewAdminPhone('');
     } catch (e) {
@@ -133,7 +132,7 @@ export function Settings() {
       <Card>
         <CardHeader
           title="Create admin account"
-          subtitle="POST /api/admin/admins — adds another dashboard admin (same role as you). Share credentials securely."
+          subtitle="Add another operations administrator with the same dashboard access. Send their sign-in details only through a secure channel."
         />
         <CardContent className="space-y-3">
           {createAdminErr && <p className="text-sm text-red-600 dark:text-red-400">{createAdminErr}</p>}
@@ -152,14 +151,24 @@ export function Settings() {
             </div>
             <div className="sm:col-span-2">
               <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">Temporary password</label>
-              <input
-                type="password"
-                autoComplete="new-password"
-                value={newAdminPassword}
-                onChange={(e) => setNewAdminPassword(e.target.value)}
-                className="w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-sm"
-                placeholder="At least 8 characters"
-              />
+              <div className="relative">
+                <input
+                  type={showAdminPassword ? 'text' : 'password'}
+                  autoComplete="new-password"
+                  value={newAdminPassword}
+                  onChange={(e) => setNewAdminPassword(e.target.value)}
+                  className="w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 py-2 pl-3 pr-10 text-sm"
+                  placeholder="At least 8 characters"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowAdminPassword((v) => !v)}
+                  className="absolute right-1 top-1/2 -translate-y-1/2 rounded-md p-1.5 text-gray-500 hover:bg-gray-100 hover:text-gray-800 dark:text-gray-400 dark:hover:bg-gray-700 dark:hover:text-gray-100"
+                  aria-label={showAdminPassword ? 'Hide password' : 'Show password'}
+                >
+                  {showAdminPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
+              </div>
             </div>
             <div className="sm:col-span-2">
               <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">Display name</label>
@@ -265,103 +274,6 @@ export function Settings() {
               </div>
             </>
           )}
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader title="Preferences" subtitle="Notification and display options" />
-        <CardContent className="space-y-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium text-gray-900 dark:text-white">Push notifications</p>
-              <p className="text-xs text-gray-500 dark:text-gray-400">Receive in-app notifications</p>
-            </div>
-            <button
-              type="button"
-              role="switch"
-              aria-checked={notifications}
-              onClick={() => setNotifications((v) => !v)}
-              className={`relative inline-flex h-6 w-11 shrink-0 rounded-full transition-colors ${
-                notifications ? 'bg-accent-500' : 'bg-gray-200 dark:bg-gray-700'
-              }`}
-            >
-              <span
-                className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform ${
-                  notifications ? 'translate-x-5' : 'translate-x-0.5'
-                }`}
-              />
-            </button>
-          </div>
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium text-gray-900 dark:text-white">Email alerts</p>
-              <p className="text-xs text-gray-500 dark:text-gray-400">Critical alerts via email</p>
-            </div>
-            <button
-              type="button"
-              role="switch"
-              aria-checked={emailAlerts}
-              onClick={() => setEmailAlerts((v) => !v)}
-              className={`relative inline-flex h-6 w-11 shrink-0 rounded-full transition-colors ${
-                emailAlerts ? 'bg-accent-500' : 'bg-gray-200 dark:bg-gray-700'
-              }`}
-            >
-              <span
-                className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform ${
-                  emailAlerts ? 'translate-x-5' : 'translate-x-0.5'
-                }`}
-              />
-            </button>
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader title="System" subtitle="Configuration and maintenance" />
-        <CardContent className="space-y-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium text-gray-900 dark:text-white">Maintenance mode</p>
-              <p className="text-xs text-gray-500 dark:text-gray-400">Disable public access temporarily</p>
-            </div>
-            <button
-              type="button"
-              role="switch"
-              aria-checked={maintenanceMode}
-              onClick={() => setMaintenanceMode((v) => !v)}
-              className={`relative inline-flex h-6 w-11 shrink-0 rounded-full transition-colors ${
-                maintenanceMode ? 'bg-amber-500' : 'bg-gray-200 dark:bg-gray-700'
-              }`}
-            >
-              <span
-                className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform ${
-                  maintenanceMode ? 'translate-x-5' : 'translate-x-0.5'
-                }`}
-              />
-            </button>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">API base (resolved)</label>
-            <input
-              type="text"
-              value={
-                [getPublicApiOrigin(), import.meta.env.VITE_API_BASE_URL, import.meta.env.VITE_API_URL]
-                  .map((s) => (typeof s === 'string' ? s.trim() : ''))
-                  .find(Boolean) ||
-                '(dev: same-origin /api → VITE_PROXY_TARGET, default http://localhost:3000)'
-              }
-              readOnly
-              className="w-full max-w-md rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50 px-3 py-2 text-sm text-gray-500 dark:text-gray-400"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Max requests per minute</label>
-            <input
-              type="number"
-              defaultValue={100}
-              className="w-full max-w-md rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-sm focus:border-accent-500 focus:outline-none focus:ring-2 focus:ring-accent-500/20"
-            />
-          </div>
         </CardContent>
       </Card>
     </div>

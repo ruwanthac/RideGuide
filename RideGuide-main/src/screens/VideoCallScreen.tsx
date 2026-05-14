@@ -76,7 +76,7 @@ const call = {
   ripple: 'rgba(96,165,250,0.55)',
   userBubble: 'rgba(37,99,235,0.82)',
   aiBubble: 'rgba(248,250,252,0.11)',
-  inputBg: 'rgba(248,250,252,0.1)',
+  inputBg: 'rgba(30, 41, 59, 0.98)',
   controlIdle: 'rgba(248,250,252,0.14)',
   errorSoft: '#FECACA',
 } as const;
@@ -1189,17 +1189,24 @@ export const VideoCallScreen: React.FC<VideoCallScreenProps> = ({
         alignItems: 'center',
         paddingBottom: spacing.md,
       },
-      chatInput: {
+      chatInputWrapper: {
         flex: 1,
         borderRadius: borderRadius.full,
         backgroundColor: call.inputBg,
         borderWidth: 1,
-        borderColor: call.border,
+        borderColor: call.borderStrong,
+        minHeight: scale(40),
+        justifyContent: 'center',
+      },
+      chatInput: {
+        flex: 1,
+        backgroundColor: 'transparent',
         color: call.text,
         fontSize: fontSizes.sm,
-        fontWeight: '500',
+        fontWeight: '400',
         paddingHorizontal: spacing.md,
         paddingVertical: spacing.sm + 2,
+        ...(Platform.OS === 'ios' ? { paddingVertical: spacing.sm + 4 } : {}),
       },
       chatSendBtn: {
         marginLeft: spacing.sm,
@@ -1303,15 +1310,26 @@ export const VideoCallScreen: React.FC<VideoCallScreenProps> = ({
           }
         />
         <View style={styles.chatInputRow}>
-          <TextInput
-            style={styles.chatInput}
-            value={inputText}
-            onChangeText={setInputText}
-            editable={status === 'connected' && !isSending}
-            placeholder="Type a message..."
-            placeholderTextColor={call.textCaption}
-            maxLength={1000}
-          />
+          <View style={styles.chatInputWrapper} collapsable={false}>
+            <TextInput
+              style={styles.chatInput}
+              value={inputText}
+              onChangeText={setInputText}
+              editable={status === 'connected' && !isSending}
+              placeholder="Type a message..."
+              placeholderTextColor={call.textMuted}
+              selectionColor={colors.primary}
+              cursorColor={call.text}
+              keyboardAppearance="dark"
+              underlineColorAndroid="transparent"
+              maxLength={1000}
+              autoCorrect
+              spellCheck={false}
+              autoComplete="off"
+              textContentType="none"
+              importantForAutofill="no"
+            />
+          </View>
           <TouchableOpacity
             style={[
               styles.chatSendBtn,

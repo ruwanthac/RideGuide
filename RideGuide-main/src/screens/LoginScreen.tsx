@@ -109,16 +109,6 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onNavigateToRegister }
         form: {
           marginBottom: spacing.md,
         },
-        forgotRow: {
-          alignItems: 'flex-end',
-          marginTop: -spacing.sm,
-          marginBottom: spacing.lg,
-        },
-        forgotText: {
-          fontSize: fontSizes.sm,
-          color: colors.primary,
-          fontWeight: '600',
-        },
         button: {
           marginTop: spacing.sm,
         },
@@ -256,10 +246,6 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onNavigateToRegister }
                     <Icon name={showLoginPassword ? 'eye-off' : 'eye'} size={20} color={colors.textSecondary} />
                   </TouchableOpacity>
                 </View>
-
-                <TouchableOpacity style={styles.forgotRow} activeOpacity={0.7}>
-                  <Text style={styles.forgotText}>Forgot Password?</Text>
-                </TouchableOpacity>
 
                 {error ? <Text style={styles.errorText}>{error}</Text> : null}
 

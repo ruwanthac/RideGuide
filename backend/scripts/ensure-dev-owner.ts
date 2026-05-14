@@ -1,13 +1,13 @@
 /**
  * Creates or updates a vehicle-owner account for local/staging debugging.
  * Usage: set DEV_OWNER_PASSWORD (min 8 chars), then from backend/: npm run ensure-dev-owner
- * Optional: DEV_OWNER_EMAIL (default ruwanthaowner@gmail.com), DEV_OWNER_DISPLAY_NAME
+ * Optional: DEV_OWNER_EMAIL (default owner@example.com for local dev only), DEV_OWNER_DISPLAY_NAME
  */
 import bcrypt from 'bcryptjs';
 import { connectDb, disconnectDb } from '../src/config/db';
 import { UserModel } from '../src/models/User';
 
-const email = (process.env.DEV_OWNER_EMAIL ?? 'ruwanthaowner@gmail.com').toLowerCase().trim();
+const email = (process.env.DEV_OWNER_EMAIL ?? 'owner@example.com').toLowerCase().trim();
 const password = process.env.DEV_OWNER_PASSWORD;
 const displayName = (process.env.DEV_OWNER_DISPLAY_NAME ?? 'Dev owner').trim() || 'Dev owner';
 
