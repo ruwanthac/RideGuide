@@ -16,6 +16,7 @@ import { UnreadRequestChatProvider } from '../context/UnreadRequestChatContext';
 import { ProfileNotificationsProvider } from '../context/ProfileNotificationsContext';
 import { OngoingActivityMiniBar } from '../components/OngoingActivityMiniBar';
 import { PasswordChangePromptGate } from '../components/PasswordChangePromptGate';
+import { ProfileSetupGate } from '../components/ProfileSetupGate';
 
 import {
   SplashScreen,
@@ -335,8 +336,10 @@ export const AppNavigator = () => {
                   <ProfileNotificationsProvider>
                   <View style={{ flex: 1 }}>
                     <PasswordChangePromptGate />
-                    <MainTabNavigator />
-                    <OngoingActivityMiniBar />
+                    <ProfileSetupGate>
+                      <MainTabNavigator />
+                      <OngoingActivityMiniBar />
+                    </ProfileSetupGate>
                   </View>
                   </ProfileNotificationsProvider>
                 </UnreadRequestChatProvider>

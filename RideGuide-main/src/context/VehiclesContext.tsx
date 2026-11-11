@@ -6,6 +6,8 @@ import type { Vehicle } from '../backend/types';
 
 interface VehiclesContextValue {
   vehicles: Vehicle[];
+  /** 'ready' once the list has loaded for the signed-in user; 'error' if it couldn't be loaded */
+  vehiclesStatus: 'loading' | 'ready' | 'error';
   selectedVehicleId: string | null;
   selectedVehicle: Vehicle | null;
   setSelectedVehicleId: (id: string | null) => Promise<void>;
@@ -31,12 +33,20 @@ export const VehiclesProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [selectedVehicleId, setSelectedVehicleIdState] = useState<string | null>(user?.selectedVehicleId ?? null);
 
+  const [vehiclesStatus, setVehiclesStatus] = useState<'loading' | 'ready' | 'error'>('loading');
+  const userId = user?._id;
+
   const refresh = useCallback(async () => {
     if (!user) { setVehicles([]); return; }
     setVehicles(await listVehicles());
+    setVehiclesStatus('ready');
   }, [user]);
 
-  useEffect(() => { refresh(); }, [refresh]);
+  // A different account starts from "loading" so its setup check never sees the previous user's list.
+  useEffect(() => { setVehiclesStatus('loading'); }, [userId]);
+  useEffect(() => {
+    refresh().catch(() => setVehiclesStatus((s) => (s === 'ready' ? s : 'error')));
+  }, [refresh]);
   useEffect(() => { setSelectedVehicleIdState(user?.selectedVehicleId ?? null); }, [user?.selectedVehicleId]);
 
   const setSelectedVehicleId = useCallback(async (id: string | null) => {
@@ -72,9 +82,9 @@ export const VehiclesProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const selectedVehicle = useMemo(() => vehicles.find(v => v._id === selectedVehicleId) ?? null, [vehicles, selectedVehicleId]);
 
   const value = useMemo<VehiclesContextValue>(() => ({
-    vehicles, selectedVehicleId, selectedVehicle,
+    vehicles, vehiclesStatus, selectedVehicleId, selectedVehicle,
     setSelectedVehicleId, addVehicle, saveVehicle, removeVehicle, refresh,
-  }), [vehicles, selectedVehicleId, selectedVehicle, setSelectedVehicleId, addVehicle, saveVehicle, removeVehicle, refresh]);
+  }), [vehicles, vehiclesStatus, selectedVehicleId, selectedVehicle, setSelectedVehicleId, addVehicle, saveVehicle, removeVehicle, refresh]);
 
   return <VehiclesContext.Provider value={value}>{children}</VehiclesContext.Provider>;
 };
