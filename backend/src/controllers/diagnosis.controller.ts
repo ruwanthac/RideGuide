@@ -23,7 +23,7 @@ const runSchema = z
     if (!hasVehicle && !hasManual) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: 'Choose a saved vehicle or enter make & model.',
+        message: 'Please choose a saved vehicle or enter its make and model.',
         path: ['vehicleMakeModel'],
       });
     }

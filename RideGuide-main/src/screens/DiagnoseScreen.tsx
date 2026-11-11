@@ -15,6 +15,7 @@ import { colors, shadows } from '../constants/theme';
 import { useResponsive } from '../hooks';
 import { useVehicles } from '../context/VehiclesContext';
 import { runDiagnosis } from '../backend/diagnosisService';
+import { AxiosError } from 'axios';
 import { extractApiError } from '../backend/apiClient';
 import type { DiagnosisEntry } from '../backend/types';
 
@@ -225,7 +226,10 @@ export const DiagnoseScreen: React.FC<DiagnoseScreenProps> = ({ onBack }) => {
     } catch (e) {
       const msg = extractApiError(e, 'Please try again.');
       setInlineError(msg);
-      alertMaybe('Diagnosis failed', msg);
+      // 400/422 mean the details need fixing (e.g. not a vehicle problem), not that the service failed.
+      const status = e instanceof AxiosError ? e.response?.status ?? 0 : 0;
+      const needsFixing = status === 400 || status === 422;
+      alertMaybe(needsFixing ? 'Please check your details' : "Couldn't get a diagnosis", msg);
     } finally {
       setLoading(false);
     }

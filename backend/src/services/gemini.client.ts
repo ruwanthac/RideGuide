@@ -14,6 +14,19 @@ const diagnosisSchema = z.object({
 
 export type DiagnosisResult = z.infer<typeof diagnosisSchema>;
 
+/** The model's verdict on whether the input is a real vehicle problem; missing means relevant (older replies). */
+const relevanceSchema = z.object({
+  relevant: z.boolean().default(true),
+  offTopicField: z.enum(['symptoms', 'vehicle', 'obdCode']).nullish(),
+});
+
+const OFF_TOPIC_MESSAGES: Record<'symptoms' | 'vehicle' | 'obdCode', string> = {
+  symptoms:
+    "That doesn't sound like a vehicle problem. Please describe what's wrong with your vehicle, for example \"engine makes a knocking sound when accelerating\".",
+  vehicle: "That doesn't look like a vehicle make and model. Please enter something like \"2016 Toyota Axio\".",
+  obdCode: "That doesn't look like an OBD code. Codes look like P0420 or C1234.",
+};
+
 function isQuotaExceededError(err: unknown): boolean {
   const message = err instanceof Error ? err.message.toLowerCase() : String(err).toLowerCase();
   return (
@@ -30,7 +43,17 @@ function getClient() {
 }
 const CHEAP_MODEL = env.GEMINI_MODEL_CHEAP;
 
-const DIAGNOSIS_SYSTEM = `You are an automotive diagnostic assistant. Return strictly valid JSON with fields:
+const DIAGNOSIS_SYSTEM = `You are an automotive diagnostic assistant. Return strictly valid JSON.
+
+Step 1 - relevance check (always do this first):
+Set "relevant" to false when the input is not a real vehicle problem, and say which field is the reason in "offTopicField":
+- "symptoms": the description is not about a vehicle (e.g. cooking, homework, health, greetings, jokes, random letters or keyboard mashing).
+- "vehicle": vehicleMakeModel is not a vehicle (e.g. a person, food, a phone, gibberish).
+- "obdCode": the code is clearly not a vehicle diagnostic code.
+Short or vague vehicle complaints ("car won't start", "noise from wheel", "check engine light"), symptoms in Sinhala, and
+an OBD code with no symptoms ARE relevant. When relevant is false, return only {"relevant": false, "offTopicField": "..."}.
+
+Step 2 - when relevant is true, also return:
 likelyCauses: string[] (1-4), severity: 'minor'|'moderate'|'critical', steps: string[] (3-7 non-technical inspection/repair steps),
 diagnosis: one-paragraph plain-English summary, disclaimer: short safety note. Do not invent part numbers.`;
 
@@ -64,12 +87,19 @@ export async function analyzeDiagnosis(input: {
 
     for (let attempt = 0; attempt < 2; attempt++) {
       const r = await model.generateContent(prompt);
-      const text = r.response.text();
+      let parsed: unknown;
       try {
-        return diagnosisSchema.parse(JSON.parse(text));
+        parsed = JSON.parse(r.response.text());
       } catch {
-        if (attempt === 1) throw new HttpError(502, AI_FAILED_MESSAGE);
+        continue;
       }
+      const relevance = relevanceSchema.safeParse(parsed);
+      if (relevance.success && !relevance.data.relevant) {
+        // Off-topic input is refused (and never saved) rather than "diagnosed".
+        throw new HttpError(422, OFF_TOPIC_MESSAGES[relevance.data.offTopicField ?? 'symptoms']);
+      }
+      const diagnosis = diagnosisSchema.safeParse(parsed);
+      if (diagnosis.success) return diagnosis.data;
     }
     throw new HttpError(502, AI_FAILED_MESSAGE);
   } catch (err) {

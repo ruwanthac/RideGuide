@@ -13,9 +13,24 @@ export type RunDiagnosisInput = {
   vehicleVin?: string;
 };
 
+/** One or more OBD-II codes, e.g. "P0420" or "P0171, P0174" (P/C/B/U, then 4 characters). */
+const OBD_CODES = /^[PCBU][0-3][0-9A-F]{3}([\s,;/]+[PCBU][0-3][0-9A-F]{3})*$/i;
+/**
+ * A VIN (17 chars) or a Japanese-style chassis number such as "NZE141-1234567", common on
+ * Sri Lankan imports; just rule out text that can't be either.
+ */
+const VIN_OR_CHASSIS = /^(?=.*\d)[A-Z0-9][A-Z0-9-]{4,19}$/i;
+
 export async function runDiagnosis(userId: string, input: RunDiagnosisInput) {
-  const symptoms = input.symptoms ?? '';
-  const obdCode = input.obdCode ?? '';
+  const symptoms = (input.symptoms ?? '').trim();
+  const obdCode = (input.obdCode ?? '').trim().toUpperCase();
+
+  if (!symptoms && !obdCode) {
+    throw new HttpError(400, 'Please describe the problem or enter an OBD code.');
+  }
+  if (obdCode && !OBD_CODES.test(obdCode)) {
+    throw new HttpError(400, "That doesn't look like an OBD code. Codes look like P0420 or C1234.");
+  }
 
   const account = await UserModel.findById(userId).select('displayName').lean();
   const userName = (account?.displayName ?? '').trim();
@@ -37,6 +52,9 @@ export async function runDiagnosis(userId: string, input: RunDiagnosisInput) {
     if (!mm) throw new HttpError(400, 'Please choose a vehicle or enter its make and model.');
     makeModel = mm;
     vin = (input.vehicleVin ?? '').trim() || '—';
+    if (vin !== '—' && !VIN_OR_CHASSIS.test(vin)) {
+      throw new HttpError(400, "That doesn't look like a VIN or chassis number. Please check it, or leave it empty.");
+    }
     vehicleLabel = mm;
     vehicleId = undefined;
   }

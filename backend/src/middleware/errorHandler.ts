@@ -58,6 +58,8 @@ function friendlyIssue(issue: ZodIssue): string {
     case 'too_big':
       if (issue.type === 'string') return `Your ${label} is too long (max ${issue.maximum} characters).`;
       return `Please check your ${label}.`;
+    case 'custom':
+      return issue.message;
     case 'invalid_enum_value':
       return `Please choose a valid ${label}.`;
     default:
