@@ -31,7 +31,10 @@ export type IconName =
   | 'time'
   | 'calendar'
   | 'locate'
-  | 'location-outline';
+  | 'location-outline'
+  | 'sparkles'
+  | 'volume-high'
+  | 'volume-mute';
 
 interface IconProps {
   name: IconName;

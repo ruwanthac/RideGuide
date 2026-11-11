@@ -56,6 +56,16 @@ const MAX_HISTORY_MESSAGES = 24;
 const WAIT_FOR_TEXT_REPLY_MS = 8000;
 const MIN_FALLBACK_REPLY_INTERVAL_MS = 1200;
 const MIN_AUDIO_CHUNK_BASE64_SIZE = 500;
+/**
+ * Call replies skip the model's "thinking" pass and are capped in length: with thinking on,
+ * gemini-2.5-flash took ~15s per reply; without it and with short answers, ~2s.
+ * The cap is a backstop (the prompt asks for 2-3 sentences); it is generous because
+ * Sinhala text uses several times more tokens than English, and voice replies also carry a transcript.
+ */
+const CALL_REPLY_GENERATION_CONFIG = {
+  thinkingConfig: { thinkingBudget: 0 },
+  maxOutputTokens: 800,
+};
 
 const LIVE_SYSTEM_PROMPT = `You are a live AI mechanic assistant for ANY vehicle make/model.
 You can receive text, audio transcripts, and vehicle camera context.
@@ -77,7 +87,13 @@ Important behavior:
 - If exact trim/year is unknown, provide best-effort generic guidance and ask for missing details.
 - Strict domain limit: only discuss vehicles, vehicle faults, vehicle components, and roadside/mechanic guidance.
 - If an image is not vehicle-related (for example room, flower, person, pet, landscape, or random object), do NOT analyze or describe it.
-- For non-vehicle images, silently ignore the image and continue answering the user's voice/chat request without mentioning the image.`;
+- For non-vehicle images, silently ignore the image and continue answering the user's voice/chat request without mentioning the image.
+
+Reply style (this is a live call, and replies are read aloud):
+- Answer in 2-3 short spoken sentences. Lead with the most useful point.
+- No markdown, headings, bullet lists or numbered steps.
+- If you need more detail to help, end with one short follow-up question instead of covering every possibility.
+- Only give longer step-by-step instructions when the user explicitly asks for them.`;
 const LIVE_MODEL_FALLBACKS = [
   'gemini-2.5-flash-native-audio-latest',
   'gemini-2.5-flash-native-audio-preview-12-2025',
@@ -159,6 +175,7 @@ async function fallbackGenerateContent(
       parts: [{ text: systemInstruction }],
     },
     contents,
+    generationConfig: CALL_REPLY_GENERATION_CONFIG,
   });
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${env.GEMINI_API_KEY}`;
   const body = await new Promise<string>((resolve, reject) => {

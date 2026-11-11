@@ -10,6 +10,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   PanResponder,
+  ScrollView,
 } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import {
@@ -23,6 +24,7 @@ import {
 } from 'expo-audio';
 import type { RecordingOptions, AudioPlayer } from 'expo-audio';
 import { File as FSFile, Paths } from 'expo-file-system';
+import { ImageManipulator, SaveFormat } from 'expo-image-manipulator';
 import * as Speech from 'expo-speech';
 import * as Haptics from 'expo-haptics';
 import { Icon } from '../components';
@@ -31,6 +33,7 @@ import { useResponsive } from '../hooks';
 import { joinLiveAiCall } from '../backend/liveAiCallService';
 import { useVehicles } from '../context/VehiclesContext';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { friendlyErrorMessage } from '../backend/apiClient';
 
 const RINGTONE_SOURCE = require('../../assets/call.mp3');
 const SEND_TONE_SOURCE = require('../../assets/send_tone.wav');
@@ -115,6 +118,30 @@ async function recordingUriToBase64(uri: string): Promise<string | null> {
   }
 }
 
+const CALL_PROBLEM = 'Something went wrong with the call. Please try again.';
+/** How long a passing call notice (e.g. "reconnecting") stays on screen */
+const CALL_NOTICE_MS = 6000;
+
+/** Width the camera snapshot is scaled down to before it goes to the AI with each message */
+const SNAPSHOT_MAX_WIDTH = 640;
+
+/**
+ * Full-resolution phone photos are several MB as base64 and slow down every reply
+ * (upload + model processing); 640px wide is plenty for the AI to recognise parts.
+ */
+async function shrinkSnapshot(uri: string, width?: number): Promise<string | null> {
+  try {
+    const context = ImageManipulator.manipulate(uri);
+    if (!width || width > SNAPSHOT_MAX_WIDTH) context.resize({ width: SNAPSHOT_MAX_WIDTH });
+    const image = await context.renderAsync();
+    const result = await image.saveAsync({ compress: 0.6, format: SaveFormat.JPEG, base64: true });
+    if (result.base64) return result.base64;
+  } catch {
+    // Fall back to the unresized photo below.
+  }
+  return recordingUriToBase64(uri);
+}
+
 interface VideoCallScreenProps {
   onEndCall: () => void;
   /** Seed context when continuing from a saved video call summary */
@@ -127,6 +154,26 @@ interface LiveMessage {
   id: string;
   role: 'user' | 'model';
   content: string;
+  /** How a user message was sent; shown as a small mic icon for voice */
+  source?: 'voice' | 'text';
+}
+
+/** Messages kept visible over the camera while the chat is collapsed (newest last) */
+const COLLAPSED_MESSAGE_COUNT = 3;
+/** Opacity by distance from the newest item, so older lines fade out */
+const COLLAPSED_OPACITY = [1, 0.75, 0.45];
+
+const QUICK_QUESTIONS = [
+  { label: 'What is this?', question: 'What am I looking at here, and does anything look wrong?' },
+  { label: 'Is it safe to drive?', question: 'Is it safe to keep driving with this problem?' },
+  { label: 'Cost estimate?', question: 'Roughly how much would it cost to fix this?' },
+  { label: 'Need a mechanic?', question: 'Can I fix this myself, or do I need a mechanic?' },
+] as const;
+
+function formatCallDuration(totalSeconds: number): string {
+  const m = Math.floor(totalSeconds / 60);
+  const s = totalSeconds % 60;
+  return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
 }
 
 function extractTranscriptReplyJson(
@@ -182,6 +229,11 @@ export const VideoCallScreen: React.FC<VideoCallScreenProps> = ({
   const [waitingForReply, setWaitingForReply] = useState(false);
   const [audioSentCount, setAudioSentCount] = useState(0);
   const [lastAudioMeta, setLastAudioMeta] = useState<string>('');
+  const [aiMuted, setAiMuted] = useState(false);
+  const [chatHidden, setChatHidden] = useState(false);
+  const [chatExpanded, setChatExpanded] = useState(false);
+  const [callSeconds, setCallSeconds] = useState(0);
+  const aiMutedRef = useRef(false);
   const pulseAnim = React.useRef(new Animated.Value(1)).current;
   const ripple1 = useRef(new Animated.Value(0)).current;
   const ripple2 = useRef(new Animated.Value(0)).current;
@@ -242,13 +294,14 @@ export const VideoCallScreen: React.FC<VideoCallScreenProps> = ({
     if (!force && now - lastSnapshotAtRef.current < SNAPSHOT_MIN_INTERVAL_MS) return;
     try {
       const capture = await cameraRef.current?.takePictureAsync({
-        quality: 0.25,
-        base64: true,
+        quality: 0.5,
         skipProcessing: true,
         shutterSound: false,
       });
-      if (capture?.base64 && sendVideoFrameRef.current) {
-        await sendVideoFrameRef.current(capture.base64, 'image/jpeg');
+      if (!capture?.uri) return;
+      const frameBase64 = await shrinkSnapshot(capture.uri, capture.width);
+      if (frameBase64 && sendVideoFrameRef.current) {
+        await sendVideoFrameRef.current(frameBase64, 'image/jpeg');
         lastSnapshotAtRef.current = now;
       }
     } catch {
@@ -318,7 +371,7 @@ export const VideoCallScreen: React.FC<VideoCallScreenProps> = ({
         microphoneGrantedRef.current = perm.granted;
       }
       if (!microphoneGrantedRef.current) {
-        setSessionError('Microphone permission is required for voice uplink.');
+        setSessionError('Please allow microphone access in Settings to talk to the expert.');
         return false;
       }
       if (!recorderReadyRef.current) {
@@ -326,7 +379,7 @@ export const VideoCallScreen: React.FC<VideoCallScreenProps> = ({
         await prepareRecorder();
       }
       if (!recorderReadyRef.current) {
-        setSessionError('Microphone recorder could not start. Please restart the call.');
+        setSessionError("The microphone couldn't start. Please end the call and try again.");
         return false;
       }
       await setAudioModeAsync({
@@ -343,9 +396,7 @@ export const VideoCallScreen: React.FC<VideoCallScreenProps> = ({
       return true;
     } catch (error) {
       setSessionError(
-        error instanceof Error
-          ? error.message
-          : 'Unable to start microphone recording. Try holding mic again.'
+        friendlyErrorMessage(error, "We couldn't start the microphone. Please hold the mic button again.")
       );
       return false;
     } finally {
@@ -389,7 +440,7 @@ export const VideoCallScreen: React.FC<VideoCallScreenProps> = ({
       if (!uri) {
         setWaitingForReply(false);
         waitingForReplyRef.current = false;
-        setSessionError('Recording completed but no audio file was produced.');
+        setSessionError("We didn't catch that. Please hold the mic and try again.");
         void prepareRecorder();
         return;
       }
@@ -399,8 +450,8 @@ export const VideoCallScreen: React.FC<VideoCallScreenProps> = ({
         waitingForReplyRef.current = false;
         setSessionError(
           !base64Audio || (base64Audio && base64Audio.length < 100)
-            ? 'Recording was too short. Hold the mic button longer.'
-            : 'Failed to read recorded audio.'
+            ? 'That was too short. Please hold the mic button while you speak.'
+            : "We couldn't read your voice message. Please try again."
         );
         void prepareRecorder();
         return;
@@ -418,7 +469,7 @@ export const VideoCallScreen: React.FC<VideoCallScreenProps> = ({
       setWaitingForReply(false);
       waitingForReplyRef.current = false;
       setSessionError(
-        error instanceof Error ? error.message : 'Unable to stop/send microphone recording.'
+        friendlyErrorMessage(error, "Your voice message didn't send. Please try again.")
       );
       void prepareRecorder();
     }
@@ -598,7 +649,7 @@ export const VideoCallScreen: React.FC<VideoCallScreenProps> = ({
               }
               return [
                 ...prev,
-                { id: `${Date.now()}-${Math.random()}`, role: 'user', content: cleaned },
+                { id: `${Date.now()}-${Math.random()}`, role: 'user', content: cleaned, source: 'voice' },
               ];
             });
             setAiState('thinking');
@@ -625,6 +676,7 @@ export const VideoCallScreen: React.FC<VideoCallScreenProps> = ({
                     id: `${Date.now()}-${Math.random()}`,
                     role: 'user',
                     content: transcriptFromPayload,
+                    source: 'voice',
                   },
                 ];
               });
@@ -645,7 +697,12 @@ export const VideoCallScreen: React.FC<VideoCallScreenProps> = ({
             const now = Date.now();
             const gotRecentModelAudio =
               now - lastAgentAudioAtRef.current < AGENT_AUDIO_PRIORITY_WINDOW_MS;
-            if (!gotRecentModelAudio && cleanedText.length > 0 && speechAvailableRef.current) {
+            if (
+              !gotRecentModelAudio &&
+              cleanedText.length > 0 &&
+              speechAvailableRef.current &&
+              !aiMutedRef.current
+            ) {
               setAiState('speaking');
               void Speech.stop();
               void (async () => {
@@ -701,6 +758,7 @@ export const VideoCallScreen: React.FC<VideoCallScreenProps> = ({
             lastAgentAudioAtRef.current = Date.now();
             setWaitingForReply(false);
             waitingForReplyRef.current = false;
+            if (aiMutedRef.current) return;
             void (async () => {
               try {
                 await Speech.stop();
@@ -759,26 +817,20 @@ export const VideoCallScreen: React.FC<VideoCallScreenProps> = ({
           onAudioReceived: () => {
             // ack tracked internally
           },
-          onError: (message) => {
+          onError: (message, transient) => {
             if (!active) return;
+            // The backend marks whether the call is still usable; older servers don't, so fall back to the text.
             const lowered = message.toLowerCase();
-            const isLiveStreamIssue =
-              lowered.includes('live voice session') ||
-              lowered.includes('live audio stream') ||
-              lowered.includes('unable to stream audio') ||
-              lowered.includes('gemini live') ||
-              lowered.includes('reconnecting') ||
-              lowered.includes('socket disconnected') ||
-              lowered.includes('tls connection') ||
-              lowered.includes('epipe') ||
-              lowered.includes('fetch failed') ||
-              lowered.includes('network is unstable');
-            if (!isLiveStreamIssue) {
-              setStatus('error');
-              setWaitingForReply(false);
-              waitingForReplyRef.current = false;
-            }
-            setSessionError(message);
+            const callStillUsable =
+              transient ??
+              (lowered.includes('reconnecting') ||
+                lowered.includes('unstable') ||
+                lowered.includes('busy'));
+            if (!callStillUsable) setStatus('error');
+            // Either way no reply is coming for the pending question, so stop the typing dots.
+            setWaitingForReply(false);
+            waitingForReplyRef.current = false;
+            setSessionError(friendlyErrorMessage(message, CALL_PROBLEM));
             setAiState('idle');
           },
           onEnded: () => {
@@ -798,9 +850,7 @@ export const VideoCallScreen: React.FC<VideoCallScreenProps> = ({
         if (!active) return;
         setStatus('error');
         setSessionError(
-          e instanceof Error
-            ? e.message
-            : 'Failed to connect. Ensure the backend is running and you are logged in.'
+          friendlyErrorMessage(e, "We couldn't connect the call. Please check your internet connection and try again.")
         );
       }
     })();
@@ -818,14 +868,31 @@ export const VideoCallScreen: React.FC<VideoCallScreenProps> = ({
     onEndCall();
   };
 
-  const handleSendQuestion = async () => {
-    const cleaned = inputText.trim();
+  const toggleAiMuted = () => {
+    const next = !aiMutedRef.current;
+    aiMutedRef.current = next;
+    setAiMuted(next);
+    if (next) {
+      // Silence whatever the expert is saying right now; replies keep arriving as text.
+      void Speech.stop();
+      const sound = currentAiSoundRef.current;
+      currentAiSoundRef.current = null;
+      if (sound) {
+        try { sound.remove(); } catch {}
+      }
+      isAiSpeakingRef.current = false;
+      setAiState('idle');
+    }
+  };
+
+  const handleSendQuestion = async (textOverride?: string) => {
+    const cleaned = (textOverride ?? inputText).trim();
     if (!cleaned || !sendRef.current || isSending) return;
     setMessages((prev) => [
       ...prev,
-      { id: `${Date.now()}-${Math.random()}`, role: 'user', content: cleaned },
+      { id: `${Date.now()}-${Math.random()}`, role: 'user', content: cleaned, source: 'text' },
     ]);
-    setInputText('');
+    if (textOverride === undefined) setInputText('');
     setIsSending(true);
     setSessionError(null);
     setAiState('thinking');
@@ -835,7 +902,7 @@ export const VideoCallScreen: React.FC<VideoCallScreenProps> = ({
       await captureAndSendSnapshot();
       await sendRef.current(cleaned);
     } catch (e) {
-      setSessionError(e instanceof Error ? e.message : 'Failed to send question.');
+      setSessionError(friendlyErrorMessage(e, "Your message didn't send. Please try again."));
       setWaitingForReply(false);
       waitingForReplyRef.current = false;
       setAiState('idle');
@@ -847,6 +914,18 @@ export const VideoCallScreen: React.FC<VideoCallScreenProps> = ({
   useEffect(() => {
     requestPermission();
   }, []);
+
+  useEffect(() => {
+    if (!sessionError || status !== 'connected') return;
+    const id = setTimeout(() => setSessionError(null), CALL_NOTICE_MS);
+    return () => clearTimeout(id);
+  }, [sessionError, status]);
+
+  useEffect(() => {
+    if (status !== 'connected') return;
+    const id = setInterval(() => setCallSeconds((s) => s + 1), 1000);
+    return () => clearInterval(id);
+  }, [status]);
 
   useEffect(() => {
     if (status !== 'connected') return;
@@ -984,12 +1063,11 @@ export const VideoCallScreen: React.FC<VideoCallScreenProps> = ({
       : 'Connection issue';
 
   const styles = useMemo(() => {
-    const micSize = Math.round(scale(82));
+    const micSize = Math.round(scale(68));
     const micR = micSize / 2;
-    const controlMd = Math.round(scale(56));
-    const controlR = controlMd / 2;
-    const endSz = Math.round(scale(64));
-    const endR = endSz / 2;
+    const sideSize = Math.round(scale(52));
+    const sideR = sideSize / 2;
+    const roundBtn = 44;
 
     return StyleSheet.create({
       container: {
@@ -997,7 +1075,7 @@ export const VideoCallScreen: React.FC<VideoCallScreenProps> = ({
         backgroundColor: call.bg,
       },
       remoteVideo: {
-        flex: 1,
+        ...StyleSheet.absoluteFill,
         backgroundColor: call.cameraArea,
         overflow: 'hidden',
       },
@@ -1008,6 +1086,7 @@ export const VideoCallScreen: React.FC<VideoCallScreenProps> = ({
         flex: 1,
         alignItems: 'center',
         justifyContent: 'center',
+        paddingBottom: scale(220),
       },
       avatarLarge: {
         width: scale(100),
@@ -1025,11 +1104,6 @@ export const VideoCallScreen: React.FC<VideoCallScreenProps> = ({
         color: call.text,
         letterSpacing: 0.2,
       },
-      localLabel: {
-        fontSize: fontSizes.xs,
-        color: call.textMuted,
-        marginTop: spacing.xs,
-      },
       enableCameraButton: {
         flexDirection: 'row',
         alignItems: 'center',
@@ -1040,55 +1114,267 @@ export const VideoCallScreen: React.FC<VideoCallScreenProps> = ({
         borderRadius: borderRadius.md,
         ...shadows.md,
       },
-      statusBar: {
+
+      // Top bar
+      topBar: {
         position: 'absolute',
-        left: 0,
-        right: 0,
+        left: spacing.md,
+        right: spacing.md,
+        flexDirection: 'row',
         alignItems: 'center',
+        justifyContent: 'space-between',
+        zIndex: 10,
       },
-      statusText: {
-        fontSize: fontSizes.lg,
-        fontWeight: '700',
-        color: call.text,
-        letterSpacing: 0.35,
-        paddingHorizontal: spacing.lg,
-        paddingVertical: spacing.sm + 2,
+      expertPill: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        flexShrink: 1,
         backgroundColor: call.overlayPill,
         borderRadius: borderRadius.full,
-        borderWidth: 1,
-        borderColor: call.border,
-        overflow: 'hidden',
-        ...shadows.md,
+        paddingVertical: 6,
+        paddingLeft: 6,
+        paddingRight: spacing.md,
       },
-      controls: {
+      expertAvatar: {
+        width: 34,
+        height: 34,
+        borderRadius: 17,
+        backgroundColor: colors.primary,
+        alignItems: 'center',
+        justifyContent: 'center',
+        marginRight: spacing.sm,
+      },
+      expertName: {
+        color: call.text,
+        fontSize: fontSizes.sm,
+        fontWeight: '700',
+      },
+      statusRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        marginTop: 1,
+      },
+      statusDot: {
+        width: 7,
+        height: 7,
+        borderRadius: 4,
+        marginRight: 5,
+      },
+      statusLine: {
+        color: call.textMuted,
+        fontSize: fontSizes.xs,
+        fontWeight: '500',
+      },
+      topActions: {
+        flexDirection: 'row',
+        marginLeft: spacing.sm,
+      },
+      roundButton: {
+        width: roundBtn,
+        height: roundBtn,
+        borderRadius: roundBtn / 2,
+        backgroundColor: call.overlayPill,
+        alignItems: 'center',
+        justifyContent: 'center',
+        marginLeft: spacing.sm,
+      },
+      roundButtonActive: {
+        backgroundColor: call.micActiveBg,
+      },
+
+      // Messages floating over the camera
+      bottomArea: {
         position: 'absolute',
-        bottom: scale(250),
         left: 0,
         right: 0,
-        flexDirection: 'row',
-        justifyContent: 'center',
-        alignItems: 'center',
-        zIndex: 20,
-        elevation: 20,
+        bottom: 0,
+        zIndex: 5,
       },
-      controlButton: {
-        width: controlMd,
-        height: controlMd,
-        borderRadius: controlR,
-        backgroundColor: call.controlIdle,
+      messagesArea: {
+        paddingHorizontal: spacing.md,
+        paddingBottom: spacing.sm,
+      },
+      expandedList: {
+        maxHeight: scale(360),
+        backgroundColor: call.panel,
+        borderRadius: borderRadius.lg,
+        paddingHorizontal: spacing.sm,
+        paddingTop: spacing.sm,
+      },
+      bubble: {
+        flexDirection: 'row',
+        alignItems: 'flex-start',
+        maxWidth: '84%',
+        paddingHorizontal: 13,
+        paddingVertical: 9,
+        marginTop: spacing.sm,
+        borderRadius: 18,
+      },
+      bubbleUser: {
+        alignSelf: 'flex-end',
+        backgroundColor: colors.primary,
+        borderBottomRightRadius: 6,
+      },
+      bubbleAi: {
+        alignSelf: 'flex-start',
+        backgroundColor: 'rgba(15,23,42,0.84)',
+        borderBottomLeftRadius: 6,
+      },
+      bubbleText: {
+        flexShrink: 1,
+        color: call.text,
+        fontSize: fontSizes.sm,
+        lineHeight: Math.round(fontSizes.sm * 1.45),
+        fontWeight: '500',
+      },
+      voiceIcon: {
+        marginRight: 6,
+        marginTop: 2,
+      },
+      typingBubble: {
+        alignSelf: 'flex-start',
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: 'rgba(15,23,42,0.84)',
+        borderRadius: 18,
+        borderBottomLeftRadius: 6,
+        paddingHorizontal: 16,
+        paddingVertical: 13,
+        marginTop: spacing.sm,
+      },
+      typingDot: {
+        width: 7,
+        height: 7,
+        borderRadius: 4,
+        backgroundColor: call.textMuted,
+        marginHorizontal: 2.5,
+      },
+      hintText: {
+        alignSelf: 'center',
+        color: call.text,
+        fontSize: fontSizes.sm,
+        fontWeight: '500',
+        textAlign: 'center',
+        backgroundColor: call.overlayPill,
+        borderRadius: borderRadius.full,
+        overflow: 'hidden',
+        paddingHorizontal: spacing.md,
+        paddingVertical: spacing.sm,
+      },
+      historyToggle: {
+        alignSelf: 'center',
+        backgroundColor: call.overlayPill,
+        borderRadius: borderRadius.full,
+        paddingHorizontal: spacing.md,
+        paddingVertical: 6,
+        marginBottom: spacing.xs,
+      },
+      historyToggleText: {
+        color: call.text,
+        fontSize: fontSizes.xs,
+        fontWeight: '600',
+      },
+      errorText: {
+        alignSelf: 'center',
+        color: call.errorSoft,
+        fontSize: fontSizes.xs,
+        fontWeight: '600',
+        textAlign: 'center',
+        backgroundColor: call.overlayPill,
+        borderRadius: borderRadius.md,
+        overflow: 'hidden',
+        paddingHorizontal: spacing.md,
+        paddingVertical: 6,
+        marginBottom: spacing.xs,
+      },
+
+      // Bottom sheet: chips, input, call controls
+      sheet: {
+        backgroundColor: 'rgba(2,6,23,0.82)',
+        borderTopLeftRadius: 28,
+        borderTopRightRadius: 28,
+        paddingTop: spacing.md,
+        paddingHorizontal: spacing.md,
+      },
+      chipsRow: {
+        paddingBottom: spacing.sm + 4,
+      },
+      chip: {
+        height: 34,
+        paddingHorizontal: 14,
+        borderRadius: 17,
+        borderWidth: 1,
+        borderColor: call.borderStrong,
+        justifyContent: 'center',
+        marginRight: spacing.sm,
+      },
+      chipText: {
+        color: call.text,
+        fontSize: fontSizes.xs + 1,
+        fontWeight: '500',
+      },
+      inputRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+      },
+      inputWrapper: {
+        flex: 1,
+        borderRadius: borderRadius.full,
+        backgroundColor: call.inputBg,
         borderWidth: 1,
         borderColor: call.border,
+        minHeight: 46,
+        justifyContent: 'center',
+      },
+      input: {
+        backgroundColor: 'transparent',
+        color: call.text,
+        fontSize: fontSizes.sm + 1,
+        paddingHorizontal: 18,
+        paddingVertical: Platform.OS === 'ios' ? 13 : 10,
+      },
+      sendBtn: {
+        marginLeft: spacing.sm,
+        width: 46,
+        height: 46,
+        borderRadius: 23,
+        backgroundColor: colors.primary,
         alignItems: 'center',
         justifyContent: 'center',
-        ...shadows.md,
+      },
+      disabled: {
+        opacity: 0.45,
+      },
+      controls: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        paddingTop: spacing.md,
+      },
+      sideButton: {
+        width: sideSize,
+        height: sideSize,
+        borderRadius: sideR,
+        backgroundColor: call.controlIdle,
+        alignItems: 'center',
+        justifyContent: 'center',
+      },
+      endCallButton: {
+        width: sideSize,
+        height: sideSize,
+        borderRadius: sideR,
+        backgroundColor: colors.error,
+        alignItems: 'center',
+        justifyContent: 'center',
       },
       holdMicButton: {
         width: micSize,
         height: micSize,
         borderRadius: micR,
-        borderWidth: 2,
-        borderColor: call.borderStrong,
-        backgroundColor: call.micIdleBg,
+        marginHorizontal: scale(36),
+        borderWidth: 3,
+        borderColor: 'rgba(147,197,253,0.6)',
+        backgroundColor: colors.primary,
         alignItems: 'center',
         justifyContent: 'center',
         overflow: 'visible',
@@ -1097,9 +1383,10 @@ export const VideoCallScreen: React.FC<VideoCallScreenProps> = ({
       holdMicButtonActive: {
         backgroundColor: call.micActiveBg,
         borderColor: call.micActiveBorder,
+        transform: [{ scale: 1.08 }],
       },
       rippleContainer: {
-        ...StyleSheet.absoluteFillObject,
+        ...StyleSheet.absoluteFill,
         alignItems: 'center',
         justifyContent: 'center',
         overflow: 'visible',
@@ -1112,125 +1399,53 @@ export const VideoCallScreen: React.FC<VideoCallScreenProps> = ({
         borderWidth: 2,
         borderColor: call.ripple,
       },
-      endCallButton: {
-        width: endSz,
-        height: endSz,
-        borderRadius: endR,
-        backgroundColor: colors.error,
-        alignItems: 'center',
-        justifyContent: 'center',
-        borderWidth: 1,
-        borderColor: 'rgba(254,202,202,0.35)',
-        ...shadows.lg,
-      },
-      chatPanel: {
-        position: 'absolute',
-        left: spacing.md,
-        right: spacing.md,
-        bottom: spacing.md,
-        maxHeight: scale(280),
-        backgroundColor: call.panel,
-        borderRadius: borderRadius.lg,
-        padding: spacing.md,
-        zIndex: 5,
-        borderWidth: 1,
-        borderColor: call.border,
-        ...shadows.lg,
-        elevation: 8,
-      },
-      chatList: {
-        flex: 1,
-        marginBottom: spacing.xs,
-      },
-      chatBubble: {
-        marginBottom: spacing.sm,
-        maxWidth: '82%',
-        paddingHorizontal: spacing.md,
-        paddingVertical: spacing.sm,
-        borderRadius: borderRadius.md,
-      },
-      chatBubbleUser: {
-        alignSelf: 'flex-end',
-        backgroundColor: call.userBubble,
-        borderBottomRightRadius: borderRadius.sm,
-        borderWidth: 1,
-        borderColor: 'rgba(191,219,254,0.22)',
-      },
-      chatBubbleAi: {
-        alignSelf: 'flex-start',
-        backgroundColor: call.aiBubble,
-        borderBottomLeftRadius: borderRadius.sm,
-        borderWidth: 1,
-        borderColor: call.border,
-      },
-      chatBubbleLabel: {
-        color: call.textCaption,
-        fontSize: fontSizes.xs,
-        marginBottom: 3,
-        fontWeight: '700',
-        letterSpacing: 0.4,
-        textTransform: 'uppercase',
-      },
-      chatBubbleText: {
-        color: call.text,
-        fontSize: fontSizes.sm,
-        lineHeight: Math.round(fontSizes.sm * 1.45),
-        fontWeight: '500',
-      },
-      chatEmptyText: {
-        color: call.textSubtle,
-        fontSize: fontSizes.sm,
+      micHint: {
         textAlign: 'center',
-        paddingVertical: spacing.lg,
-        fontWeight: '500',
-      },
-      chatInputRow: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        paddingBottom: spacing.md,
-      },
-      chatInputWrapper: {
-        flex: 1,
-        borderRadius: borderRadius.full,
-        backgroundColor: call.inputBg,
-        borderWidth: 1,
-        borderColor: call.borderStrong,
-        minHeight: scale(40),
-        justifyContent: 'center',
-      },
-      chatInput: {
-        flex: 1,
-        backgroundColor: 'transparent',
-        color: call.text,
-        fontSize: fontSizes.sm,
-        fontWeight: '400',
-        paddingHorizontal: spacing.md,
-        paddingVertical: spacing.sm + 2,
-        ...(Platform.OS === 'ios' ? { paddingVertical: spacing.sm + 4 } : {}),
-      },
-      chatSendBtn: {
-        marginLeft: spacing.sm,
-        width: scale(40),
-        height: scale(40),
-        borderRadius: scale(20),
-        backgroundColor: colors.primary,
-        alignItems: 'center',
-        justifyContent: 'center',
-        ...shadows.sm,
-      },
-      chatSendBtnDisabled: {
-        opacity: 0.5,
-      },
-      errorText: {
-        color: call.errorSoft,
+        color: call.textSubtle,
         fontSize: fontSizes.xs,
-        fontWeight: '600',
-        marginBottom: spacing.xs,
+        fontWeight: '500',
+        marginTop: spacing.xs,
       },
     });
   }, [spacing, fontSizes, scale, borderRadius]);
 
   const showCamera = permission?.granted;
+  const isConnected = status === 'connected';
+  const canSend = isConnected && !isSending;
+
+  const statusDotColor = isConnected
+    ? '#22C55E'
+    : status === 'error' || status === 'ended'
+    ? colors.error
+    : '#F59E0B';
+  const statusLine = isConnected ? `${statusText} · ${formatCallDuration(callSeconds)}` : statusText;
+
+  const recentMessages = messages.slice(-COLLAPSED_MESSAGE_COUNT);
+  const hiddenCount = messages.length - recentMessages.length;
+  // The typing bubble counts as the newest line, so it pushes older messages further into the fade.
+  const fadeOffset = waitingForReply ? 1 : 0;
+
+  const renderBubble = (item: LiveMessage, opacity = 1, numberOfLines?: number) => {
+    const isUser = item.role === 'user';
+    return (
+      <View
+        key={item.id}
+        style={[styles.bubble, isUser ? styles.bubbleUser : styles.bubbleAi, { opacity }]}
+      >
+        {isUser && item.source === 'voice' ? (
+          <Icon name="mic" size={13} color="#DBEAFE" style={styles.voiceIcon} />
+        ) : null}
+        <Text style={styles.bubbleText} numberOfLines={numberOfLines}>
+          {item.content}
+        </Text>
+      </View>
+    );
+  };
+
+  const dotStyle = (anim: Animated.Value) => [
+    styles.typingDot,
+    { transform: [{ translateY: anim.interpolate({ inputRange: [-10, 0], outputRange: [-4, 0] }) }] },
+  ];
 
   return (
     <View style={styles.container}>
@@ -1245,7 +1460,7 @@ export const VideoCallScreen: React.FC<VideoCallScreenProps> = ({
                 { transform: [{ scale: status === 'calling' ? pulseAnim : 1 }] },
               ]}
             >
-              <Icon name="person" size={scale(50)} color={call.text} />
+              <Icon name="sparkles" size={scale(46)} color={call.text} />
             </Animated.View>
             <Text style={styles.remoteName}>Vehicle Expert</Text>
             {!permission?.granted && (
@@ -1269,151 +1484,224 @@ export const VideoCallScreen: React.FC<VideoCallScreenProps> = ({
         )}
       </View>
 
-      <View style={[styles.statusBar, { top: insets.top + spacing.sm }]}>
-        <Text style={styles.statusText}>{statusText}</Text>
+      <View style={[styles.topBar, { top: insets.top + spacing.sm }]}>
+        <View style={styles.expertPill}>
+          <View style={styles.expertAvatar}>
+            <Icon name="sparkles" size={18} color="#FFFFFF" />
+          </View>
+          <View style={{ flexShrink: 1 }}>
+            <Text style={styles.expertName} numberOfLines={1}>
+              Vehicle Expert
+            </Text>
+            <View style={styles.statusRow}>
+              <View style={[styles.statusDot, { backgroundColor: statusDotColor }]} />
+              <Text style={styles.statusLine} numberOfLines={1}>
+                {statusLine}
+              </Text>
+            </View>
+          </View>
+        </View>
+        <View style={styles.topActions}>
+          <TouchableOpacity
+            style={[styles.roundButton, aiMuted && styles.roundButtonActive]}
+            onPress={toggleAiMuted}
+            activeOpacity={0.75}
+            accessibilityRole="button"
+            accessibilityLabel={aiMuted ? 'Unmute expert voice' : 'Mute expert voice'}
+          >
+            <Icon name={aiMuted ? 'volume-mute' : 'volume-high'} size={20} color={call.text} />
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.roundButton, chatHidden && styles.roundButtonActive]}
+            onPress={() => setChatHidden((v) => !v)}
+            activeOpacity={0.75}
+            accessibilityRole="button"
+            accessibilityLabel={chatHidden ? 'Show chat' : 'Hide chat'}
+          >
+            <Icon name={chatHidden ? 'eye-off' : 'chatbubble'} size={19} color={call.text} />
+          </TouchableOpacity>
+        </View>
       </View>
 
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? scale(24) + insets.top : 0}
-        style={[
-          styles.chatPanel,
-          { bottom: spacing.md + Math.max(insets.bottom, spacing.sm) },
-        ]}
+        style={styles.bottomArea}
+        pointerEvents="box-none"
       >
-        {sessionError ? <Text style={styles.errorText}>{sessionError}</Text> : null}
-        <FlatList
-          ref={chatListRef}
-          data={messages}
-          keyExtractor={(item) => item.id}
-          style={styles.chatList}
-          onContentSizeChange={() =>
-            chatListRef.current?.scrollToEnd({ animated: true })
-          }
-          renderItem={({ item }) => (
+        {!chatHidden ? (
+          <View style={styles.messagesArea} pointerEvents="box-none">
+            {sessionError ? (
+              <Text style={styles.errorText} numberOfLines={2}>
+                {sessionError}
+              </Text>
+            ) : null}
+
+            {hiddenCount > 0 || chatExpanded ? (
+              <TouchableOpacity
+                style={styles.historyToggle}
+                onPress={() => setChatExpanded((v) => !v)}
+                activeOpacity={0.75}
+                accessibilityRole="button"
+              >
+                <Text style={styles.historyToggleText}>
+                  {chatExpanded ? 'Show less' : `Show full chat · ${messages.length}`}
+                </Text>
+              </TouchableOpacity>
+            ) : null}
+
+            {chatExpanded ? (
+              <FlatList
+                ref={chatListRef}
+                data={messages}
+                keyExtractor={(item) => item.id}
+                style={styles.expandedList}
+                contentContainerStyle={{ paddingBottom: spacing.sm }}
+                onContentSizeChange={() => chatListRef.current?.scrollToEnd({ animated: true })}
+                renderItem={({ item }) => renderBubble(item)}
+              />
+            ) : (
+              <TouchableOpacity
+                activeOpacity={1}
+                onPress={() => hiddenCount > 0 && setChatExpanded(true)}
+                accessibilityLabel="Recent messages"
+              >
+                {recentMessages.map((item, i) => {
+                  const fromNewest = recentMessages.length - 1 - i + fadeOffset;
+                  const opacity = COLLAPSED_OPACITY[fromNewest] ?? 0.3;
+                  // Older lines are clipped so the camera stays visible; the newest is shown in full.
+                  return renderBubble(item, opacity, fromNewest === 0 ? 8 : 2);
+                })}
+              </TouchableOpacity>
+            )}
+
+            {waitingForReply ? (
+              <View style={styles.typingBubble} accessibilityLabel="Expert is typing">
+                <Animated.View style={dotStyle(dot1)} />
+                <Animated.View style={dotStyle(dot2)} />
+                <Animated.View style={dotStyle(dot3)} />
+              </View>
+            ) : null}
+
+            {messages.length === 0 && !waitingForReply && isConnected ? (
+              <Text style={styles.hintText}>Point the camera at the problem, then ask away.</Text>
+            ) : null}
+          </View>
+        ) : null}
+
+        <View style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, spacing.md) }]}>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
+            contentContainerStyle={styles.chipsRow}
+          >
+            {QUICK_QUESTIONS.map((q) => (
+              <TouchableOpacity
+                key={q.label}
+                style={[styles.chip, !canSend && styles.disabled]}
+                disabled={!canSend}
+                onPress={() => void handleSendQuestion(q.question)}
+                activeOpacity={0.75}
+                accessibilityRole="button"
+              >
+                <Text style={styles.chipText}>{q.label}</Text>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+
+          <View style={styles.inputRow}>
+            <View style={styles.inputWrapper} collapsable={false}>
+              <TextInput
+                style={styles.input}
+                value={inputText}
+                onChangeText={setInputText}
+                editable={canSend}
+                placeholder="Ask about what you see…"
+                placeholderTextColor={call.textSubtle}
+                selectionColor={colors.primary}
+                cursorColor={call.text}
+                keyboardAppearance="dark"
+                underlineColorAndroid="transparent"
+                maxLength={1000}
+                returnKeyType="send"
+                onSubmitEditing={() => void handleSendQuestion()}
+                autoCorrect
+                spellCheck={false}
+                autoComplete="off"
+                textContentType="none"
+                importantForAutofill="no"
+                accessibilityLabel="Ask the expert"
+              />
+            </View>
+            <TouchableOpacity
+              style={[styles.sendBtn, (!inputText.trim() || !canSend) && styles.disabled]}
+              disabled={!inputText.trim() || !canSend}
+              onPress={() => void handleSendQuestion()}
+              activeOpacity={0.8}
+              accessibilityRole="button"
+              accessibilityLabel="Send message"
+            >
+              <Icon name="send" size={18} color="#FFFFFF" />
+            </TouchableOpacity>
+          </View>
+
+          <View style={styles.controls}>
+            <TouchableOpacity
+              style={[styles.sideButton, !showCamera && styles.disabled]}
+              onPress={toggleCamera}
+              activeOpacity={0.7}
+              disabled={!showCamera}
+              accessibilityRole="button"
+              accessibilityLabel="Flip camera"
+            >
+              <Icon name="camera-reverse" size={22} color={call.text} />
+            </TouchableOpacity>
+
             <View
               style={[
-                styles.chatBubble,
-                item.role === 'user' ? styles.chatBubbleUser : styles.chatBubbleAi,
+                styles.holdMicButton,
+                isHoldingMic && styles.holdMicButtonActive,
+                waitingForReply && { opacity: 0.5 },
               ]}
+              {...micPanResponder.panHandlers}
+              onTouchEnd={handleTouchEnd}
+              onTouchCancel={handleTouchEnd}
+              accessible
+              accessibilityRole="button"
+              accessibilityLabel="Hold to talk"
             >
-              <Text style={styles.chatBubbleLabel}>
-                {item.role === 'user' ? 'You' : 'Agent'}
-              </Text>
-              <Text style={styles.chatBubbleText}>{item.content}</Text>
+              <View pointerEvents="none" style={styles.rippleContainer}>
+                {[ripple1, ripple2, ripple3].map((r, i) => (
+                  <Animated.View
+                    key={i}
+                    style={[
+                      styles.rippleRing,
+                      {
+                        transform: [{ scale: r.interpolate({ inputRange: [0, 1], outputRange: [1, 1.8] }) }],
+                        opacity: isHoldingMic
+                          ? r.interpolate({ inputRange: [0, 1], outputRange: [0.6, 0] })
+                          : 0,
+                      },
+                    ]}
+                  />
+                ))}
+              </View>
+              <Icon name="mic" size={28} color="#FFFFFF" />
             </View>
-          )}
-          ListEmptyComponent={
-            <Text style={styles.chatEmptyText}>
-              Hold the mic button and speak or type to start.
-            </Text>
-          }
-        />
-        <View style={styles.chatInputRow}>
-          <View style={styles.chatInputWrapper} collapsable={false}>
-            <TextInput
-              style={styles.chatInput}
-              value={inputText}
-              onChangeText={setInputText}
-              editable={status === 'connected' && !isSending}
-              placeholder="Type a message..."
-              placeholderTextColor={call.textMuted}
-              selectionColor={colors.primary}
-              cursorColor={call.text}
-              keyboardAppearance="dark"
-              underlineColorAndroid="transparent"
-              maxLength={1000}
-              autoCorrect
-              spellCheck={false}
-              autoComplete="off"
-              textContentType="none"
-              importantForAutofill="no"
-            />
+
+            <TouchableOpacity
+              style={styles.endCallButton}
+              onPress={handleEndCall}
+              activeOpacity={0.7}
+              accessibilityRole="button"
+              accessibilityLabel="End call"
+            >
+              <Icon name="close" size={26} color="#FFFFFF" />
+            </TouchableOpacity>
           </View>
-          <TouchableOpacity
-            style={[
-              styles.chatSendBtn,
-              (!inputText.trim() || status !== 'connected' || isSending) &&
-                styles.chatSendBtnDisabled,
-            ]}
-            disabled={!inputText.trim() || status !== 'connected' || isSending}
-            onPress={handleSendQuestion}
-            activeOpacity={0.8}
-          >
-            <Icon name="send" size={18} color={call.text} />
-          </TouchableOpacity>
+          <Text style={styles.micHint}>{isHoldingMic ? 'Release to send' : 'Hold the mic to talk'}</Text>
         </View>
       </KeyboardAvoidingView>
-
-      <View style={[styles.controls, { bottom: scale(250) + Math.max(insets.bottom, spacing.sm) }]}>
-        <View
-          style={[
-            styles.holdMicButton,
-            { marginRight: spacing.xl },
-            isHoldingMic && styles.holdMicButtonActive,
-            waitingForReply && { opacity: 0.5 },
-          ]}
-          {...micPanResponder.panHandlers}
-          onTouchEnd={handleTouchEnd}
-          onTouchCancel={handleTouchEnd}
-        >
-          <View pointerEvents="none" style={styles.rippleContainer}>
-            <Animated.View
-              style={[
-                styles.rippleRing,
-                {
-                  transform: [{ scale: ripple1.interpolate({ inputRange: [0, 1], outputRange: [1, 1.8] }) }],
-                  opacity: isHoldingMic
-                    ? ripple1.interpolate({ inputRange: [0, 1], outputRange: [0.6, 0] })
-                    : 0,
-                },
-              ]}
-            />
-            <Animated.View
-              style={[
-                styles.rippleRing,
-                {
-                  transform: [{ scale: ripple2.interpolate({ inputRange: [0, 1], outputRange: [1, 1.8] }) }],
-                  opacity: isHoldingMic
-                    ? ripple2.interpolate({ inputRange: [0, 1], outputRange: [0.6, 0] })
-                    : 0,
-                },
-              ]}
-            />
-            <Animated.View
-              style={[
-                styles.rippleRing,
-                {
-                  transform: [{ scale: ripple3.interpolate({ inputRange: [0, 1], outputRange: [1, 1.8] }) }],
-                  opacity: isHoldingMic
-                    ? ripple3.interpolate({ inputRange: [0, 1], outputRange: [0.6, 0] })
-                    : 0,
-                },
-              ]}
-            />
-          </View>
-          <Icon name="mic" size={30} color={call.text} />
-        </View>
-        <TouchableOpacity
-          style={styles.endCallButton}
-          onPress={handleEndCall}
-          activeOpacity={0.7}
-        >
-          <Icon name="close" size={28} color={call.text} />
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[
-            styles.controlButton,
-            { marginLeft: spacing.xl },
-            !showCamera && { opacity: 0.42 },
-          ]}
-          onPress={toggleCamera}
-          activeOpacity={0.7}
-          disabled={!showCamera}
-        >
-          <Icon name="camera-reverse" size={24} color={call.text} />
-        </TouchableOpacity>
-      </View>
     </View>
   );
 };
