@@ -34,7 +34,9 @@ export type IconName =
   | 'location-outline'
   | 'sparkles'
   | 'volume-high'
-  | 'volume-mute';
+  | 'volume-mute'
+  | 'bulb'
+  | 'newspaper';
 
 interface IconProps {
   name: IconName;

@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useRef, useEffect, useCallback } from 'react';
+import React, { useMemo, useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -8,13 +8,11 @@ import {
   TouchableOpacity,
   Pressable,
   Platform,
-  NativeSyntheticEvent,
-  NativeScrollEvent,
   RefreshControl,
   Linking,
   Alert,
 } from 'react-native';
-import { Card, Icon, UnreadRedDot } from '../components';
+import { Card, Icon, NewsAndTips, UnreadRedDot } from '../components';
 import { colors } from '../constants/theme';
 import type { IconName } from '../components';
 import { useResponsive } from '../hooks';
@@ -82,12 +80,6 @@ const MENU_ITEMS: Omit<MenuItem, 'onPress'>[] = [
   { id: 'tow', icon: 'car', title: 'Tow Truck Assistant and Roadside Help' },
 ];
 
-const BANNER_IMAGES = [
-  require('../../assets/images/img1.gif'),
-  require('../../assets/images/img2.gif'),
-  require('../../assets/images/img3.gif'),
-];
-
 export const HomeScreen: React.FC<HomeScreenProps> = ({
   onDiagnose,
   onTowTruckAssistant,
@@ -101,7 +93,6 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   const { hasUnreadRequestChat } = useUnreadRequestChat();
   const { syncFromServiceRequest } = useOngoingActivity();
   const greeting = getTimeBasedGreeting();
-  const [bannerIndex, setBannerIndex] = useState(0);
   const [refreshing, setRefreshing] = useState(false);
   const [requests, setRequests] = useState<ServiceRequest[]>([]);
   /** Bumped on pull-to-refresh so the service-request subscription reloads from the API (resets socket listener state). */
@@ -164,7 +155,6 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
     /** Tow home inbox: unclaimed hires only; accepted work is on the activity bubble / active job. */
     return rows.filter((r) => r.status === 'requested' && !r.acceptedBy);
   }, [requests, role, user?._id]);
-  const bannerScrollRef = useRef<ScrollView>(null);
   const navigation = useNavigation<any>();
 
   const handleAcceptRequest = async (request: ServiceRequest) => {
@@ -359,7 +349,6 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
 
   const onRefresh = async () => {
     setRefreshing(true);
-    setBannerIndex(0);
     try {
       await Promise.all([refreshProfile(), refreshVehicles(), loadLastAccessed()]);
       setRequestReloadToken((t) => t + 1);
@@ -370,31 +359,6 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
     }
   };
 
-  const bannerSlideWidth = width - spacing.lg * 2;
-  const bannerPageWidth = width;
-  const BANNER_AUTO_SCROLL_INTERVAL = 4000;
-
-  useEffect(() => {
-    const timer = setInterval(() => {
-      setBannerIndex((prev) => (prev + 1) % BANNER_IMAGES.length);
-    }, BANNER_AUTO_SCROLL_INTERVAL);
-    return () => clearInterval(timer);
-  }, []);
-
-  useEffect(() => {
-    bannerScrollRef.current?.scrollTo({
-      x: bannerIndex * bannerPageWidth,
-      animated: true,
-    });
-  }, [bannerIndex, bannerPageWidth]);
-
-  const handleBannerScroll = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
-    const offsetX = e.nativeEvent.contentOffset.x;
-    const index = Math.round(offsetX / bannerPageWidth);
-    if (index >= 0 && index < BANNER_IMAGES.length) {
-      setBannerIndex(index);
-    }
-  };
 
   const styles = useMemo(
     () =>
@@ -571,54 +535,6 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
         activityArrow: {
           fontSize: fontSizes.sm,
           color: colors.textSecondary,
-        },
-        bannerSection: {
-          marginTop: 0,
-          marginBottom: spacing.md,
-        },
-        bannerSectionTitle: {
-          fontSize: fontSizes.lg,
-          fontWeight: '700',
-          color: colors.text,
-          marginBottom: spacing.md,
-          paddingHorizontal: spacing.lg,
-        },
-        bannerScroll: {
-          marginBottom: spacing.sm,
-        },
-        bannerSlide: {
-          width: width,
-          height: scale(120),
-          justifyContent: 'center',
-          alignItems: 'center',
-        },
-        bannerSlideInner: {
-          width: width - spacing.lg * 2,
-          height: scale(120),
-          borderRadius: 12,
-          overflow: 'hidden',
-          backgroundColor: colors.border,
-        },
-        bannerImage: {
-          width: '100%',
-          height: '100%',
-          resizeMode: 'cover',
-        },
-        bannerDots: {
-          flexDirection: 'row',
-          justifyContent: 'center',
-          alignItems: 'center',
-        },
-        bannerDot: {
-          width: 8,
-          height: 8,
-          borderRadius: 4,
-          backgroundColor: colors.border,
-          marginHorizontal: spacing.xs,
-        },
-        bannerDotActive: {
-          width: 24,
-          backgroundColor: colors.primary,
         },
         requestsCard: {
           paddingHorizontal: isSmallScreen ? spacing.md : spacing.xl,
@@ -1215,41 +1131,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
         </View>
       ) : null}
 
-      <View style={styles.bannerSection}>
-        <Text style={styles.bannerSectionTitle}>News & Tips</Text>
-        <ScrollView
-          ref={bannerScrollRef}
-          horizontal
-          pagingEnabled
-          showsHorizontalScrollIndicator={false}
-          onMomentumScrollEnd={handleBannerScroll}
-          onScrollEndDrag={handleBannerScroll}
-          scrollEventThrottle={16}
-          decelerationRate="fast"
-          snapToInterval={bannerPageWidth}
-          snapToAlignment="center"
-          contentContainerStyle={styles.bannerScroll}
-        >
-          {BANNER_IMAGES.map((source, i) => (
-            <View key={i} style={styles.bannerSlide}>
-              <View style={styles.bannerSlideInner}>
-                <Image source={source} style={styles.bannerImage} resizeMode="cover" />
-              </View>
-            </View>
-          ))}
-        </ScrollView>
-        <View style={styles.bannerDots}>
-          {BANNER_IMAGES.map((_, i) => (
-            <View
-              key={i}
-              style={[
-                styles.bannerDot,
-                i === bannerIndex && styles.bannerDotActive,
-              ]}
-            />
-          ))}
-        </View>
-      </View>
+      <NewsAndTips refreshKey={requestReloadToken} />
       </ScrollView>
     </View>
   );
