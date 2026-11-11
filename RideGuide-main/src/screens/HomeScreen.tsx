@@ -483,7 +483,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
           resizeMode: 'cover',
         },
         heroOverlay: {
-          ...StyleSheet.absoluteFillObject,
+          ...StyleSheet.absoluteFill,
           justifyContent: 'flex-end',
           padding: spacing.lg,
           backgroundColor: 'rgba(0, 0, 0, 0.25)',

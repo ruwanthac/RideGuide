@@ -5,11 +5,17 @@
     "version": "1.0.0",
     "orientation": "portrait",
     "userInterfaceStyle": "light",
-    "splash": { "backgroundColor": "#2563EB" },
-    "assetBundlePatterns": ["**/*"],
-    "ios": { "supportsTablet": true, "bundleIdentifier": "com.vehiclediagnosis.app" },
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.vehiclediagnosis.app"
+    },
     "android": {
-      "adaptiveIcon": { "backgroundColor": "#2563EB" },
+      "adaptiveIcon": {
+        "backgroundColor": "#2563EB"
+      },
       "package": "com.vehiclediagnosis.app"
     },
     "web": {},
@@ -32,6 +38,17 @@
         "expo-location",
         {
           "locationAlwaysAndWhenInUsePermission": "Allow $(PRODUCT_NAME) to use your location to find nearby tow trucks."
+        }
+      ],
+      "@react-native-community/datetimepicker",
+      "expo-audio",
+      "expo-status-bar",
+      "expo-font",
+      "expo-asset",
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#2563EB"
         }
       ]
     ]

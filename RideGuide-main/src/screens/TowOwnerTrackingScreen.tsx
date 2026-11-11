@@ -371,7 +371,7 @@ export const TowOwnerTrackingScreen: React.FC<TowOwnerTrackingScreenProps> = ({
 
   const styles = useMemo(() => StyleSheet.create({
     container: { flex: 1, backgroundColor: colors.background },
-    map: { ...StyleSheet.absoluteFillObject },
+    map: { ...StyleSheet.absoluteFill },
     sheet: {
       position: 'absolute',
       left: 0,

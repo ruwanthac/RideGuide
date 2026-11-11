@@ -548,7 +548,7 @@ export const MechanicActiveJobScreen: React.FC<MechanicActiveJobScreenProps> = (
     () =>
       StyleSheet.create({
         container: { flex: 1, backgroundColor: colors.background },
-        map: { ...StyleSheet.absoluteFillObject },
+        map: { ...StyleSheet.absoluteFill },
         sheet: {
           position: 'absolute',
           left: 0,
