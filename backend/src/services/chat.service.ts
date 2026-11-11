@@ -5,10 +5,10 @@ import { HttpError } from './auth.service';
 
 export async function assertMember(requestId: string, userId: string, role: string) {
   const req = await ServiceRequestModel.findById(requestId).lean();
-  if (!req) throw new HttpError(404, 'request not found');
+  if (!req) throw new HttpError(404, 'We couldn\'t find that request. It may have expired or been cancelled.');
   const isRequester = String(req.requesterId) === userId;
   const isProvider = req.acceptedBy && String(req.acceptedBy) === userId;
-  if (!(isRequester || isProvider || role === 'admin')) throw new HttpError(403, 'not a member');
+  if (!(isRequester || isProvider || role === 'admin')) throw new HttpError(403, 'You\'re not part of this conversation.');
   return req;
 }
 

@@ -25,10 +25,10 @@ type RequestWithProviderLocation = Record<string, any> & {
 async function assertProviderApprovedForJob(userId: string, role: Role) {
   if (role !== 'mechanic' && role !== 'tow') return;
   const u = await UserModel.findById(userId).select('providerVerificationStatus').lean();
-  if (!u) throw new HttpError(403, 'forbidden');
+  if (!u) throw new HttpError(403, 'You don\'t have permission to do that.');
   const st = (u as { providerVerificationStatus?: string }).providerVerificationStatus;
   if (st === 'pending' || st === 'rejected') {
-    throw new HttpError(403, 'Provider account must be approved before accepting jobs.');
+    throw new HttpError(403, 'Your account needs to be approved before you can accept jobs.');
   }
 }
 
@@ -302,21 +302,21 @@ export async function createRequest(userId: string, input: {
   await assertOwnerHasNoActiveHelpRequest(userId);
 
   const user = await UserModel.findById(userId).lean();
-  if (!user) throw new HttpError(401, 'no user');
+  if (!user) throw new HttpError(401, 'Please log in again.');
   // ownership check if vehicleId provided
   if (input.vehicleId) {
     const { VehicleModel } = await import('../models/Vehicle');
     const v = await VehicleModel.findById(input.vehicleId).lean();
-    if (!v || String(v.ownerId) !== userId) throw new HttpError(404, 'vehicle not found');
+    if (!v || String(v.ownerId) !== userId) throw new HttpError(404, 'We couldn\'t find that vehicle. It may have been removed.');
   }
   const isTow = input.type === 'tow';
   if (isTow) {
-    if (!input.dropoffAddress?.trim()) throw new HttpError(400, 'dropoffAddress is required for tow');
+    if (!input.dropoffAddress?.trim()) throw new HttpError(400, 'Please enter where the vehicle should be towed to.');
     if (input.bookingType === 'scheduled') {
-      if (!input.scheduledAt) throw new HttpError(400, 'scheduledAt is required for scheduled booking');
+      if (!input.scheduledAt) throw new HttpError(400, 'Please choose a date and time for your booking.');
       const schedule = new Date(input.scheduledAt);
       if (Number.isNaN(schedule.getTime()) || schedule.getTime() <= Date.now()) {
-        throw new HttpError(400, 'scheduledAt must be a future date');
+        throw new HttpError(400, 'Please choose a time in the future.');
       }
     }
   }
@@ -387,30 +387,30 @@ export async function transition(
   target: LegacyStatus | TowStatus,
 ) {
   const req = await ServiceRequestModel.findById(id);
-  if (!req) throw new HttpError(404, 'not found');
+  if (!req) throw new HttpError(404, 'We couldn\'t find what you were looking for.');
   const isTow = req.type === 'tow';
 
   if (target === 'cancelled') {
-    if (String(req.requesterId) !== userId && role !== 'admin') throw new HttpError(403, 'forbidden');
+    if (String(req.requesterId) !== userId && role !== 'admin') throw new HttpError(403, 'You don\'t have permission to do that.');
     if (isTow && req.status !== 'requested' && role !== 'admin') {
-      throw new HttpError(409, 'can only cancel before driver accepts');
+      throw new HttpError(409, 'A driver has already accepted this tow, so it can\'t be cancelled now. Please contact them instead.');
     }
     if (!isTow && req.status !== 'pending' && role !== 'admin') {
-      throw new HttpError(409, 'can only cancel before mechanic accepts');
+      throw new HttpError(409, 'A mechanic has already accepted this request, so it can\'t be cancelled now. Please contact them instead.');
     }
     req.status = 'cancelled';
   } else if (!isTow && target === 'accepted') {
     if (role !== 'mechanic' && role !== 'admin') {
-      throw new HttpError(403, 'only mechanics can accept roadside requests');
+      throw new HttpError(403, 'Only mechanics can accept roadside requests.');
     }
     if (role === 'mechanic') {
       await assertProviderApprovedForJob(userId, role);
       const providerRow = await UserModel.findById(userId).select('mechanicAvailable').lean();
       if (providerRow?.mechanicAvailable === false) {
-        throw new HttpError(400, 'turn on availability to accept new requests');
+        throw new HttpError(400, 'Turn on your availability to accept new requests.');
       }
     }
-    if (req.status !== 'pending') throw new HttpError(409, 'not pending');
+    if (req.status !== 'pending') throw new HttpError(409, 'This request has already been taken or closed.');
 
     const provider = await UserModel.findById(userId).lean();
     const acceptedFields = {
@@ -439,29 +439,29 @@ export async function transition(
     (req as any).acceptedProviderDisplayName = acceptedFields.acceptedProviderDisplayName;
     (req as any).acceptedProviderPhone = acceptedFields.acceptedProviderPhone;
   } else if (!isTow && target === 'completed') {
-    if (String(req.acceptedBy) !== userId && role !== 'admin') throw new HttpError(403, 'forbidden');
-    if (req.status !== 'attending_to_location') throw new HttpError(409, 'must be attending to location first');
+    if (String(req.acceptedBy) !== userId && role !== 'admin') throw new HttpError(403, 'You don\'t have permission to do that.');
+    if (req.status !== 'attending_to_location') throw new HttpError(409, 'Please mark that you\'re on your way before completing the job.');
     req.status = 'completed';
   } else if (!isTow && target === 'attending_to_location') {
-    if (String(req.acceptedBy) !== userId && role !== 'admin') throw new HttpError(403, 'forbidden');
-    if (req.status !== 'accepted') throw new HttpError(409, 'not accepted');
+    if (String(req.acceptedBy) !== userId && role !== 'admin') throw new HttpError(403, 'You don\'t have permission to do that.');
+    if (req.status !== 'accepted') throw new HttpError(409, 'This request hasn\'t been accepted yet.');
     req.status = 'attending_to_location';
   } else if (isTow) {
-    if (role !== 'tow' && role !== 'admin') throw new HttpError(403, 'only tow providers can update status');
+    if (role !== 'tow' && role !== 'admin') throw new HttpError(403, 'Only the tow driver can update this job.');
     if (role === 'tow' && req.acceptedBy && String(req.acceptedBy) !== userId) {
-      throw new HttpError(403, 'forbidden');
+      throw new HttpError(403, 'You don\'t have permission to do that.');
     }
     if (target === 'accepted') target = 'driver_picked_hire';
     const current = req.status as TowStatus;
     const next = TOW_TRANSITIONS[current];
-    if (!next) throw new HttpError(409, 'request is not active');
-    if (target !== next) throw new HttpError(409, `next status must be ${next}`);
+    if (!next) throw new HttpError(409, 'This request is no longer active.');
+    if (target !== next) throw new HttpError(409, 'Please complete the steps in order. Refresh to see the current step.');
     if (current === 'requested') {
       if (role === 'tow') {
         await assertProviderApprovedForJob(userId, role);
         const towAvailRow = await UserModel.findById(userId).select('towAvailable').lean();
         if (towAvailRow?.towAvailable === false) {
-          throw new HttpError(400, 'turn on availability to accept new hires');
+          throw new HttpError(400, 'Turn on your availability to accept new tow jobs.');
         }
       }
       const acceptedAt = new Date();
@@ -483,7 +483,7 @@ export async function transition(
     }
     req.status = target;
   } else {
-    throw new HttpError(400, 'invalid status transition');
+    throw new HttpError(400, 'This job can\'t move to that step right now.');
   }
   await req.save();
   return enrichProviderLocation(req.toObject() as RequestWithProviderLocation);
@@ -567,7 +567,7 @@ export async function removeExpiredOpenRequests(): Promise<number> {
 
 export async function removeRequest(userId: string, role: Role, id: string) {
   const req = await ServiceRequestModel.findById(id);
-  if (!req) throw new HttpError(404, 'not found');
-  if (String(req.requesterId) !== userId && role !== 'admin') throw new HttpError(403, 'forbidden');
+  if (!req) throw new HttpError(404, 'We couldn\'t find what you were looking for.');
+  if (String(req.requesterId) !== userId && role !== 'admin') throw new HttpError(403, 'You don\'t have permission to do that.');
   await req.deleteOne();
 }

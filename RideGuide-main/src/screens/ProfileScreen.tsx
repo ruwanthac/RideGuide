@@ -187,7 +187,7 @@ export const ProfileScreen: React.FC = () => {
                 }
               })
               .catch(() => {
-                Alert.alert('Error', 'Could not delete vehicle.');
+                Alert.alert("Couldn't remove vehicle", 'Please try again.');
               });
           },
         },

@@ -6,6 +6,7 @@ import {
   createGeminiStreamRelaySession,
 } from '../services/gemini-stream-relay.service';
 import { recordEndedAiCall } from '../services/ai-call-transcript.service';
+import { toLiveCallError } from '../utils/userFacingError';
 
 const MAX_HISTORY_MESSAGES = 20;
 const MAX_TEXT_LENGTH = 1000;
@@ -27,6 +28,14 @@ interface SessionState {
 const sessions = new Map<string, SessionState>();
 
 export function registerLiveAiHandlers(io: Server, socket: Socket) {
+  /** Logs the real cause and sends the call a plain-language message (or nothing, for internal notices). */
+  const emitAiError = (room: string, sessionId: string, err: unknown) => {
+    console.warn('[live-ai] error', { sessionId, error: err instanceof Error ? err.message : String(err) });
+    const friendly = toLiveCallError(err);
+    if (!friendly) return;
+    io.to(room).emit('call:ai:error', { sessionId, ...friendly });
+  };
+
   socket.on(
     'call:ai:start',
     async (
@@ -116,7 +125,7 @@ export function registerLiveAiHandlers(io: Server, socket: Socket) {
               io.to(room).emit('call:ai:mode_downgrade', { sessionId });
             },
             onError: (message) => {
-              io.to(room).emit('call:ai:error', { sessionId, message });
+              emitAiError(room, sessionId, message);
             },
           },
         });
@@ -143,9 +152,10 @@ export function registerLiveAiHandlers(io: Server, socket: Socket) {
         io.to(room).emit('call:ai:turn_state', { sessionId, state: 'idle' });
         ack?.({ ok: true });
       } catch (e) {
+        console.error('[live-ai] start error:', e);
         ack?.({
           ok: false,
-          error: e instanceof Error ? e.message : 'Unable to start AI call',
+          error: "We couldn't start the call. Please try again.",
         });
       }
     }
@@ -160,16 +170,16 @@ export function registerLiveAiHandlers(io: Server, socket: Socket) {
       const sessionId = payload.sessionId?.trim();
       const text = payload.text?.trim();
       if (!sessionId || !text) {
-        ack?.({ ok: false, error: 'sessionId and text are required' });
+        ack?.({ ok: false, error: 'Please type a message first.' });
         return;
       }
       if (text.length > MAX_TEXT_LENGTH) {
-        ack?.({ ok: false, error: 'text is too long' });
+        ack?.({ ok: false, error: 'That message is too long. Please shorten it.' });
         return;
       }
       const state = sessions.get(sessionId);
       if (!state) {
-        ack?.({ ok: false, error: 'session not started' });
+        ack?.({ ok: false, error: "The call isn't connected yet. Please wait a moment." });
         return;
       }
 
@@ -191,10 +201,7 @@ export function registerLiveAiHandlers(io: Server, socket: Socket) {
         }
       } catch (e) {
         console.error('[live-ai] user_text error:', e);
-        io.to(room).emit('call:ai:error', {
-          sessionId,
-          message: e instanceof Error ? e.message : 'AI call failed',
-        });
+        emitAiError(room, sessionId, e);
       }
     }
   );
@@ -230,7 +237,7 @@ export function registerLiveAiHandlers(io: Server, socket: Socket) {
         }
 
         const state = sessions.get(sessionId);
-        if (!state) throw new Error('session not started');
+        if (!state) throw new Error("The call isn't connected yet. Please wait a moment.");
         await state.relay.sendAudioFrame(
           cleanedFrame,
           sampleRate,
@@ -248,14 +255,11 @@ export function registerLiveAiHandlers(io: Server, socket: Socket) {
       } catch (e) {
         const sessionId = payload.sessionId?.trim?.();
         if (sessionId) {
-          io.to(`call-ai:${sessionId}`).emit('call:ai:error', {
-            sessionId,
-            message: e instanceof Error ? e.message : 'AI PCM relay failed',
-          });
+          emitAiError(`call-ai:${sessionId}`, sessionId, e);
         }
         ack?.({
           ok: false,
-          error: e instanceof Error ? e.message : 'AI PCM relay failed',
+          error: toLiveCallError(e)?.message ?? 'Something went wrong. Please try again.',
         });
       }
     }
@@ -277,7 +281,7 @@ export function registerLiveAiHandlers(io: Server, socket: Socket) {
         }
 
         const state = sessions.get(sessionId);
-        if (!state) throw new Error('session not started');
+        if (!state) throw new Error("The call isn't connected yet. Please wait a moment.");
         await state.relay.sendAudioChunk(cleanedAudio, payload.mimeType || 'audio/mp4');
         io.to(`call-ai:${sessionId}`).emit('call:ai:audio_received', {
           sessionId,
@@ -289,14 +293,11 @@ export function registerLiveAiHandlers(io: Server, socket: Socket) {
       } catch (e) {
         const sessionId = payload.sessionId?.trim?.();
         if (sessionId) {
-          io.to(`call-ai:${sessionId}`).emit('call:ai:error', {
-            sessionId,
-            message: e instanceof Error ? e.message : 'AI audio relay failed',
-          });
+          emitAiError(`call-ai:${sessionId}`, sessionId, e);
         }
         ack?.({
           ok: false,
-          error: e instanceof Error ? e.message : 'AI audio relay failed',
+          error: toLiveCallError(e)?.message ?? 'Something went wrong. Please try again.',
         });
       }
     }
@@ -318,20 +319,17 @@ export function registerLiveAiHandlers(io: Server, socket: Socket) {
         }
 
         const state = sessions.get(sessionId);
-        if (!state) throw new Error('session not started');
+        if (!state) throw new Error("The call isn't connected yet. Please wait a moment.");
         await state.relay.sendVideoFrame(cleanedFrame, payload.mimeType || 'image/jpeg');
         ack?.({ ok: true });
       } catch (e) {
         const sessionId = payload.sessionId?.trim?.();
         if (sessionId) {
-          io.to(`call-ai:${sessionId}`).emit('call:ai:error', {
-            sessionId,
-            message: e instanceof Error ? e.message : 'AI frame relay failed',
-          });
+          emitAiError(`call-ai:${sessionId}`, sessionId, e);
         }
         ack?.({
           ok: false,
-          error: e instanceof Error ? e.message : 'AI frame relay failed',
+          error: toLiveCallError(e)?.message ?? 'Something went wrong. Please try again.',
         });
       }
     }
@@ -365,7 +363,7 @@ export function registerLiveAiHandlers(io: Server, socket: Socket) {
       } catch (e) {
         ack?.({
           ok: false,
-          error: e instanceof Error ? e.message : 'Unable to stop AI call',
+          error: 'The call ended with a problem. Please start a new one if you need more help.',
         });
       }
     }

@@ -10,8 +10,8 @@ import {
 export const MAX_VEHICLES_PER_OWNER = 3;
 
 function ownsOrThrow(vehicle: any, userId: string) {
-  if (!vehicle) throw new HttpError(404, 'vehicle not found');
-  if (String(vehicle.ownerId) !== userId) throw new HttpError(403, 'forbidden');
+  if (!vehicle) throw new HttpError(404, 'We couldn\'t find that vehicle. It may have been removed.');
+  if (String(vehicle.ownerId) !== userId) throw new HttpError(403, 'You don\'t have permission to do that.');
 }
 
 export async function listVehicles(userId: string) {

@@ -17,6 +17,7 @@ import { joinChat } from '../backend/chatService';
 import { useAuth } from '../context/AuthContext';
 import { useUnreadRequestChat } from '../context/UnreadRequestChatContext';
 import type { ChatMessage } from '../backend/types';
+import { friendlyErrorMessage } from '../backend/apiClient';
 
 export interface RequestChatScreenParams {
   requestId: string;
@@ -77,7 +78,7 @@ export const RequestChatScreen: React.FC<RequestChatScreenProps> = ({
         sendRef.current = send;
         leaveRef.current = leave;
       } catch (e) {
-        if (alive) setError(e instanceof Error ? e.message : 'Chat unavailable');
+        if (alive) setError(friendlyErrorMessage(e, "Chat isn't available right now. Please try again."));
       }
     })();
     return () => {
@@ -94,7 +95,7 @@ export const RequestChatScreen: React.FC<RequestChatScreenProps> = ({
       setInputText('');
       scrollToBottom();
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Send failed');
+      setError(friendlyErrorMessage(e, "Your message didn't send. Please try again."));
     }
   };
 

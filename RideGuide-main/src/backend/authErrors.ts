@@ -1,4 +1,5 @@
-export function formatAuthError(err: unknown, fallback = 'Authentication failed'): string {
-  if (err instanceof Error && err.message) return err.message;
-  return fallback;
+import { friendlyErrorMessage } from './apiClient';
+
+export function formatAuthError(err: unknown, fallback = "We couldn't sign you in. Please try again."): string {
+  return friendlyErrorMessage(err, fallback);
 }

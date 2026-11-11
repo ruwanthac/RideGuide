@@ -27,14 +27,14 @@ export async function runDiagnosis(userId: string, input: RunDiagnosisInput) {
 
   if (input.vehicleId && input.vehicleId.trim().length > 0) {
     const vehicle = await VehicleModel.findById(input.vehicleId.trim());
-    if (!vehicle || String(vehicle.ownerId) !== userId) throw new HttpError(404, 'vehicle not found');
+    if (!vehicle || String(vehicle.ownerId) !== userId) throw new HttpError(404, 'We couldn\'t find that vehicle. It may have been removed.');
     makeModel = vehicle.makeModel;
     vin = vehicle.vin;
     vehicleLabel = vehicle.label;
     vehicleId = vehicle._id as Types.ObjectId;
   } else {
     const mm = (input.vehicleMakeModel ?? '').trim();
-    if (!mm) throw new HttpError(400, 'vehicleMakeModel is required without vehicleId');
+    if (!mm) throw new HttpError(400, 'Please choose a vehicle or enter its make and model.');
     makeModel = mm;
     vin = (input.vehicleVin ?? '').trim() || '—';
     vehicleLabel = mm;

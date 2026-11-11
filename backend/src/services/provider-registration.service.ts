@@ -21,6 +21,15 @@ function filesToMap(files: Express.Multer.File[]): Map<string, Express.Multer.Fi
   return m;
 }
 
+/** Upload field names as shown to the applicant */
+const DOCUMENT_LABELS: Record<string, string> = {
+  mechanicBrCopy: 'business registration (BR) copy',
+  mechanicNicCopy: 'NIC copy',
+  towCompanyBrCopy: 'company business registration (BR) copy',
+  towTruckRegCopy: 'truck registration copy',
+  towTruckNicCopy: 'NIC copy',
+};
+
 export async function registerPendingProvider(params: {
   email: string;
   displayName: string;
@@ -33,19 +42,19 @@ export async function registerPendingProvider(params: {
   files: Express.Multer.File[];
 }) {
   const exists = await UserModel.findOne({ email: params.email.toLowerCase() }).lean();
-  if (exists) throw new HttpError(409, 'email already registered');
+  if (exists) throw new HttpError(409, 'An account with this email already exists. Try logging in instead.');
 
   const expected = params.role === 'mechanic' ? MECHANIC_FIELDS : TOW_FIELDS;
   const byField = filesToMap(params.files);
   for (const f of expected) {
-    if (!byField.has(f)) throw new HttpError(400, `missing file: ${f}`);
+    if (!byField.has(f)) throw new HttpError(400, `Please upload your ${DOCUMENT_LABELS[f] ?? 'required documents'}.`);
   }
 
   if (params.role === 'mechanic') {
-    if (!params.businessAddress?.trim()) throw new HttpError(400, 'businessAddress required');
+    if (!params.businessAddress?.trim()) throw new HttpError(400, 'Please enter your business address.');
   } else {
     if (!params.truckName?.trim() || !params.plateNumber?.trim()) {
-      throw new HttpError(400, 'truckName and plateNumber required');
+      throw new HttpError(400, 'Please enter your truck name and plate number.');
     }
   }
 
@@ -86,6 +95,6 @@ export async function registerPendingProvider(params: {
   await UserModel.updateOne({ _id: user._id }, { $set: { providerVerification: pv } });
 
   const fresh = await UserModel.findById(user._id).lean();
-  if (!fresh) throw new HttpError(500, 'user create failed');
+  if (!fresh) throw new HttpError(500, 'We couldn\'t create your account. Please try again.');
   return fresh;
 }

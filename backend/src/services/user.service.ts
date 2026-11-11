@@ -26,7 +26,7 @@ export async function updateProfile(userId: string, patch: ProfilePatch) {
     } else update[k] = v;
   }
   const u = await UserModel.findByIdAndUpdate(userId, { $set: update }, { new: true }).lean();
-  if (!u) throw new HttpError(404, 'user not found');
+  if (!u) throw new HttpError(404, 'We couldn\'t find that account.');
   if (typeof patch.displayName === 'string' && patch.displayName.trim()) {
     await VehicleModel.updateMany(
       { ownerId: new Types.ObjectId(userId) },

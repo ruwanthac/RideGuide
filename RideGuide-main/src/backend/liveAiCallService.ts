@@ -15,7 +15,8 @@ export interface LiveAiCallbacks {
   onListening?: () => void;
   onSpeaking?: () => void;
   onAudioReceived?: (meta: { mimeType: string; size: number; at: number }) => void;
-  onError?: (message: string) => void;
+  /** `transient`: the call is still usable (show a passing notice); otherwise the call has failed */
+  onError?: (message: string, transient?: boolean) => void;
   onEnded?: () => void;
 }
 
@@ -48,7 +49,7 @@ export async function joinLiveAiCall(
 
       const timeout = setTimeout(() => {
         cleanup();
-        reject(new Error('Could not connect to server. Check backend and network.'));
+        reject(new Error("Can't connect right now. Please check your internet connection and try again."));
       }, START_TIMEOUT_MS);
 
       const onConnect = () => {
@@ -57,7 +58,7 @@ export async function joinLiveAiCall(
       };
       const onConnectError = (err: Error) => {
         cleanup();
-        reject(new Error(err?.message || 'Socket authentication failed'));
+        reject(new Error(/auth|token|jwt/i.test(err?.message ?? '') ? 'Please log in again to start a call.' : "Can't connect right now. Please check your internet connection and try again."));
       };
 
       const cleanup = () => {
@@ -127,12 +128,14 @@ export async function joinLiveAiCall(
   const onError = ({
     sessionId: incoming,
     message,
+    transient,
   }: {
     sessionId: string;
     message: string;
+    transient?: boolean;
   }) => {
     if (incoming !== sessionId) return;
-    callbacks.onError?.(message);
+    callbacks.onError?.(message, transient);
   };
   const onAudioReceived = ({
     sessionId: incoming,
@@ -176,7 +179,7 @@ export async function joinLiveAiCall(
 
   await new Promise<void>((resolve, reject) => {
     const timeout = setTimeout(() => {
-      reject(new Error('AI call start timed out. Check backend socket handlers.'));
+      reject(new Error('The call is taking too long to start. Please try again.'));
     }, START_TIMEOUT_MS);
     socket.emit(
       'call:ai:start',
@@ -188,7 +191,7 @@ export async function joinLiveAiCall(
       (ack: any) => {
         clearTimeout(timeout);
         if (ack?.ok) resolve();
-        else reject(new Error(ack?.error ?? 'Unable to start AI call'));
+        else reject(new Error(ack?.error ?? "We couldn't start the call. Please try again."));
       }
     );
   });
@@ -197,7 +200,7 @@ export async function joinLiveAiCall(
     new Promise<void>((resolve, reject) => {
       socket.emit('call:ai:user_text', { sessionId, text }, (ack: any) => {
         if (ack?.ok) resolve();
-        else reject(new Error(ack?.error ?? 'Unable to send text'));
+        else reject(new Error(ack?.error ?? "Your message didn't send. Please try again."));
       });
     });
 
@@ -205,7 +208,7 @@ export async function joinLiveAiCall(
     new Promise<void>((resolve, reject) => {
       socket.emit('call:ai:audio_chunk', { sessionId, audioBase64, mimeType }, (ack: any) => {
         if (ack?.ok) resolve();
-        else reject(new Error(ack?.error ?? 'Unable to send audio chunk'));
+        else reject(new Error(ack?.error ?? "Your voice message didn't send. Please try again."));
       });
     });
 
@@ -222,7 +225,7 @@ export async function joinLiveAiCall(
         { sessionId, frameBase64, sampleRate, channels, sequence, timestamp },
         (ack: any) => {
           if (ack?.ok) resolve();
-          else reject(new Error(ack?.error ?? 'Unable to send audio frame'));
+          else reject(new Error(ack?.error ?? "Your voice message didn't send. Please try again."));
         }
       );
     });
@@ -231,7 +234,7 @@ export async function joinLiveAiCall(
     new Promise<void>((resolve, reject) => {
       socket.emit('call:ai:video_frame', { sessionId, frameBase64, mimeType }, (ack: any) => {
         if (ack?.ok) resolve();
-        else reject(new Error(ack?.error ?? 'Unable to send video frame'));
+        else reject(new Error(ack?.error ?? "We couldn't share your camera view. Please try again."));
       });
     });
 
@@ -239,7 +242,7 @@ export async function joinLiveAiCall(
     await new Promise<void>((resolve, reject) => {
       socket.emit('call:ai:stop', { sessionId }, (ack: any) => {
         if (ack?.ok) resolve();
-        else reject(new Error(ack?.error ?? 'Unable to stop AI call'));
+        else reject(new Error(ack?.error ?? 'The call ended with a problem.'));
       });
     }).catch(() => {
       // Avoid throwing during navigation cleanup.

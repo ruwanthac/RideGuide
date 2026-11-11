@@ -140,7 +140,7 @@ function generateProviderOtp(): string {
 
 export async function getUserByIdForAdmin(id: string): Promise<Record<string, unknown>> {
   const u = await UserModel.findById(id).select('-passwordHash').lean();
-  if (!u) throw new HttpError(404, 'user not found');
+  if (!u) throw new HttpError(404, 'We couldn\'t find that account.');
   return withId(u);
 }
 
@@ -149,10 +149,10 @@ export async function verifyProviderApplication(
   adminId: string
 ): Promise<{ ok: boolean; emailSent: boolean; emailError?: string; oneTimePassword?: string }> {
   const u = await UserModel.findById(userId);
-  if (!u) throw new HttpError(404, 'user not found');
-  if (u.role !== 'mechanic' && u.role !== 'tow') throw new HttpError(400, 'user is not a mechanic or tow provider');
+  if (!u) throw new HttpError(404, 'We couldn\'t find that account.');
+  if (u.role !== 'mechanic' && u.role !== 'tow') throw new HttpError(400, 'This account isn\'t a mechanic or tow provider account.');
   if (u.providerVerificationStatus !== 'pending') {
-    throw new HttpError(409, 'user is not awaiting verification');
+    throw new HttpError(409, 'This account isn\'t waiting for approval.');
   }
   const otp = generateProviderOtp();
   u.passwordHash = await bcrypt.hash(otp, 10);
@@ -194,10 +194,10 @@ export async function verifyProviderApplication(
 
 export async function rejectProviderApplication(userId: string, adminId: string): Promise<{ ok: boolean }> {
   const u = await UserModel.findById(userId);
-  if (!u) throw new HttpError(404, 'user not found');
-  if (u.role !== 'mechanic' && u.role !== 'tow') throw new HttpError(400, 'user is not a mechanic or tow provider');
+  if (!u) throw new HttpError(404, 'We couldn\'t find that account.');
+  if (u.role !== 'mechanic' && u.role !== 'tow') throw new HttpError(400, 'This account isn\'t a mechanic or tow provider account.');
   if (u.providerVerificationStatus !== 'pending') {
-    throw new HttpError(409, 'user is not awaiting verification');
+    throw new HttpError(409, 'This account isn\'t waiting for approval.');
   }
   u.providerVerificationStatus = 'rejected';
   u.providerVerificationReviewedAt = new Date();
@@ -217,14 +217,14 @@ export async function createAdminUser(
   input: { email: string; password: string; displayName: string; phoneNumber?: string | null }
 ): Promise<ReturnType<typeof sanitizeForClient>> {
   const email = input.email.trim().toLowerCase();
-  if (!email) throw new HttpError(400, 'email required');
+  if (!email) throw new HttpError(400, 'Please enter your email address.');
   if (!input.password || input.password.length < 8) {
-    throw new HttpError(400, 'password must be at least 8 characters');
+    throw new HttpError(400, 'Your password must be at least 8 characters.');
   }
   const displayName = input.displayName.trim();
-  if (!displayName) throw new HttpError(400, 'displayName required');
+  if (!displayName) throw new HttpError(400, 'Please enter your name.');
   const exists = await UserModel.findOne({ email }).lean();
-  if (exists) throw new HttpError(409, 'email already registered');
+  if (exists) throw new HttpError(409, 'An account with this email already exists. Try logging in instead.');
   const passwordHash = await bcrypt.hash(input.password, 10);
   const phone =
     typeof input.phoneNumber === 'string' && input.phoneNumber.trim()
@@ -250,16 +250,16 @@ export async function createAdminUser(
 }
 
 export async function getVerificationFileAbsolutePath(userId: string, field: string): Promise<string> {
-  if (!VERIFICATION_FILE_FIELDS.has(field)) throw new HttpError(400, 'invalid file field');
+  if (!VERIFICATION_FILE_FIELDS.has(field)) throw new HttpError(400, 'A file was added in the wrong place. Please check your uploads.');
   const u = await UserModel.findById(userId).lean();
-  if (!u) throw new HttpError(404, 'user not found');
+  if (!u) throw new HttpError(404, 'We couldn\'t find that account.');
   const rel = (u as { providerVerification?: Record<string, string> }).providerVerification?.[field];
-  if (!rel || typeof rel !== 'string') throw new HttpError(404, 'file not found');
+  if (!rel || typeof rel !== 'string') throw new HttpError(404, 'We couldn\'t find that file.');
   const uploadRoot = path.resolve(process.cwd(), env.UPLOAD_DIR);
   const abs = path.resolve(uploadRoot, rel);
   const prefix = path.resolve(uploadRoot, 'provider-verification');
-  if (!abs.startsWith(prefix)) throw new HttpError(403, 'invalid path');
-  if (!fs.existsSync(abs)) throw new HttpError(404, 'file not found');
+  if (!abs.startsWith(prefix)) throw new HttpError(403, 'You don\'t have permission to open that file.');
+  if (!fs.existsSync(abs)) throw new HttpError(404, 'We couldn\'t find that file.');
   return abs;
 }
 
@@ -279,9 +279,9 @@ export async function updateUser(
   if (patch.truckName !== undefined) allowed.truckName = patch.truckName;
   if (patch.plateNumber !== undefined) allowed.plateNumber = patch.plateNumber;
   if (patch.status !== undefined) allowed.status = patch.status;
-  if (Object.keys(allowed).length === 0) throw new HttpError(400, 'no valid fields to update');
+  if (Object.keys(allowed).length === 0) throw new HttpError(400, 'There\'s nothing to update.');
   const u = await UserModel.findByIdAndUpdate(id, { $set: allowed }, { new: true }).select('-passwordHash').lean();
-  if (!u) throw new HttpError(404, 'user not found');
+  if (!u) throw new HttpError(404, 'We couldn\'t find that account.');
   await recordAudit({
     adminId,
     action: 'USER_UPDATE',
@@ -293,15 +293,15 @@ export async function updateUser(
 }
 
 export async function deleteUser(userId: string, actorAdminId: string) {
-  if (!Types.ObjectId.isValid(userId)) throw new HttpError(400, 'invalid user id');
+  if (!Types.ObjectId.isValid(userId)) throw new HttpError(400, 'We couldn\'t find that account.');
   if (String(userId) === String(actorAdminId)) {
-    throw new HttpError(403, 'cannot delete your own account');
+    throw new HttpError(403, 'You can\'t delete your own account.');
   }
   const target = await UserModel.findById(userId).lean();
-  if (!target) throw new HttpError(404, 'user not found');
+  if (!target) throw new HttpError(404, 'We couldn\'t find that account.');
   if (target.role === 'admin') {
     const adminCount = await UserModel.countDocuments({ role: 'admin' });
-    if (adminCount <= 1) throw new HttpError(400, 'cannot delete the last admin account');
+    if (adminCount <= 1) throw new HttpError(400, 'You can\'t delete the last admin account.');
   }
   const oid = new Types.ObjectId(userId);
   const vehicleIds = await VehicleModel.find({ ownerId: oid }).distinct('_id');
@@ -321,7 +321,7 @@ export async function deleteUser(userId: string, actorAdminId: string) {
   }
   await VehicleModel.deleteMany({ ownerId: oid });
   const deleted = await UserModel.findByIdAndDelete(oid).lean();
-  if (!deleted) throw new HttpError(404, 'user not found');
+  if (!deleted) throw new HttpError(404, 'We couldn\'t find that account.');
   await recordAudit({
     adminId: actorAdminId,
     action: 'USER_DELETE',
@@ -333,7 +333,7 @@ export async function deleteUser(userId: string, actorAdminId: string) {
 
 export async function deleteRequest(id: string, adminId: string) {
   const r = await ServiceRequestModel.findByIdAndDelete(id).lean();
-  if (!r) throw new HttpError(404, 'request not found');
+  if (!r) throw new HttpError(404, 'We couldn\'t find that request. It may have expired or been cancelled.');
   await recordAudit({
     adminId,
     action: 'REQUEST_DELETE',
@@ -372,22 +372,22 @@ export async function updateTowPricing(
     openRequestExpiryMinutes?: number;
   } = {};
   if (patch.towPerKmLkr !== undefined) {
-    if (!Number.isFinite(patch.towPerKmLkr) || patch.towPerKmLkr < 0) throw new HttpError(400, 'invalid towPerKmLkr');
+    if (!Number.isFinite(patch.towPerKmLkr) || patch.towPerKmLkr < 0) throw new HttpError(400, 'Please enter a valid tow price per km (0 or more).');
     update.towPerKmLkr = Math.round(patch.towPerKmLkr);
   }
   if (patch.providerMatchRadiusKm !== undefined) {
     const r = patch.providerMatchRadiusKm;
-    if (!Number.isFinite(r) || r < 1 || r > 500) throw new HttpError(400, 'invalid providerMatchRadiusKm (1–500)');
+    if (!Number.isFinite(r) || r < 1 || r > 500) throw new HttpError(400, 'Please enter a matching radius between 1 and 500 km.');
     update.providerMatchRadiusKm = Math.round(r * 100) / 100;
   }
   if (patch.openRequestExpiryMinutes !== undefined) {
     const m = patch.openRequestExpiryMinutes;
     if (!Number.isFinite(m) || m < 1 || m > 10080) {
-      throw new HttpError(400, 'invalid openRequestExpiryMinutes (1–10080)');
+      throw new HttpError(400, 'Please enter a request expiry between 1 and 10080 minutes (7 days).');
     }
     update.openRequestExpiryMinutes = Math.round(m);
   }
-  if (Object.keys(update).length === 0) throw new HttpError(400, 'no fields to update');
+  if (Object.keys(update).length === 0) throw new HttpError(400, 'There\'s nothing to update.');
   const setOnInsert: Record<string, unknown> = { key: 'tow' };
   if (update.towPerKmLkr === undefined) setOnInsert.towPerKmLkr = 320;
   if (update.providerMatchRadiusKm === undefined) setOnInsert.providerMatchRadiusKm = 15;
@@ -449,7 +449,7 @@ export async function listServiceRequests(query: Record<string, unknown>): Promi
 
 export async function getServiceRequestById(id: string) {
   const doc = await ServiceRequestModel.findById(id).lean();
-  if (!doc) throw new HttpError(404, 'request not found');
+  if (!doc) throw new HttpError(404, 'We couldn\'t find that request. It may have expired or been cancelled.');
   return withId(doc);
 }
 
@@ -730,6 +730,7 @@ export async function seedDemo(adminId: string) {
 
   await DiagnosisHistoryModel.create({
     userId: ownerA.user._id,
+    userName: ownerA.user.displayName,
     vehicleId: vA._id,
     vehicleLabel: vA.makeModel,
     symptoms: 'Rough idle when cold',

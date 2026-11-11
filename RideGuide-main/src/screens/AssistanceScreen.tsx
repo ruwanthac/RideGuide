@@ -6,6 +6,7 @@ import { colors } from '../constants/theme';
 import { useResponsive } from '../hooks';
 import { findNearbyMechanics } from '../backend/mechanicsService';
 import type { AuthUser } from '../backend/types';
+import { friendlyErrorMessage } from '../backend/apiClient';
 
 interface AssistanceScreenProps {
   onBack: () => void;
@@ -43,7 +44,7 @@ export const AssistanceScreen: React.FC<AssistanceScreenProps> = ({ onBack }) =>
         }
       } catch (e) {
         if (alive) {
-          setError(e instanceof Error ? e.message : 'Failed to load mechanics');
+          setError(friendlyErrorMessage(e, "We couldn't load nearby mechanics. Please try again."));
           setLoading(false);
         }
       }

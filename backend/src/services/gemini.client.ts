@@ -1,6 +1,8 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { z } from 'zod';
 import { env } from '../config/env';
+import { HttpError } from './auth.service';
+import { AI_BUSY_MESSAGE, AI_FAILED_MESSAGE } from '../utils/userFacingError';
 
 const diagnosisSchema = z.object({
   likelyCauses: z.array(z.string()).min(1).max(6),
@@ -20,24 +22,6 @@ function isQuotaExceededError(err: unknown): boolean {
     message.includes('too many requests') ||
     message.includes('rate limit')
   );
-}
-
-function diagnosisQuotaFallback(): DiagnosisResult {
-  return {
-    likelyCauses: [
-      'AI diagnosis is temporarily unavailable because the API quota has been exceeded.',
-    ],
-    severity: 'moderate',
-    steps: [
-      'Verify warning lights and avoid driving if the vehicle is unsafe.',
-      'Check engine oil, coolant level, and battery terminals for obvious issues.',
-      'Retry AI diagnosis later after quota is restored, or contact support/mechanic.',
-    ],
-    diagnosis:
-      'The diagnostic AI could not run because your Gemini API quota is currently exhausted. Basic safety checks are recommended until service is restored.',
-    disclaimer:
-      'If the vehicle shows critical warnings, overheating, smoke, or brake issues, stop driving and seek immediate professional help.',
-  };
 }
 
 function getClient() {
@@ -84,14 +68,13 @@ export async function analyzeDiagnosis(input: {
       try {
         return diagnosisSchema.parse(JSON.parse(text));
       } catch {
-        if (attempt === 1) throw new Error('AI returned malformed diagnosis');
+        if (attempt === 1) throw new HttpError(502, AI_FAILED_MESSAGE);
       }
     }
-    throw new Error('AI returned malformed diagnosis');
+    throw new HttpError(502, AI_FAILED_MESSAGE);
   } catch (err) {
-    if (isQuotaExceededError(err)) {
-      return diagnosisQuotaFallback();
-    }
+    // Not saved to history: the error reaches the user as a plain "try again" message.
+    if (isQuotaExceededError(err)) throw new HttpError(503, AI_BUSY_MESSAGE);
     throw err;
   }
 }
@@ -121,7 +104,7 @@ export async function summarizeAiCallMessages(
     return r.response.text().trim();
   } catch (err) {
     if (isQuotaExceededError(err)) {
-      return 'Video AI call (summary unavailable: AI quota exceeded).';
+      return 'Video call with the Vehicle Expert (summary not available).';
     }
     throw err;
   }
@@ -183,7 +166,7 @@ export async function chatReply(messages: ChatApiMessage[]): Promise<string> {
     return r.response.text();
   } catch (err) {
     if (isQuotaExceededError(err)) {
-      return 'I am temporarily unavailable because the AI service quota is exhausted. Please try again later after enabling billing or increasing Gemini quota in Google AI Studio.';
+      return AI_BUSY_MESSAGE;
     }
     throw err;
   }

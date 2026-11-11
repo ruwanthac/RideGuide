@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { SafeAreaView, ScrollView, View, Text, StyleSheet, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { fetchVehicleRecords, VehicleRecords } from '../backend/vehicleRecordsService';
+import { friendlyErrorMessage } from '../backend/apiClient';
 
 interface Props {
   vehicleId: string;
@@ -19,7 +20,7 @@ export const VehicleRecordsScreen: React.FC<Props> = ({ vehicleId, onBack }) => 
         const r = await fetchVehicleRecords(vehicleId);
         if (alive) setData(r);
       } catch (e) {
-        if (alive) setError(e instanceof Error ? e.message : 'Failed to load records');
+        if (alive) setError(friendlyErrorMessage(e, "We couldn't load your records. Please try again."));
       } finally {
         if (alive) setLoading(false);
       }

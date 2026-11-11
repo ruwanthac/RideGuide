@@ -21,6 +21,7 @@ import { useResponsive } from '../hooks';
 import { askAssistant, AssistantMsg } from '../backend/assistantService';
 import { getAssistantChatSession } from '../backend/assistantChatHistoryService';
 import { useVehicles } from '../context/VehiclesContext';
+import { friendlyErrorMessage } from '../backend/apiClient';
 
 async function imageUriToBase64(uri: string): Promise<{ base64: string; mime: string }> {
   const res = await fetch(uri);
@@ -160,7 +161,7 @@ export const ChatAssistantScreen: React.FC<ChatAssistantScreenProps> = ({
         setPendingImageUri(result.assets[0].uri);
       }
     } catch {
-      Alert.alert('Error', 'Failed to open photo library.');
+      Alert.alert("Couldn't open photos", 'Please check that the app is allowed to access your photos, then try again.');
     }
   };
 
@@ -177,7 +178,7 @@ export const ChatAssistantScreen: React.FC<ChatAssistantScreenProps> = ({
         setPendingImageUri(result.assets[0].uri);
       }
     } catch {
-      Alert.alert('Error', 'Failed to open camera.');
+      Alert.alert("Couldn't open the camera", 'Please check that the app is allowed to use the camera, then try again.');
     }
   };
 
@@ -340,7 +341,7 @@ export const ChatAssistantScreen: React.FC<ChatAssistantScreenProps> = ({
       } catch {
         setMessages((prev) => prev.filter((x) => x.id !== userMessage.id));
         setIsTyping(false);
-        Alert.alert('Image error', 'Could not read the photo. Try another image or take a new photo.');
+        Alert.alert("Couldn't use that photo", 'Please try another photo or take a new one.');
         return;
       }
     }
@@ -373,12 +374,12 @@ export const ChatAssistantScreen: React.FC<ChatAssistantScreenProps> = ({
           timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
         },
       ]);
-    } catch {
+    } catch (e) {
       setMessages((prev) => [
         ...prev,
         {
           id: (Date.now() + 1).toString(),
-          text: 'Sorry, the assistant is unreachable right now. Please try again.',
+          text: friendlyErrorMessage(e, "Sorry, I can't reach the assistant right now. Please try again."),
           isUser: false,
           timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
         },

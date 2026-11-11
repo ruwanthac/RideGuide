@@ -54,6 +54,23 @@ describe('provider registration', () => {
     expect(login.status).toBe(401);
   });
 
+  it('removes temp uploads when registration is rejected', async () => {
+    const app = buildApp();
+    const tmpDir = path.join(process.cwd(), 'uploads', 'tmp-register');
+    const before = new Set(fs.readdirSync(tmpDir));
+    const res = await request(app)
+      .post('/api/auth/register-provider')
+      .field('email', 'noaddr@b.com')
+      .field('displayName', 'M')
+      .field('role', 'mechanic')
+      .field('businessName', 'Shop')
+      .attach('mechanicBrCopy', tinyPng(), 'br.png')
+      .attach('mechanicNicCopy', tinyPng(), 'nic.png');
+    expect(res.status).toBe(400);
+    const leftover = fs.readdirSync(tmpDir).filter((f) => !before.has(f));
+    expect(leftover).toEqual([]);
+  });
+
   it('admin verify enables login with OTP', async () => {
     const app = buildApp();
     const admin = await registerUser({ email: 'adm@b.com', password: 'secret12', displayName: 'A', role: 'admin' });

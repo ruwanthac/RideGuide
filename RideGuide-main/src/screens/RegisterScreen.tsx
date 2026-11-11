@@ -276,7 +276,7 @@ export const RegisterScreen: React.FC<RegisterScreenProps> = ({ onNavigateToLogi
         setter(result.assets[0].uri);
       }
     } catch {
-      Alert.alert('Upload failed', 'Could not open the gallery.');
+      Alert.alert("Couldn't open photos", 'Please check that the app is allowed to access your photos, then try again.');
     }
   };
 
@@ -292,7 +292,7 @@ export const RegisterScreen: React.FC<RegisterScreenProps> = ({ onNavigateToLogi
         setter(result.assets[0].uri);
       }
     } catch {
-      Alert.alert('Capture failed', 'Could not use the camera.');
+      Alert.alert("Couldn't open the camera", 'Please check that the app is allowed to use the camera, then try again.');
     }
   };
 

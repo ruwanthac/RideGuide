@@ -48,10 +48,10 @@ function signToken(userId: string, role: UserRole) {
 
 export async function registerUser(input: RegisterInput): Promise<AuthResult> {
   if (input.role === 'mechanic' || input.role === 'tow') {
-    throw new HttpError(400, 'Use POST /api/auth/register-provider for mechanic and tow sign-up');
+    throw new HttpError(400, 'Please use the mechanic or tow provider sign-up form.');
   }
   const exists = await UserModel.findOne({ email: input.email.toLowerCase() }).lean();
-  if (exists) throw new HttpError(409, 'email already registered');
+  if (exists) throw new HttpError(409, 'An account with this email already exists. Try logging in instead.');
   const passwordHash = await bcrypt.hash(input.password, 10);
   const phone =
     typeof input.phoneNumber === 'string' && input.phoneNumber.trim()
@@ -73,7 +73,7 @@ export async function registerApprovedProvider(
   input: RegisterInput & { role: 'mechanic' | 'tow' }
 ): Promise<AuthResult> {
   const exists = await UserModel.findOne({ email: input.email.toLowerCase() }).lean();
-  if (exists) throw new HttpError(409, 'email already registered');
+  if (exists) throw new HttpError(409, 'An account with this email already exists. Try logging in instead.');
   const passwordHash = await bcrypt.hash(input.password, 10);
   const phone =
     typeof input.phoneNumber === 'string' && input.phoneNumber.trim()
@@ -92,25 +92,25 @@ export async function registerApprovedProvider(
 
 export async function loginUser(input: LoginInput): Promise<AuthResult> {
   const user = await UserModel.findOne({ email: input.email.toLowerCase() });
-  if (!user) throw new HttpError(401, 'invalid credentials');
+  if (!user) throw new HttpError(401, 'Incorrect email or password. Please try again.');
   const ok = await bcrypt.compare(input.password, user.passwordHash);
-  if (!ok) throw new HttpError(401, 'invalid credentials');
+  if (!ok) throw new HttpError(401, 'Incorrect email or password. Please try again.');
   if ((user as { status?: string }).status === 'suspended') {
-    throw new HttpError(403, 'account suspended');
+    throw new HttpError(403, 'Your account has been suspended. Please contact support.');
   }
   const eff = effectiveProviderVerificationStatus(user.role, user.providerVerificationStatus as any);
   if ((user.role === 'mechanic' || user.role === 'tow') && eff === 'pending') {
-    throw new HttpError(403, 'Awaiting admin approval for your account. You will receive an email when approved.');
+    throw new HttpError(403, 'Your account is waiting for approval. We\'ll email you as soon as it\'s approved.');
   }
   if ((user.role === 'mechanic' || user.role === 'tow') && eff === 'rejected') {
-    throw new HttpError(403, 'Your provider application was not approved.');
+    throw new HttpError(403, 'Your provider application wasn\'t approved. Please contact support for details.');
   }
   return { user: sanitizeForClient(user), token: signToken(String(user._id), user.role) };
 }
 
 export async function changePassword(userId: string, nextPassword: string): Promise<void> {
   const user = await UserModel.findById(userId);
-  if (!user) throw new HttpError(404, 'user not found');
+  if (!user) throw new HttpError(404, 'We couldn\'t find that account.');
   user.passwordHash = await bcrypt.hash(nextPassword, 10);
   (user as any).mustChangePassword = false;
   await user.save();

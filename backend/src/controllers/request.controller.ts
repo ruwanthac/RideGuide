@@ -58,7 +58,7 @@ export async function list(req: Request, res: Response, next: NextFunction) {
 }
 export async function create(req: Request, res: Response, next: NextFunction) {
   try {
-    if (req.user!.role !== 'owner') return res.status(403).json({ error: 'only owners can create' });
+    if (req.user!.role !== 'owner') return res.status(403).json({ error: 'Only vehicle owners can request help.' });
     const body = createSchema.parse(req.body);
     const r = await svc.createRequest(req.user!.userId, body);
     res.status(201).json(r);
@@ -67,7 +67,7 @@ export async function create(req: Request, res: Response, next: NextFunction) {
 }
 export async function towEstimate(req: Request, res: Response, next: NextFunction) {
   try {
-    if (req.user!.role !== 'owner') return res.status(403).json({ error: 'only owners can estimate' });
+    if (req.user!.role !== 'owner') return res.status(403).json({ error: 'Only vehicle owners can get a price estimate.' });
     const body = towEstimateSchema.parse(req.body);
     res.json(await svc.estimateTowPriceWithConfig(body));
   } catch (e) { next(e); }

@@ -11,6 +11,7 @@ import {
 } from 'react-native';
 import { fetchAdminStats, listAdminUsers, setAdminUserRole, fetchTowPricing, updateTowPricing } from '../backend';
 import type { AuthUser } from '../backend/types';
+import { friendlyErrorMessage } from '../backend/apiClient';
 
 interface Props { onBack: () => void }
 
@@ -37,7 +38,7 @@ export const AdminScreen: React.FC<Props> = ({ onBack }) => {
       setRadiusKmDraft(String(pricing.providerMatchRadiusKm));
       setOpenRequestExpiryDraft(String(pricing.openRequestExpiryMinutes));
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to load');
+      setError(friendlyErrorMessage(e, "We couldn't load this page. Please try again."));
     } finally {
       setLoading(false);
     }
@@ -71,7 +72,7 @@ export const AdminScreen: React.FC<Props> = ({ onBack }) => {
       setOpenRequestExpiryDraft(String(updated.openRequestExpiryMinutes));
       setError(null);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to update pricing');
+      setError(friendlyErrorMessage(e, "We couldn't update the pricing. Please try again."));
     } finally {
       setSavingPricing(false);
     }
@@ -84,7 +85,7 @@ export const AdminScreen: React.FC<Props> = ({ onBack }) => {
       await setAdminUserRole(u._id, next);
       await load();
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Update failed');
+      setError(friendlyErrorMessage(e, "We couldn't save that change. Please try again."));
     }
   };
 

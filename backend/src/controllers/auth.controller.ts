@@ -1,3 +1,4 @@
+import fs from 'fs/promises';
 import { Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import { registerUser, loginUser, sanitizeForClient, changePassword } from '../services/auth.service';
@@ -43,10 +44,10 @@ export async function register(req: Request, res: Response, next: NextFunction) 
 }
 
 export async function registerProvider(req: Request, res: Response, next: NextFunction) {
+  const fileMap = req.files as Record<string, Express.Multer.File[]> | undefined;
+  const files = fileMap ? Object.values(fileMap).flat() : [];
   try {
     const body = providerRegisterSchema.parse(req.body);
-    const fileMap = req.files as Record<string, Express.Multer.File[]> | undefined;
-    const files = fileMap ? Object.values(fileMap).flat() : [];
     const doc = await registerPendingProvider({
       email: body.email,
       displayName: body.displayName,
@@ -63,6 +64,8 @@ export async function registerProvider(req: Request, res: Response, next: NextFu
       pendingVerification: true,
     });
   } catch (e) {
+    // Uploads land in tmp-register first; drop them when registration is rejected so they don't accumulate.
+    await Promise.all(files.map((f) => fs.unlink(f.path).catch(() => undefined)));
     next(e);
   }
 }
@@ -80,7 +83,7 @@ export async function login(req: Request, res: Response, next: NextFunction) {
 export async function me(req: Request, res: Response, next: NextFunction) {
   try {
     const user = await UserModel.findById(req.user!.userId);
-    if (!user) return res.status(404).json({ error: 'not found' });
+    if (!user) return res.status(404).json({ error: 'We couldn\'t find what you were looking for.' });
     res.json(sanitizeForClient(user));
   } catch (e) {
     next(e);

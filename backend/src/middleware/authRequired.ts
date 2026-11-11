@@ -14,17 +14,17 @@ declare global {
 export function authRequired(req: Request, _res: Response, next: NextFunction) {
   const header = req.header('authorization') ?? '';
   const [scheme, token] = header.split(' ');
-  if (scheme !== 'Bearer' || !token) return next(new HttpError(401, 'missing bearer token'));
+  if (scheme !== 'Bearer' || !token) return next(new HttpError(401, 'Please log in to continue.'));
   let payload: TokenPayload;
   try {
     payload = verifyToken(token);
   } catch {
-    return next(new HttpError(401, 'invalid or expired token'));
+    return next(new HttpError(401, 'Your session has expired. Please log in again.'));
   }
   void (async () => {
     try {
       const user = await UserModel.findById(payload.userId).select('_id role').lean();
-      if (!user) return next(new HttpError(401, 'user not found'));
+      if (!user) return next(new HttpError(401, 'We couldn\'t find that account.'));
       req.user = { ...payload, role: user.role };
       next();
     } catch (e) {

@@ -9,8 +9,8 @@ export async function vehicleRecords(req: Request, res: Response, next: NextFunc
     const userId = req.user!.userId;
     const id = req.params.id;
     const v = await VehicleModel.findById(id).lean();
-    if (!v) throw new HttpError(404, 'vehicle not found');
-    if (String(v.ownerId) !== userId) throw new HttpError(403, 'forbidden');
+    if (!v) throw new HttpError(404, 'We couldn\'t find that vehicle. It may have been removed.');
+    if (String(v.ownerId) !== userId) throw new HttpError(403, 'You don\'t have permission to do that.');
     const [diagnoses, requests] = await Promise.all([
       DiagnosisHistoryModel.find({ vehicleId: id }).sort({ createdAt: -1 }).lean(),
       ServiceRequestModel.find({ vehicleId: id }).sort({ createdAt: -1 }).lean(),
