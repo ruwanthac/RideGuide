@@ -7,6 +7,7 @@ import requestRoutes from './request.routes';
 import assistantRoutes from './assistant.routes';
 import mechanicRoutes from './mechanic.routes';
 import adminRoutes from './admin.routes';
+import newsRoutes from './news.routes';
 
 const api = Router();
 api.use('/auth', authRoutes);
@@ -18,4 +19,5 @@ api.use('/requests', requestRoutes);
 api.use('/chat', assistantRoutes);
 api.use('/mechanics', mechanicRoutes);
 api.use('/admin', adminRoutes);
+api.use('/news', newsRoutes);
 export default api;
