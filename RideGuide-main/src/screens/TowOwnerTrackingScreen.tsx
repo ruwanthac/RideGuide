@@ -15,7 +15,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { WebView } from 'react-native-webview';
-import { Icon, UnreadRedDot } from '../components';
+import { Icon, TrackingPanel } from '../components';
 import { colors } from '../constants/theme';
 import { useResponsive } from '../hooks';
 import type { ServiceRequest } from '../backend/types';
@@ -518,6 +518,19 @@ export const TowOwnerTrackingScreen: React.FC<TowOwnerTrackingScreenProps> = ({
       position: 'relative',
     },
     amount: { marginTop: spacing.md, fontSize: fontSizes.md, color: colors.text, fontWeight: '700' },
+    backRound: {
+      width: 44,
+      height: 44,
+      borderRadius: 22,
+      backgroundColor: '#FFFFFF',
+      alignItems: 'center',
+      justifyContent: 'center',
+      shadowColor: '#0F172A',
+      shadowOpacity: 0.15,
+      shadowRadius: 8,
+      shadowOffset: { width: 0, height: 2 },
+      elevation: 4,
+    },
     topBar: {
       position: 'absolute',
       top: insets.top + spacing.sm,
@@ -656,17 +669,15 @@ export const TowOwnerTrackingScreen: React.FC<TowOwnerTrackingScreenProps> = ({
         androidLayerType="hardware"
       />
       <View style={styles.topBar}>
-        <TouchableOpacity style={styles.minimizePill} onPress={handleMinimize} activeOpacity={0.85}>
-          <Icon name="chevron-back" size={18} color={colors.primary} />
-          <Text style={styles.minimizePillText}>Continue in background</Text>
+        <TouchableOpacity
+          style={styles.backRound}
+          onPress={handleMinimize}
+          activeOpacity={0.85}
+          accessibilityRole="button"
+          accessibilityLabel="Back to home. Tracking continues in the background"
+        >
+          <Icon name="chevron-back" size={22} color={colors.text} />
         </TouchableOpacity>
-        {ownerCanCancel ? (
-          <TouchableOpacity style={styles.cancelOutline} onPress={confirmCancel} activeOpacity={0.85}>
-            <Text style={styles.cancelOutlineText}>Cancel request</Text>
-          </TouchableOpacity>
-        ) : (
-          <View />
-        )}
       </View>
 
       <Animated.View
@@ -680,81 +691,23 @@ export const TowOwnerTrackingScreen: React.FC<TowOwnerTrackingScreenProps> = ({
       >
         <View {...sheetPanResponder.panHandlers} style={styles.sheetGrabArea}>
           <View style={styles.sheetGrabIndicator} />
-          <Text style={styles.sheetGrabHint}>Drag up/down to show map or details</Text>
         </View>
         <ScrollView
           style={{ flex: 1 }}
           contentContainerStyle={styles.sheetInner}
           nestedScrollEnabled
           keyboardShouldPersistTaps="handled"
-          showsVerticalScrollIndicator
+          showsVerticalScrollIndicator={false}
           bounces
         >
-          <Text style={styles.title}>{heading}</Text>
-          <Text style={styles.subtitle}>{subtitle}</Text>
-          <Animated.View style={[styles.activePill, { transform: [{ scale: pulse }] }]}>
-            <Icon name={request.type === 'roadside' ? 'construct' : 'car'} size={16} color={colors.primary} />
-            <Text style={styles.activeText}>{LABELS[request.status] ?? request.status}</Text>
-          </Animated.View>
-          {showProviderContactRow ? (
-            <View style={styles.providerContactBlock}>
-              <Text style={styles.providerContactLabel}>
-                {request.type === 'tow' ? 'DRIVER' : 'MECHANIC'}
-              </Text>
-              <Text style={styles.providerContactName}>{providerName}</Text>
-              <Text style={styles.providerContactPhone}>{providerPhone || 'Phone number not on file'}</Text>
-              <View style={styles.actionsRow}>
-                <TouchableOpacity style={styles.iconBtn} onPress={openCallProvider} activeOpacity={0.85}>
-                  <Icon name="call" size={18} color={colors.primary} />
-                </TouchableOpacity>
-                {ownerCanChatTow || (request.type === 'roadside' && ownerRoadsideLiveContact) ? (
-                  <TouchableOpacity style={styles.iconBtn} onPress={() => onOpenChat(request)} activeOpacity={0.85}>
-                    <Icon name="chatbubble" size={18} color={colors.primary} />
-                    <UnreadRedDot visible={hasUnreadRequestChat} />
-                  </TouchableOpacity>
-                ) : null}
-              </View>
-            </View>
-          ) : null}
-          <Text style={styles.amount}>
-            {amountLabel}: {formatCurrencyAmount(request.currency, request.estimatedAmount ?? 0)}
-          </Text>
-          <View style={styles.timelineContainer}>
-            {flow.map((step, index) => {
-              const isDone = index <= activeIndex;
-              const isActive = index === activeIndex;
-              const showConnector = index < flow.length - 1;
-              return (
-                <View key={step} style={styles.timelineRow}>
-                  <View style={styles.timelineRailWrap}>
-                    {showConnector ? (
-                      <View
-                        style={[
-                          styles.timelineConnector,
-                          index < activeIndex && styles.timelineConnectorDone,
-                        ]}
-                      />
-                    ) : null}
-                    <Animated.View
-                      style={[
-                        styles.timelineNodeOuter,
-                        isDone && styles.timelineNodeOuterDone,
-                        isActive ? { transform: [{ scale: pulse }] } : null,
-                      ]}
-                    >
-                      <View style={[styles.timelineNodeInner, isDone && styles.timelineNodeInnerDone]} />
-                    </Animated.View>
-                  </View>
-                  <View style={styles.timelineContent}>
-                    <Text style={[styles.timelineTitle, isDone && styles.timelineTitleDone]}>{LABELS[step]}</Text>
-                    <Text style={styles.timelineSubtitle}>
-                      {isActive ? 'Current step' : isDone ? 'Completed step' : 'Upcoming step'}
-                    </Text>
-                  </View>
-                </View>
-              );
-            })}
-          </View>
+          <TrackingPanel
+            request={request}
+            providerLocation={request.acceptedProviderLocation ?? lastKnownDriverLocation}
+            onCall={openCallProvider}
+            onChat={ownerCanChatTow || (request.type === 'roadside' && ownerRoadsideLiveContact) ? () => onOpenChat(request) : undefined}
+            hasUnreadChat={hasUnreadRequestChat}
+            onCancel={ownerCanCancel ? confirmCancel : undefined}
+          />
         </ScrollView>
       </Animated.View>
     </View>

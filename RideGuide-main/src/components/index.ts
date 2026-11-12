@@ -15,3 +15,4 @@ export { HistoryDateFilterBar } from './HistoryDateFilterBar';
 export { NewsAndTips } from './NewsAndTips';
 export { OwnerHome } from './OwnerHome';
 export { DiagnosisResult, diagnosisAsText, diagnosisSummary, SEVERITY_BANNER } from './DiagnosisResult';
+export { TrackingPanel } from './TrackingPanel';

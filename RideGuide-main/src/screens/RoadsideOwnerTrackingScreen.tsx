@@ -13,7 +13,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { WebView } from 'react-native-webview';
-import { Icon, UnreadRedDot } from '../components';
+import { Icon, TrackingPanel } from '../components';
 import { colors } from '../constants/theme';
 import { useResponsive } from '../hooks';
 import type { ServiceRequest } from '../backend/types';
@@ -407,11 +407,32 @@ export const RoadsideOwnerTrackingScreen: React.FC<RoadsideOwnerTrackingScreenPr
         container: { flex: 1, backgroundColor: colors.background },
         map: { height: '48%' },
         card: {
-          margin: spacing.lg,
-          marginTop: spacing.md,
-          padding: spacing.lg,
+          flex: 1,
+          paddingHorizontal: 20,
+          paddingTop: 10,
           backgroundColor: colors.card,
-          borderRadius: borderRadius.lg,
+          borderTopLeftRadius: 26,
+          borderTopRightRadius: 26,
+          marginTop: -24,
+          shadowColor: '#0F172A',
+          shadowOpacity: 0.12,
+          shadowRadius: 24,
+          shadowOffset: { width: 0, height: -6 },
+          elevation: 12,
+        },
+        grab: { alignSelf: 'center', width: 40, height: 5, borderRadius: 3, backgroundColor: '#CBD5E1', marginBottom: 12 },
+        backRound: {
+          width: 44,
+          height: 44,
+          borderRadius: 22,
+          backgroundColor: '#FFFFFF',
+          alignItems: 'center',
+          justifyContent: 'center',
+          shadowColor: '#0F172A',
+          shadowOpacity: 0.15,
+          shadowRadius: 8,
+          shadowOffset: { width: 0, height: 2 },
+          elevation: 4,
         },
         title: { fontSize: fontSizes.lg, fontWeight: '700', color: colors.text, marginBottom: spacing.sm },
         subtitle: { color: colors.textSecondary, marginBottom: spacing.md },
@@ -635,83 +656,31 @@ export const RoadsideOwnerTrackingScreen: React.FC<RoadsideOwnerTrackingScreenPr
 
   return (
     <View style={styles.container}>
-      <WebView source={{ html: mapHtml }} style={styles.map} />
-      <View style={styles.topBar}>
-        <TouchableOpacity style={styles.minimizePill} onPress={handleMinimize} activeOpacity={0.85}>
-          <Icon name="chevron-back" size={18} color={colors.primary} />
-          <Text style={styles.minimizePillText}>Continue in background</Text>
-        </TouchableOpacity>
-        {ownerCanCancel ? (
-          <TouchableOpacity style={styles.cancelOutline} onPress={confirmCancel} activeOpacity={0.85}>
-            <Text style={styles.cancelOutlineText}>Cancel request</Text>
-          </TouchableOpacity>
-        ) : (
-          <View />
-        )}
+      {/* The box keeps the map's space even while (or if) the map itself can't render. */}
+      <View style={[styles.map, { backgroundColor: '#E8EDF3' }]}>
+        <WebView source={{ html: mapHtml }} style={{ flex: 1 }} />
       </View>
-      <View style={styles.card}>
-        <Text style={styles.title}>Roadside help tracking</Text>
-        <Text style={styles.subtitle}>{request.pickupAddress || request.location}</Text>
-        <Animated.View style={[styles.activePill, { transform: [{ scale: pulse }] }]}>
-          <Icon name="construct" size={16} color={colors.primary} />
-          <Text style={styles.activeText}>
-            {ROAD_STATUS_LABELS[request.status] ?? request.status.replaceAll('_', ' ')}
-          </Text>
-        </Animated.View>
-        {showMechanicContact ? (
-          <View style={styles.mechanicSection}>
-            <Text style={styles.mechanicLabel}>MECHANIC</Text>
-            <Text style={styles.mechanicName}>{mechanicName}</Text>
-            <Text style={styles.mechanicPhone}>{mechanicPhone || 'Phone number not on file'}</Text>
-            <View style={styles.actionsRow}>
-              <TouchableOpacity style={styles.iconBtn} onPress={openCall} activeOpacity={0.85}>
-                <Icon name="call" size={20} color={colors.primary} />
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.iconBtn} onPress={openChat} activeOpacity={0.85}>
-                <Icon name="chatbubble" size={20} color={colors.primary} />
-                <UnreadRedDot visible={hasUnreadRequestChat} />
-              </TouchableOpacity>
-            </View>
-          </View>
-        ) : null}
-        <View style={styles.timelineContainer}>
-          {ROADSIDE_FLOW.map((step, index) => {
-            const isDone = index <= activeIndex;
-            const isActive = index === activeIndex;
-            const showConnector = index < ROADSIDE_FLOW.length - 1;
-            return (
-              <View key={step} style={styles.timelineRow}>
-                <View style={styles.timelineRailWrap}>
-                  {showConnector ? (
-                    <View
-                      style={[
-                        styles.timelineConnector,
-                        index < activeIndex && styles.timelineConnectorDone,
-                      ]}
-                    />
-                  ) : null}
-                  <Animated.View
-                    style={[
-                      styles.timelineNodeOuter,
-                      isDone && styles.timelineNodeOuterDone,
-                      isActive ? { transform: [{ scale: pulse }] } : null,
-                    ]}
-                  >
-                    <View style={[styles.timelineNodeInner, isDone && styles.timelineNodeInnerDone]} />
-                  </Animated.View>
-                </View>
-                <View style={styles.timelineContent}>
-                  <Text style={[styles.timelineTitle, isDone && styles.timelineTitleDone]}>
-                    {ROAD_STATUS_LABELS[step]}
-                  </Text>
-                  <Text style={styles.timelineSubtitle}>
-                    {isActive ? 'Current step' : isDone ? 'Completed step' : 'Upcoming step'}
-                  </Text>
-                </View>
-              </View>
-            );
-          })}
-        </View>
+      <View style={styles.topBar}>
+        <TouchableOpacity
+          style={styles.backRound}
+          onPress={handleMinimize}
+          activeOpacity={0.85}
+          accessibilityRole="button"
+          accessibilityLabel="Back to home. Tracking continues in the background"
+        >
+          <Icon name="chevron-back" size={22} color={colors.text} />
+        </TouchableOpacity>
+      </View>
+      <View style={[styles.card, { paddingBottom: Math.max(insets.bottom, 16) + 8 }]}>
+        <View style={styles.grab} />
+        <TrackingPanel
+          request={request}
+          providerLocation={request.acceptedProviderLocation ?? lastKnownMechanicLocation}
+          onCall={openCall}
+          onChat={showMechanicContact ? openChat : undefined}
+          hasUnreadChat={hasUnreadRequestChat}
+          onCancel={ownerCanCancel ? confirmCancel : undefined}
+        />
       </View>
     </View>
   );

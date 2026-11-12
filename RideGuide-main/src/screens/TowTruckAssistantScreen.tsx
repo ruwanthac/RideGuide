@@ -26,6 +26,7 @@ import { Icon, PrimaryButton } from '../components';
 import { colors } from '../constants/theme';
 import { useResponsive } from '../hooks';
 import { extractApiError } from '../backend/apiClient';
+import { findNearbyMechanics } from '../backend/mechanicsService';
 import { createServiceRequest, getTowEstimate } from '../backend/serviceRequestsService';
 import { hasMapboxToken, reverseGeocodeMapbox, searchMapboxPlaces, type LocationSuggestion } from '../backend/mapboxService';
 import { useAuth } from '../context/AuthContext';
@@ -43,6 +44,7 @@ interface TowTruckAssistantScreenProps {
 }
 
 const MAPBOX_TOKEN = process.env.EXPO_PUBLIC_MAPBOX_ACCESS_TOKEN?.trim() ?? '';
+const ROADSIDE_PROBLEMS = ['Flat tyre', "Battery / won't start", 'Out of fuel', 'Overheating', 'Locked out', 'Something else'];
 const MAPBOX_TILE_URL = `https://api.mapbox.com/styles/v1/mapbox/streets-v12/tiles/{z}/{x}/{y}?access_token=${MAPBOX_TOKEN}`;
 const MAPBOX_ATTRIBUTION = '© Mapbox © OpenStreetMap contributors';
 const RECENT_DROP_STORAGE_KEY = 'tow_recent_drop_locations_v1';
@@ -62,6 +64,10 @@ export const TowTruckAssistantScreen: React.FC<TowTruckAssistantScreenProps> = (
   const { user } = useAuth();
   const { selectedVehicle } = useVehicles();
   const [tripType, setTripType] = useState<TripType>(initialTripType ?? 'tow');
+  /** Shown to the mechanic as the request's issue, e.g. "Roadside help: Flat tyre" */
+  const [roadsideProblem, setRoadsideProblem] = useState<string | null>(null);
+  /** How many providers of the selected kind are nearby (shown on the map) */
+  const [nearbyCount, setNearbyCount] = useState<number | null>(null);
   const bookingIdempotencyKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
@@ -123,6 +129,24 @@ export const TowTruckAssistantScreen: React.FC<TowTruckAssistantScreenProps> = (
   const sheetTranslateY = useRef(new Animated.Value(0)).current;
   const sheetStartY = useRef(0);
   const isSheetCollapsedRef = useRef(false);
+
+  useEffect(() => {
+    if (!location) return;
+    let alive = true;
+    setNearbyCount(null);
+    findNearbyMechanics({
+      lat: location.latitude,
+      lng: location.longitude,
+      role: tripType === 'tow' ? 'tow' : 'mechanic',
+    })
+      .then((list) => {
+        if (alive) setNearbyCount(Array.isArray(list) ? list.length : null);
+      })
+      .catch(() => undefined);
+    return () => {
+      alive = false;
+    };
+  }, [location?.latitude, location?.longitude, tripType]);
 
   const validateScheduledDate = (value: Date | null): string | null => {
     if (!value || Number.isNaN(value.getTime())) return 'Please pick a valid date and time.';
@@ -939,7 +963,12 @@ export const TowTruckAssistantScreen: React.FC<TowTruckAssistantScreenProps> = (
           selectedVehicle.makeModel?.trim() ||
           selectedVehicle.label?.trim() ||
           'Vehicle',
-        issue: tripType === 'roadside' ? 'Roadside help requested' : 'Tow requested',
+        issue:
+          tripType === 'roadside'
+            ? roadsideProblem
+              ? `Roadside help: ${roadsideProblem}`
+              : 'Roadside help requested'
+            : 'Tow requested',
         location: pickupLocation || currentLocationAddress || dropLocation,
         latitude: pickupLatLng.latitude,
         longitude: pickupLatLng.longitude,
@@ -968,12 +997,6 @@ export const TowTruckAssistantScreen: React.FC<TowTruckAssistantScreenProps> = (
           longitude: dropLocationCoords.longitude,
         });
       }
-      Alert.alert(
-        'Booked',
-        tripType === 'roadside'
-          ? 'A mechanic will respond shortly.'
-          : 'A tow driver will respond shortly.'
-      );
       if (onBooked) onBooked(created._id, tripType);
       else onBack();
     } catch (e) {
@@ -986,6 +1009,68 @@ export const TowTruckAssistantScreen: React.FC<TowTruckAssistantScreenProps> = (
   const styles = useMemo(
     () =>
       StyleSheet.create({
+        nearbyPill: {
+          position: 'absolute',
+          alignSelf: 'center',
+          top: insets.top + 16,
+          backgroundColor: '#FFFFFF',
+          borderRadius: 999,
+          paddingHorizontal: 14,
+          paddingVertical: 8,
+          shadowColor: '#0F172A',
+          shadowOpacity: 0.15,
+          shadowRadius: 8,
+          shadowOffset: { width: 0, height: 2 },
+          elevation: 4,
+        },
+        nearbyPillText: { fontSize: 13, fontWeight: '700', color: '#0F172A' },
+        modeSwitch: { flexDirection: 'row', backgroundColor: '#F1F5F9', borderRadius: 14, padding: 4, gap: 4 },
+        modeOption: { flex: 1, height: 42, borderRadius: 11, alignItems: 'center', justifyContent: 'center' },
+        modeOptionOn: {
+          backgroundColor: '#FFFFFF',
+          shadowColor: '#0F172A',
+          shadowOpacity: 0.12,
+          shadowRadius: 3,
+          shadowOffset: { width: 0, height: 1 },
+          elevation: 2,
+        },
+        modeText: { fontSize: 14, fontWeight: '500', color: '#475569' },
+        modeTextOn: { fontWeight: '700', color: '#0F172A' },
+        routeCard: { borderWidth: 1, borderColor: '#E2E8F0', borderRadius: 16, paddingHorizontal: 14, paddingVertical: 4 },
+        routeRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingTop: 8 },
+        routeDivider: { borderTopWidth: 1, borderTopColor: '#E2E8F0', marginTop: 4 },
+        dotFrom: { width: 12, height: 12, borderRadius: 6, backgroundColor: colors.primary },
+        dotTo: { width: 12, height: 12, borderRadius: 3, backgroundColor: '#0F172A' },
+        routeLabel: { fontSize: 12, fontWeight: '600', color: '#64748B' },
+        routeInput: { fontSize: 15, fontWeight: '600', color: '#0F172A', paddingVertical: 6, minHeight: 36 },
+        routeAction: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
+        onMapLink: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 8, paddingLeft: 24, alignSelf: 'flex-start' },
+        onMapText: { fontSize: 13, fontWeight: '600', color: colors.primary },
+        blockTitle: { fontSize: 15, fontWeight: '700', color: '#0F172A', marginBottom: 10 },
+        chipsWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+        problemChip: { minHeight: 36, paddingHorizontal: 14, borderRadius: 18, borderWidth: 1.5, borderColor: '#CBD5E1', justifyContent: 'center' },
+        problemChipOn: { borderColor: colors.primary, backgroundColor: '#EFF6FF' },
+        problemChipText: { fontSize: 13, color: '#334155' },
+        problemChipTextOn: { color: '#1E3A8A', fontWeight: '600' },
+        whenRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+        whenSwitch: { flexDirection: 'row', backgroundColor: '#F1F5F9', borderRadius: 12, padding: 3, gap: 3, marginBottom: 10 },
+        whenOption: { paddingHorizontal: 16, height: 38, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
+        whenOptionOn: { backgroundColor: '#FFFFFF' },
+        whenText: { fontSize: 13, fontWeight: '500', color: '#475569' },
+        whenTextOn: { fontWeight: '700', color: '#0F172A' },
+        scheduleRow: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: '#F8FAFC', borderRadius: 14, padding: 14 },
+        scheduleRowText: { flex: 1, fontSize: 14, fontWeight: '600', color: '#0F172A' },
+        priceRow: {
+          flexDirection: 'row',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          backgroundColor: '#F8FAFC',
+          borderRadius: 14,
+          paddingHorizontal: 14,
+          paddingVertical: 12,
+        },
+        priceLabel: { fontSize: 13, color: '#64748B' },
+        priceValue: { fontSize: 18, fontWeight: '800', color: '#0F172A' },
         container: { flex: 1, backgroundColor: colors.background },
         mapContainer: {
           height: '75%',
@@ -1429,14 +1514,26 @@ export const TowTruckAssistantScreen: React.FC<TowTruckAssistantScreenProps> = (
         </View>
       )}
 
-      <TouchableOpacity style={styles.backButton} onPress={onBack} activeOpacity={0.7}>
-        <Icon name="close" size={iconSizes.md} color={colors.text} />
+      <TouchableOpacity
+        style={styles.backButton}
+        onPress={onBack}
+        activeOpacity={0.7}
+        accessibilityRole="button"
+        accessibilityLabel="Back"
+      >
+        <Icon name="chevron-back" size={iconSizes.md} color={colors.text} />
       </TouchableOpacity>
+      {nearbyCount != null && nearbyCount > 0 ? (
+        <View style={styles.nearbyPill} pointerEvents="none">
+          <Text style={styles.nearbyPillText}>
+            {nearbyCount} {tripType === 'tow' ? (nearbyCount === 1 ? 'tow truck' : 'tow trucks') : nearbyCount === 1 ? 'mechanic' : 'mechanics'} nearby
+          </Text>
+        </View>
+      ) : null}
 
       <Animated.View style={styles.bottomOverlay}>
         <View style={styles.bottomSheetHandleArea} {...sheetPanResponder.panHandlers}>
           <View style={styles.bottomSheetHandle} />
-          <Text style={styles.bottomSheetGrabHint}>Drag up/down to show map or details</Text>
         </View>
         <KeyboardAvoidingView
           style={{ flex: 1 }}
@@ -1446,7 +1543,7 @@ export const TowTruckAssistantScreen: React.FC<TowTruckAssistantScreenProps> = (
         <ScrollView
           ref={scrollViewRef}
           style={{ flex: 1 }}
-          contentContainerStyle={styles.bottomOverlayContent}
+          contentContainerStyle={[styles.bottomOverlayContent, { gap: 16 }]}
           contentInset={{ bottom: tabBarHeight }}
           scrollIndicatorInsets={{ bottom: tabBarHeight }}
           showsVerticalScrollIndicator={true}
@@ -1456,335 +1553,270 @@ export const TowTruckAssistantScreen: React.FC<TowTruckAssistantScreenProps> = (
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="on-drag"
         >
-          <View style={styles.tripTypeContainer}>
-          <TouchableOpacity
-            style={[
-              styles.tripTypeOption,
-              tripType === 'tow' && styles.tripTypeOptionSelected,
-            ]}
-            onPress={() => setTripType('tow')}
-            activeOpacity={0.7}
-          >
-            <View
-              style={{
-                width: scale(20),
-                height: scale(20),
-                borderRadius: scale(10),
-                borderWidth: 2,
-                borderColor: tripType === 'tow' ? colors.primary : colors.border,
-                alignItems: 'center',
-                justifyContent: 'center',
-                marginRight: spacing.xs,
-              }}
-            >
-              {tripType === 'tow' && (
-                <View
-                  style={{
-                    width: scale(10),
-                    height: scale(10),
-                    borderRadius: scale(5),
-                    backgroundColor: colors.primary,
-                  }}
-                />
-              )}
-            </View>
-            <Text
-              style={[
-                styles.tripTypeText,
-                tripType === 'tow' && styles.tripTypeTextSelected,
-              ]}
-            >
-              Tow Truck
-            </Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[
-              styles.tripTypeOption,
-              tripType === 'roadside' && styles.tripTypeOptionSelected,
-            ]}
-            onPress={() => setTripType('roadside')}
-            activeOpacity={0.7}
-          >
-            <View
-              style={{
-                width: scale(20),
-                height: scale(20),
-                borderRadius: scale(10),
-                borderWidth: 2,
-                borderColor: tripType === 'roadside' ? colors.primary : colors.border,
-                alignItems: 'center',
-                justifyContent: 'center',
-                marginRight: spacing.xs,
-              }}
-            >
-              {tripType === 'roadside' && (
-                <View
-                  style={{
-                    width: scale(10),
-                    height: scale(10),
-                    borderRadius: scale(5),
-                    backgroundColor: colors.primary,
-                  }}
-                />
-              )}
-            </View>
-            <Text
-              style={[
-                styles.tripTypeText,
-                tripType === 'roadside' && styles.tripTypeTextSelected,
-              ]}
-            >
-              Roadside Help
-            </Text>
-          </TouchableOpacity>
-        </View>
-        {tripType === 'tow' && (
-          <>
-            <View style={styles.bookingTypeContainer}>
-              <TouchableOpacity
-                style={[styles.bookingChip, bookingType === 'on_demand' && styles.bookingChipActive]}
-                onPress={() => {
-                  setBookingType('on_demand');
-                  setScheduledAt(null);
-                  setScheduleError(null);
-                }}
-                activeOpacity={0.8}
-              >
-                <Icon
-                  name="flash"
-                  size={iconSizes.sm}
-                  color={bookingType === 'on_demand' ? colors.primary : colors.textSecondary}
-                />
-                <Text style={[styles.bookingChipText, bookingType === 'on_demand' && styles.bookingChipTextActive]}>
-                  On-demand
-                </Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.bookingChip, bookingType === 'scheduled' && styles.bookingChipActive]}
-                onPress={() => {
-                  setBookingType('scheduled');
-                  const next = new Date(Date.now() + MIN_SCHEDULE_MINUTES * 60 * 1000);
-                  setScheduledAt(next.toISOString());
-                  setScheduleError(null);
-                }}
-                activeOpacity={0.8}
-              >
-                <Icon
-                  name="time"
-                  size={iconSizes.sm}
-                  color={bookingType === 'scheduled' ? colors.primary : colors.textSecondary}
-                />
-                <Text style={[styles.bookingChipText, bookingType === 'scheduled' && styles.bookingChipTextActive]}>
-                  Scheduled
-                </Text>
-              </TouchableOpacity>
-            </View>
-            {bookingType === 'scheduled' && (
-              <View style={styles.scheduleCard}>
-                <TouchableOpacity style={styles.scheduleAction} onPress={openSchedulePicker} activeOpacity={0.8}>
-                  <Icon name="calendar" size={iconSizes.sm} color={colors.primary} />
-                  <Text style={styles.scheduleActionText}>Pick date & time</Text>
-                </TouchableOpacity>
-                <Text style={styles.scheduleValue}>{scheduledDisplay}</Text>
-                {!!scheduleError && <Text style={styles.scheduleError}>{scheduleError}</Text>}
-              </View>
-            )}
-            {showTowEstimateCard && (
-              <View style={styles.estimateCard}>
-                <Text style={styles.sectionTitle}>Estimated hire amount</Text>
-                <Text style={styles.mapText}>
-                  {estimating
-                    ? 'Calculating estimate...'
-                    : estimate
-                    ? formatCurrencyAmount(estimate.currency, estimate.estimatedAmount)
-                    : 'Unable to calculate estimate right now.'}
-                </Text>
-              </View>
-            )}
-          </>
-        )}
-
-        <View style={styles.locationField}>
-          <Text style={[styles.locationLabel, styles.pickupLabel]}>
-            {tripType === 'roadside' ? 'Current Location' : 'PICKUP'}
-          </Text>
-          <View style={styles.locationInputContainer}>
-            <TextInput
-              style={styles.locationInput}
-              placeholder={loadingLocation ? 'Fetching location...' : 'Enter pickup location'}
-              placeholderTextColor={colors.textSecondary}
-              value={pickupLocation}
-              onChangeText={handlePickupSearch}
-              onFocus={() => {
-                if (pickupLocation.trim().length > 0) {
-                  setShowPickupSearchResults(true);
-                }
-              }}
-              editable
-            />
-            <TouchableOpacity
-              style={styles.locationActionButton}
-              activeOpacity={0.7}
-              onPress={() => {
-                setPickupManuallyEdited(false);
-                void resolveCurrentLocation();
-              }}
-            >
-              <Icon
-                name="locate"
-                size={iconSizes.sm}
-                color={colors.primary}
-              />
-            </TouchableOpacity>
-          </View>
-          {showPickupSearchResults && pickupQuery.length > 0 && (
-            <View style={styles.searchResultsContainer}>
-              {pickupSearchResults.slice(0, 3).map((loc) => (
+          <View style={styles.modeSwitch} accessibilityRole="radiogroup">
+            {(
+              [
+                { id: 'roadside', label: 'Roadside help' },
+                { id: 'tow', label: 'Tow truck' },
+              ] as const
+            ).map((m) => {
+              const on = tripType === m.id;
+              return (
                 <TouchableOpacity
-                  key={`pickup-${loc.id}`}
-                  style={styles.searchResultItem}
-                  onPress={() => handleSelectPickupLocation(loc)}
-                  activeOpacity={0.7}
+                  key={m.id}
+                  style={[styles.modeOption, on && styles.modeOptionOn]}
+                  onPress={() => setTripType(m.id)}
+                  activeOpacity={0.8}
+                  accessibilityRole="radio"
+                  accessibilityState={{ checked: on }}
                 >
-                  <Icon name="navigate" size={iconSizes.sm} color={colors.primary} style={{ marginRight: spacing.sm }} />
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.searchResultName}>{loc.name}</Text>
-                    <Text style={styles.searchResultAddress}>{loc.address}</Text>
-                  </View>
+                  <Text style={[styles.modeText, on && styles.modeTextOn]}>{m.label}</Text>
                 </TouchableOpacity>
-              ))}
-              {isSearchingPickupLocations && (
-                <View style={styles.searchResultItem}>
-                  <ActivityIndicator size="small" color={colors.primary} />
-                  <Text style={[styles.searchResultAddress, { marginLeft: spacing.sm }]}>Searching...</Text>
-                </View>
-              )}
-              {!isSearchingPickupLocations && pickupSearchResults.length === 0 && (
-                <View style={styles.searchResultItem}>
-                  <Text style={styles.searchResultAddress}>
-                    {hasMapboxToken ? 'No results found' : 'Set EXPO_PUBLIC_MAPBOX_ACCESS_TOKEN to search globally'}
-                  </Text>
-                </View>
-              )}
-            </View>
-          )}
-          <TouchableOpacity style={styles.mapPickButton} onPress={openPickupMapPicker} activeOpacity={0.8}>
-            <Icon name="location-outline" size={iconSizes.sm} color="#111111" />
-            <Text style={styles.mapPickButtonText}>
-              {tripType === 'roadside' ? 'Set current location on map' : 'Set location on map'}
-            </Text>
-          </TouchableOpacity>
-          {tripType === 'roadside' && !location && (
-            <Text style={[styles.mapSubtext, { marginTop: spacing.xs }]}>
-              Location is required to confirm roadside help.
-            </Text>
-          )}
-        </View>
+              );
+            })}
+          </View>
 
-        {tripType === 'tow' && (
-          <View style={styles.locationField}>
-            <Text style={[styles.locationLabel, styles.dropLabel]}>DROP</Text>
-            <View style={styles.locationInputContainer}>
-              <TextInput
-                ref={dropInputRef}
-                style={styles.locationInput}
-                placeholder="Search location"
-                placeholderTextColor={colors.textSecondary}
-                value={dropLocation}
-                onChangeText={handleSearch}
-                onFocus={handleDropInputFocus}
-              />
+          <View style={styles.routeCard}>
+            <View style={styles.routeRow}>
+              <View style={styles.dotFrom} />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.routeLabel}>{tripType === 'roadside' ? 'Your location' : 'Pick up from'}</Text>
+                <TextInput
+                  style={styles.routeInput}
+                  placeholder={loadingLocation ? 'Finding your location…' : 'Search an address'}
+                  placeholderTextColor="#94A3B8"
+                  value={pickupLocation}
+                  onChangeText={handlePickupSearch}
+                  onFocus={() => {
+                    if (pickupLocation.trim().length > 0) setShowPickupSearchResults(true);
+                  }}
+                  accessibilityLabel={tripType === 'roadside' ? 'Your location' : 'Pick up from'}
+                />
+              </View>
+              <TouchableOpacity
+                style={styles.routeAction}
+                activeOpacity={0.7}
+                onPress={() => {
+                  setPickupManuallyEdited(false);
+                  void resolveCurrentLocation();
+                }}
+                accessibilityRole="button"
+                accessibilityLabel="Use my current location"
+              >
+                <Icon name="locate" size={20} color={colors.primary} />
+              </TouchableOpacity>
             </View>
-            {showSearchResults && searchQuery.length > 0 && (
+            {showPickupSearchResults && pickupQuery.length > 0 ? (
               <View style={styles.searchResultsContainer}>
-                {searchResults.slice(0, 3).map((loc) => (
+                {pickupSearchResults.slice(0, 3).map((loc) => (
                   <TouchableOpacity
-                    key={loc.id}
+                    key={`pickup-${loc.id}`}
                     style={styles.searchResultItem}
-                    onPress={() => handleSelectDropLocation(loc)}
+                    onPress={() => handleSelectPickupLocation(loc)}
                     activeOpacity={0.7}
                   >
-                    <Icon name="map" size={iconSizes.sm} color={colors.primary} style={{ marginRight: spacing.sm }} />
+                    <Icon name="navigate" size={iconSizes.sm} color={colors.primary} style={{ marginRight: spacing.sm }} />
                     <View style={{ flex: 1 }}>
                       <Text style={styles.searchResultName}>{loc.name}</Text>
                       <Text style={styles.searchResultAddress}>{loc.address}</Text>
                     </View>
                   </TouchableOpacity>
                 ))}
-                {isSearchingLocations && (
+                {isSearchingPickupLocations ? (
                   <View style={styles.searchResultItem}>
                     <ActivityIndicator size="small" color={colors.primary} />
-                    <Text style={[styles.searchResultAddress, { marginLeft: spacing.sm }]}>Searching...</Text>
+                    <Text style={[styles.searchResultAddress, { marginLeft: spacing.sm }]}>Searching…</Text>
                   </View>
-                )}
-                {!isSearchingLocations && searchResults.length === 0 && (
+                ) : pickupSearchResults.length === 0 ? (
                   <View style={styles.searchResultItem}>
-                    <Text style={styles.searchResultAddress}>
-                      {hasMapboxToken ? 'No results found' : 'Set EXPO_PUBLIC_MAPBOX_ACCESS_TOKEN to search globally'}
-                    </Text>
+                    <Text style={styles.searchResultAddress}>No places found. Try another search or set it on the map.</Text>
                   </View>
-                )}
+                ) : null}
               </View>
-            )}
-            <TouchableOpacity style={styles.mapPickButton} onPress={openDropMapPicker} activeOpacity={0.8}>
-              <Icon name="location-outline" size={iconSizes.sm} color="#111111" />
-              <Text style={styles.mapPickButtonText}>Set location on map</Text>
+            ) : null}
+            <TouchableOpacity style={styles.onMapLink} onPress={openPickupMapPicker} activeOpacity={0.7} accessibilityRole="button">
+              <Icon name="location-outline" size={16} color={colors.primary} />
+              <Text style={styles.onMapText}>Set on map</Text>
             </TouchableOpacity>
-          </View>
-        )}
 
-        {tripType === 'roadside' ? (
-          <>
-            <View style={styles.confirmButtonContainer}>
-              <PrimaryButton
-                title={submitting ? 'Booking…' : 'Confirm Roadside Help'}
-                onPress={handleConfirmBooking}
-                disabled={submitting}
-              />
-            </View>
-          </>
-        ) : (
-          <>
-            {visibleRecentDrops.length > 0 ? (
+            {tripType === 'tow' ? (
               <>
-                <Text style={styles.sectionTitle}>Recent drop-offs</Text>
-                <ScrollView
-                  horizontal
-                  showsHorizontalScrollIndicator={false}
-                  contentContainerStyle={styles.suggestedContainer}
-                  keyboardShouldPersistTaps="handled"
-                >
-                  {visibleRecentDrops.map((loc, index) => (
-                    <TouchableOpacity
-                      key={loc.id}
-                      style={[
-                        styles.suggestedCard,
-                        index === visibleRecentDrops.length - 1 && styles.suggestedCardLast,
-                      ]}
-                      activeOpacity={0.7}
-                      onPress={() => handleSelectDropLocation(loc)}
-                    >
-                      <Text style={styles.suggestedName} numberOfLines={1}>
-                        {loc.name}
-                      </Text>
-                      <Text style={styles.suggestedAddress} numberOfLines={1}>
-                        {loc.address}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-                </ScrollView>
+                <View style={[styles.routeRow, styles.routeDivider]}>
+                  <View style={styles.dotTo} />
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.routeLabel}>Tow to</Text>
+                    <TextInput
+                      ref={dropInputRef}
+                      style={styles.routeInput}
+                      placeholder="Search a garage or address"
+                      placeholderTextColor="#94A3B8"
+                      value={dropLocation}
+                      onChangeText={handleSearch}
+                      onFocus={handleDropInputFocus}
+                      accessibilityLabel="Tow to"
+                    />
+                  </View>
+                </View>
+                {showSearchResults && searchQuery.length > 0 ? (
+                  <View style={styles.searchResultsContainer}>
+                    {searchResults.slice(0, 3).map((loc) => (
+                      <TouchableOpacity
+                        key={loc.id}
+                        style={styles.searchResultItem}
+                        onPress={() => handleSelectDropLocation(loc)}
+                        activeOpacity={0.7}
+                      >
+                        <Icon name="map" size={iconSizes.sm} color={colors.primary} style={{ marginRight: spacing.sm }} />
+                        <View style={{ flex: 1 }}>
+                          <Text style={styles.searchResultName}>{loc.name}</Text>
+                          <Text style={styles.searchResultAddress}>{loc.address}</Text>
+                        </View>
+                      </TouchableOpacity>
+                    ))}
+                    {isSearchingLocations ? (
+                      <View style={styles.searchResultItem}>
+                        <ActivityIndicator size="small" color={colors.primary} />
+                        <Text style={[styles.searchResultAddress, { marginLeft: spacing.sm }]}>Searching…</Text>
+                      </View>
+                    ) : searchResults.length === 0 ? (
+                      <View style={styles.searchResultItem}>
+                        <Text style={styles.searchResultAddress}>No places found. Try another search or set it on the map.</Text>
+                      </View>
+                    ) : null}
+                  </View>
+                ) : null}
+                <TouchableOpacity style={styles.onMapLink} onPress={openDropMapPicker} activeOpacity={0.7} accessibilityRole="button">
+                  <Icon name="location-outline" size={16} color={colors.primary} />
+                  <Text style={styles.onMapText}>Set on map</Text>
+                </TouchableOpacity>
               </>
             ) : null}
-            <View style={styles.confirmButtonContainer}>
-              <PrimaryButton
-                title={submitting ? 'Booking…' : 'Confirm Tow Truck Hire'}
-                onPress={handleConfirmBooking}
-                disabled={!dropLocation.trim() || submitting}
-              />
+          </View>
+
+          {tripType === 'roadside' ? (
+            <View>
+              <Text style={styles.blockTitle}>What's wrong?</Text>
+              <View style={styles.chipsWrap}>
+                {ROADSIDE_PROBLEMS.map((p) => {
+                  const on = roadsideProblem === p;
+                  return (
+                    <TouchableOpacity
+                      key={p}
+                      style={[styles.problemChip, on && styles.problemChipOn]}
+                      onPress={() => setRoadsideProblem(on ? null : p)}
+                      activeOpacity={0.8}
+                      accessibilityRole="radio"
+                      accessibilityState={{ checked: on }}
+                    >
+                      <Text style={[styles.problemChipText, on && styles.problemChipTextOn]}>{p}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
             </View>
-          </>
-        )}
+          ) : (
+            <>
+              {visibleRecentDrops.length > 0 && !dropLocation.trim() ? (
+                <View>
+                  <Text style={styles.blockTitle}>Recent drop-offs</Text>
+                  <ScrollView
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    contentContainerStyle={styles.suggestedContainer}
+                    keyboardShouldPersistTaps="handled"
+                  >
+                    {visibleRecentDrops.map((loc, index) => (
+                      <TouchableOpacity
+                        key={loc.id}
+                        style={[styles.suggestedCard, index === visibleRecentDrops.length - 1 && styles.suggestedCardLast]}
+                        activeOpacity={0.7}
+                        onPress={() => handleSelectDropLocation(loc)}
+                      >
+                        <Text style={styles.suggestedName} numberOfLines={1}>
+                          {loc.name}
+                        </Text>
+                        <Text style={styles.suggestedAddress} numberOfLines={1}>
+                          {loc.address}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </ScrollView>
+                </View>
+              ) : null}
+
+              <View style={styles.whenRow}>
+                <Text style={styles.blockTitle}>When?</Text>
+                <View style={styles.whenSwitch}>
+                  {(
+                    [
+                      { id: 'on_demand', label: 'Now' },
+                      { id: 'scheduled', label: 'Schedule' },
+                    ] as const
+                  ).map((w) => {
+                    const on = bookingType === w.id;
+                    return (
+                      <TouchableOpacity
+                        key={w.id}
+                        style={[styles.whenOption, on && styles.whenOptionOn]}
+                        onPress={() => {
+                          setBookingType(w.id);
+                          setScheduleError(null);
+                          if (w.id === 'on_demand') setScheduledAt(null);
+                          else setScheduledAt(new Date(Date.now() + MIN_SCHEDULE_MINUTES * 60 * 1000).toISOString());
+                        }}
+                        activeOpacity={0.8}
+                        accessibilityRole="radio"
+                        accessibilityState={{ checked: on }}
+                      >
+                        <Text style={[styles.whenText, on && styles.whenTextOn]}>{w.label}</Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              </View>
+              {bookingType === 'scheduled' ? (
+                <TouchableOpacity style={styles.scheduleRow} onPress={openSchedulePicker} activeOpacity={0.8} accessibilityRole="button">
+                  <Icon name="calendar" size={18} color={colors.primary} />
+                  <Text style={styles.scheduleRowText}>{scheduledDisplay}</Text>
+                  <Text style={styles.onMapText}>Change</Text>
+                </TouchableOpacity>
+              ) : null}
+              {!!scheduleError && <Text style={styles.scheduleError}>{scheduleError}</Text>}
+
+              {showTowEstimateCard ? (
+                <View style={styles.priceRow}>
+                  <Text style={styles.priceLabel}>Estimated price</Text>
+                  <Text style={styles.priceValue}>
+                    {estimating
+                      ? 'Calculating…'
+                      : estimate
+                      ? formatCurrencyAmount(estimate.currency, estimate.estimatedAmount)
+                      : 'Not available right now'}
+                  </Text>
+                </View>
+              ) : null}
+            </>
+          )}
+
+          {tripType === 'roadside' && !location && !loadingLocation ? (
+            <Text style={styles.mapSubtext}>Turn on location so the mechanic can find you.</Text>
+          ) : null}
+
+          <View style={styles.confirmButtonContainer}>
+            <PrimaryButton
+              title={
+                submitting
+                  ? 'Sending request…'
+                  : tripType === 'roadside'
+                  ? 'Request a mechanic'
+                  : bookingType === 'scheduled'
+                  ? 'Schedule tow truck'
+                  : 'Request tow truck'
+              }
+              onPress={handleConfirmBooking}
+              disabled={submitting || (tripType === 'tow' && !dropLocation.trim())}
+            />
+          </View>
         </ScrollView>
         </KeyboardAvoidingView>
       </Animated.View>
