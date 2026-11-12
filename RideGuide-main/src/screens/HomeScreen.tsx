@@ -12,7 +12,7 @@ import {
   Linking,
   Alert,
 } from 'react-native';
-import { Card, Icon, NewsAndTips, UnreadRedDot } from '../components';
+import { Card, Icon, NewsAndTips, OwnerHome, UnreadRedDot } from '../components';
 import { colors } from '../constants/theme';
 import type { IconName } from '../components';
 import { useResponsive } from '../hooks';
@@ -59,6 +59,8 @@ interface MenuItem {
 interface HomeScreenProps {
   onDiagnose: () => void;
   onTowTruckAssistant: () => void;
+  /** Opens the same booking screen with roadside help selected */
+  onRoadsideHelp?: () => void;
   onChatAssistant: () => void;
   onVideoCallPress?: () => void;
 }
@@ -83,6 +85,7 @@ const MENU_ITEMS: Omit<MenuItem, 'onPress'>[] = [
 export const HomeScreen: React.FC<HomeScreenProps> = ({
   onDiagnose,
   onTowTruckAssistant,
+  onRoadsideHelp,
   onChatAssistant,
   onVideoCallPress,
 }) => {
@@ -857,6 +860,22 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
     if (typeof req.estimatedAmount !== 'number') return null;
     return formatCurrencyAmount(req.currency, req.estimatedAmount);
   };
+
+  // Owners get the vehicle dashboard; mechanics and tow drivers keep their job-feed home below.
+  if (role === 'owner') {
+    return (
+      <OwnerHome
+        onDiagnose={recordAndAccess('diagnose', onDiagnose)}
+        onChatAssistant={recordAndAccess('chat', onChatAssistant)}
+        onRoadsideHelp={recordAndAccess('tow', onRoadsideHelp ?? onTowTruckAssistant)}
+        onTowTruck={recordAndAccess('tow', onTowTruckAssistant)}
+        onVideoCall={() => onVideoCallPress?.()}
+        refreshing={refreshing}
+        onRefresh={onRefresh}
+        refreshKey={requestReloadToken}
+      />
+    );
+  }
 
   return (
     <View style={styles.container}>

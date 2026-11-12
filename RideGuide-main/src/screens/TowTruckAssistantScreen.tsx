@@ -38,6 +38,8 @@ type TripType = 'tow' | 'roadside';
 interface TowTruckAssistantScreenProps {
   onBack: () => void;
   onBooked?: (requestId: string, type: TripType) => void;
+  /** Which service is selected when the screen opens (home has separate Roadside help and Tow truck buttons) */
+  initialTripType?: TripType;
 }
 
 const MAPBOX_TOKEN = process.env.EXPO_PUBLIC_MAPBOX_ACCESS_TOKEN?.trim() ?? '';
@@ -56,10 +58,10 @@ function usablePickupCoords(lat?: number | null, lng?: number | null): boolean {
   return Math.abs(lat) > 1e-4 || Math.abs(lng) > 1e-4;
 }
 
-export const TowTruckAssistantScreen: React.FC<TowTruckAssistantScreenProps> = ({ onBack, onBooked }) => {
+export const TowTruckAssistantScreen: React.FC<TowTruckAssistantScreenProps> = ({ onBack, onBooked, initialTripType }) => {
   const { user } = useAuth();
   const { selectedVehicle } = useVehicles();
-  const [tripType, setTripType] = useState<TripType>('tow');
+  const [tripType, setTripType] = useState<TripType>(initialTripType ?? 'tow');
   const bookingIdempotencyKeyRef = useRef<string | null>(null);
 
   useEffect(() => {

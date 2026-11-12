@@ -85,6 +85,7 @@ const HomeScreenWrapper = ({ navigation }: { navigation: any }) => (
   <HomeScreen
     onDiagnose={() => navigation.navigate('Diagnose')}
     onTowTruckAssistant={() => navigation.navigate('TowTruckAssistant')}
+    onRoadsideHelp={() => navigation.navigate('TowTruckAssistant', { tripType: 'roadside' })}
     onChatAssistant={() => navigation.navigate('ChatAssistant')}
     onVideoCallPress={() => navigation.navigate('VideoCall')}
   />
@@ -94,8 +95,9 @@ const DiagnoseScreenWrapper = ({ navigation }: { navigation: any }) => (
   <DiagnoseScreen onBack={() => navigation.goBack()} />
 );
 
-const TowTruckAssistantScreenWrapper = ({ navigation }: { navigation: any }) => (
+const TowTruckAssistantScreenWrapper = ({ navigation, route }: { navigation: any; route: any }) => (
   <TowTruckAssistantScreen
+    initialTripType={route.params?.tripType === 'roadside' ? 'roadside' : 'tow'}
     onBack={() => navigation.goBack()}
     onBooked={(requestId, type) =>
       navigation.replace(type === 'roadside' ? 'RoadsideOwnerTracking' : 'TowOwnerTracking', { requestId })

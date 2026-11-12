@@ -36,7 +36,12 @@ export type IconName =
   | 'volume-high'
   | 'volume-mute'
   | 'bulb'
-  | 'newspaper';
+  | 'newspaper'
+  | 'warning'
+  | 'checkmark-circle'
+  | 'pulse'
+  | 'help-buoy'
+  | 'notifications-outline';
 
 interface IconProps {
   name: IconName;
