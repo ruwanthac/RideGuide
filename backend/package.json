@@ -8,7 +8,8 @@
     "start": "node dist/server.js",
     "test": "jest --runInBand",
     "typecheck": "tsc --noEmit",
-    "ensure-dev-owner": "tsx scripts/ensure-dev-owner.ts"
+    "ensure-dev-owner": "tsx scripts/ensure-dev-owner.ts",
+    "ensure-dev-admin": "tsx scripts/ensure-dev-admin.ts"
   },
   "dependencies": {
     "@google/genai": "^1.50.1",
