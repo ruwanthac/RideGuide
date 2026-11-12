@@ -17,3 +17,4 @@ export { OwnerHome } from './OwnerHome';
 export { DiagnosisResult, diagnosisAsText, diagnosisSummary, SEVERITY_BANNER } from './DiagnosisResult';
 export { TrackingPanel } from './TrackingPanel';
 export { OwnerHistory } from './OwnerHistory';
+export { OwnerProfile } from './OwnerProfile';

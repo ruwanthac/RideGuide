@@ -8,7 +8,7 @@ import {
   TextInput,
   Alert,
 } from 'react-native';
-import { Card, PrimaryButton, Icon } from '../components';
+import { Card, PrimaryButton, Icon, OwnerProfile } from '../components';
 import { colors } from '../constants/theme';
 import { useResponsive } from '../hooks';
 import { OwnerDashboard } from '../components/dashboards/OwnerDashboard';
@@ -444,19 +444,16 @@ export const ProfileScreen: React.FC = () => {
     }
   };
 
+  // Owners get the account hub; mechanics and tow drivers keep their dashboard-style profile below.
+  if (userRole === 'owner') {
+    return <OwnerProfile />;
+  }
+
   return (
     <View style={styles.container}>
       <View style={styles.header}>
         <Text style={styles.title}>Profile</Text>
         <Text style={styles.subtitle}>Manage your account & vehicle</Text>
-        {userRole === 'owner' ? (
-          <View style={styles.headerUserBlock}>
-            <Text style={styles.headerUserName}>{userName}</Text>
-            <Text style={styles.headerSelectedVehicle} numberOfLines={2}>
-              {currentVehicleDisplay}
-            </Text>
-          </View>
-        ) : null}
       </View>
 
       <ScrollView
@@ -466,167 +463,10 @@ export const ProfileScreen: React.FC = () => {
       >
         {renderDashboard()}
 
-        {userRole === 'owner' && (
-          <Card style={styles.section} padded>
-            <Text style={styles.sectionTitle}>Vehicle Info</Text>
-            <Text style={[styles.currentProfileText, { marginBottom: spacing.sm }]}>
-              Up to {MAX_OWNER_VEHICLES} vehicles per account. Plate and manufacture year are required and shown to
-              support staff.
-            </Text>
-
-            <View style={styles.vehicleSwitcherRow}>
-              <View style={styles.vehicleChipsContainer}>
-                {vehicles.map((vehicle, index) => {
-                  const isActive = vehicle._id === resolvedSelectedVehicleId;
-                  const canDelete = vehicles.length > 1;
-                  const displayLabel = `Car ${index + 1}`;
-                  return (
-                    <View
-                      key={vehicle._id}
-                      style={[
-                        styles.vehicleChip,
-                        isActive && styles.vehicleChipActive,
-                      ]}
-                    >
-                      <TouchableOpacity
-                        onPress={() => {
-                          void setSelectedVehicleId(vehicle._id);
-                          if (isEditingVehicle) {
-                            setIsEditingVehicle(false);
-                          }
-                        }}
-                        activeOpacity={0.7}
-                        style={{ flexDirection: 'row', alignItems: 'center' }}
-                      >
-                        <Text
-                          style={[
-                            styles.vehicleChipText,
-                            isActive && styles.vehicleChipTextActive,
-                          ]}
-                        >
-                          {displayLabel}
-                        </Text>
-                      </TouchableOpacity>
-                      {canDelete && (
-                        <TouchableOpacity
-                          style={styles.vehicleChipDelete}
-                          onPress={() => handleDeleteVehicle(vehicle._id)}
-                          activeOpacity={0.7}
-                        >
-                          <Icon name="close" size={12} color={colors.error} />
-                        </TouchableOpacity>
-                      )}
-                    </View>
-                  );
-                })}
-              </View>
-              <TouchableOpacity
-                style={[
-                  styles.vehicleAddButton,
-                  vehicles.length >= MAX_OWNER_VEHICLES && styles.vehicleAddButtonDisabled,
-                ]}
-                onPress={handleAddVehicle}
-                activeOpacity={vehicles.length >= MAX_OWNER_VEHICLES ? 1 : 0.7}
-                disabled={vehicles.length >= MAX_OWNER_VEHICLES}
-              >
-                <Text style={styles.vehicleAddButtonText}>+ Add vehicle</Text>
-              </TouchableOpacity>
-            </View>
-
-            <View style={styles.infoRow}>
-              <Text style={styles.infoLabel}>Make & Model</Text>
-              {isEditingVehicle ? (
-                <TextInput
-                  style={styles.vehicleInput}
-                  value={editMakeModel}
-                  onChangeText={setEditMakeModel}
-                  placeholder="e.g. Toyota Camry 2020"
-                  placeholderTextColor={colors.textSecondary}
-                />
-              ) : (
-                <Text style={styles.infoValue}>
-                  {currentVehicle?.makeModel || 'Not set'}
-                </Text>
-              )}
-            </View>
-            <View style={styles.infoRow}>
-              <Text style={styles.infoLabel}>VIN</Text>
-              {isEditingVehicle ? (
-                <TextInput
-                  style={styles.vehicleInput}
-                  value={editVin}
-                  onChangeText={setEditVin}
-                  placeholder="e.g. 1HGBH41JXMN109186"
-                  placeholderTextColor={colors.textSecondary}
-                  autoCapitalize="characters"
-                />
-              ) : (
-                <Text style={styles.infoValue}>
-                  {currentVehicle?.vin || 'Not set'}
-                </Text>
-              )}
-            </View>
-            <View style={styles.infoRow}>
-              <Text style={styles.infoLabel}>Plate number</Text>
-              {isEditingVehicle ? (
-                <TextInput
-                  style={styles.vehicleInput}
-                  value={editPlate}
-                  onChangeText={(t) => setEditPlate(t.slice(0, 24))}
-                  placeholder="e.g. CAB-1234"
-                  placeholderTextColor={colors.textSecondary}
-                  autoCapitalize="characters"
-                />
-              ) : (
-                <Text style={styles.infoValue}>{currentVehicle?.plate?.trim() || 'Not set'}</Text>
-              )}
-            </View>
-            <View style={styles.infoRow}>
-              <Text style={styles.infoLabel}>Manufacture year</Text>
-              {isEditingVehicle ? (
-                <TextInput
-                  style={styles.vehicleInput}
-                  value={editYear}
-                  onChangeText={setEditYear}
-                  placeholder="e.g. 2020"
-                  placeholderTextColor={colors.textSecondary}
-                  keyboardType="number-pad"
-                  maxLength={4}
-                />
-              ) : (
-                <Text style={styles.infoValue}>
-                  {currentVehicle?.year != null ? String(currentVehicle.year) : 'Not set'}
-                </Text>
-              )}
-            </View>
-            {isEditingVehicle ? (
-              <View style={styles.saveVehicleButtonWrap}>
-                <PrimaryButton title="Save" onPress={handleSaveVehicle} />
-                <TouchableOpacity
-                  style={[styles.editButton, { marginTop: spacing.sm }]}
-                  onPress={cancelEditingVehicle}
-                  activeOpacity={0.7}
-                >
-                  <Text style={[styles.editButtonText, { color: colors.textSecondary }]}>
-                    Cancel
-                  </Text>
-                </TouchableOpacity>
-              </View>
-            ) : (
-              <TouchableOpacity
-                style={styles.editButton}
-                onPress={startEditingVehicle}
-                activeOpacity={0.7}
-              >
-                <Text style={styles.editButtonText}>Edit Vehicle</Text>
-              </TouchableOpacity>
-            )}
-          </Card>
-        )}
 
         <Card style={styles.section} padded>
         <Text style={styles.sectionTitle}>Settings</Text>
-        {(userRole === 'owner' || userRole === 'mechanic' || userRole === 'tow') && (
+        {(userRole === 'mechanic' || userRole === 'tow') && (
           <TouchableOpacity
             style={styles.menuItem}
             onPress={() => navigation.navigate('ProfileNotifications' as never)}

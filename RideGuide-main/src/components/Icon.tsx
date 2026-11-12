@@ -48,7 +48,8 @@ export type IconName =
   | 'chevron-down'
   | 'add'
   | 'arrow-up'
-  | 'search';
+  | 'search'
+  | 'lock-closed';
 
 interface IconProps {
   name: IconName;
