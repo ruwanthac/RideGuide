@@ -9,6 +9,8 @@ const diagnosisSchema = z.object({
   severity: z.enum(['minor', 'moderate', 'critical']),
   steps: z.array(z.string()).min(1).max(10),
   diagnosis: z.string().min(1),
+  /** 1-2 plain sentences for the owner: what's wrong and how urgent. Optional so older replies still parse. */
+  summary: z.string().min(1).max(400).optional(),
   disclaimer: z.string().min(1),
 });
 
@@ -55,7 +57,10 @@ an OBD code with no symptoms ARE relevant. When relevant is false, return only {
 
 Step 2 - when relevant is true, also return:
 likelyCauses: string[] (1-4), severity: 'minor'|'moderate'|'critical', steps: string[] (3-7 non-technical inspection/repair steps),
-diagnosis: one-paragraph plain-English summary, disclaimer: short safety note. Do not invent part numbers.`;
+diagnosis: one-paragraph plain-English explanation,
+summary: what is wrong and what to do now, for the car owner, in at most 25 words and 2 short sentences, no jargon
+(e.g. "Cylinder 1 is misfiring. A flashing check engine light can damage the catalytic converter, so avoid long drives."),
+disclaimer: short safety note. Do not invent part numbers.`;
 
 const CHAT_SYSTEM = `You are a vehicle-support assistant. Keep replies concise, practical, and appropriate for voice when relevant.
 Only discuss vehicle diagnosis, maintenance, and roadside advice. If off-topic, politely redirect in the user's language.

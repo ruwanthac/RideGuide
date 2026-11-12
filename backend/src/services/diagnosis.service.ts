@@ -74,6 +74,7 @@ export async function runDiagnosis(userId: string, input: RunDiagnosisInput) {
     symptoms,
     obdCode,
     diagnosis: ai.diagnosis,
+    summary: ai.summary ?? null,
     severity: ai.severity,
     likelyCauses: ai.likelyCauses,
     steps: ai.steps,

@@ -11,6 +11,8 @@ const DiagnosisHistorySchema = new Schema(
     symptoms: { type: String, default: '' },
     obdCode: { type: String, default: '' },
     diagnosis: { type: String, required: true },
+    /** Short owner-facing summary (newer diagnoses only) */
+    summary: { type: String, default: null },
     severity: { type: String, enum: ['minor', 'moderate', 'critical'], required: true },
     likelyCauses: { type: [String], default: [] },
     steps: { type: [String], default: [] },

@@ -27,6 +27,7 @@ const validDiagnosis = {
   severity: 'minor',
   steps: ['Inspect the belt', 'Check tension', 'Replace if cracked'],
   diagnosis: 'Likely a worn serpentine belt.',
+  summary: 'Your drive belt is probably worn. Get it replaced soon.',
   disclaimer: 'See a mechanic if unsure.',
 };
 
@@ -89,6 +90,7 @@ describe('diagnosis relevance', () => {
       .send({ symptoms: 'squeal on cold start', obdCode: 'p0171, P0174', vehicleMakeModel: 'Toyota Axio', vehicleVin: 'NZE141-1234567' });
     expect(res.status).toBe(201);
     expect(res.body.obdCode).toBe('P0171, P0174');
+    expect(res.body.summary).toBe('Your drive belt is probably worn. Get it replaced soon.');
     expect(await DiagnosisHistoryModel.countDocuments()).toBe(1);
   });
 });

@@ -58,6 +58,8 @@ export interface DiagnosisEntry {
   symptoms: string;
   obdCode: string;
   diagnosis: string;
+  /** Short owner-facing summary; absent on older diagnoses */
+  summary?: string | null;
   severity: 'minor' | 'moderate' | 'critical';
   likelyCauses: string[];
   steps: string[];

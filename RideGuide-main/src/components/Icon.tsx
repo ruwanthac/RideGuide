@@ -41,7 +41,11 @@ export type IconName =
   | 'checkmark-circle'
   | 'pulse'
   | 'help-buoy'
-  | 'notifications-outline';
+  | 'notifications-outline'
+  | 'share-outline'
+  | 'checkmark'
+  | 'chevron-up'
+  | 'chevron-down';
 
 interface IconProps {
   name: IconName;
