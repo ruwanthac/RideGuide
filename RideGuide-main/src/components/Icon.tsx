@@ -47,7 +47,8 @@ export type IconName =
   | 'chevron-up'
   | 'chevron-down'
   | 'add'
-  | 'arrow-up';
+  | 'arrow-up'
+  | 'search';
 
 interface IconProps {
   name: IconName;

@@ -2,7 +2,7 @@ import React, { useMemo } from 'react';
 import { View, Text, StyleSheet, ScrollView } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { Card } from '../components';
+import { Card, OwnerHistory } from '../components';
 import { colors } from '../constants/theme';
 import { useResponsive } from '../hooks';
 import { useUserRole } from '../context/UserRoleContext';
@@ -63,37 +63,9 @@ export const HistoryScreen: React.FC<HistoryScreenProps> = () => {
       ? `${carLabel} · Tow, roadside, and saved diagnoses`
       : 'Your previous vehicle diagnoses';
 
+  // Owners get one dated timeline; mechanics and tow drivers keep their history hub below.
   if (role === 'owner') {
-    return (
-      <View style={styles.container}>
-        <View style={styles.header}>
-          <Text style={styles.title}>{title}</Text>
-          <Text style={styles.subtitle}>{subtitle}</Text>
-        </View>
-        <ScrollView contentContainerStyle={styles.hubScroll} showsVerticalScrollIndicator={false}>
-          <Card
-            style={styles.hubCard}
-            padded
-            onPress={() => navigation.navigate('VehicleRecordsHistory')}
-          >
-            <Text style={styles.hubTitle}>Vehicle records history</Text>
-            <Text style={styles.hubDesc}>
-              Tow truck bookings and roadside help requests for your account.
-            </Text>
-          </Card>
-          <Card
-            style={styles.hubCard}
-            padded
-            onPress={() => navigation.navigate('ObdDiagnoseHistory')}
-          >
-            <Text style={styles.hubTitle}>OBD diagnose history</Text>
-            <Text style={styles.hubDesc}>
-              Saved diagnoses including symptoms and OBD codes from Home.
-            </Text>
-          </Card>
-        </ScrollView>
-      </View>
-    );
+    return <OwnerHistory />;
   }
 
   if (role === 'tow') {
