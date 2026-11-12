@@ -2,6 +2,7 @@ import request from 'supertest';
 import { buildApp } from '../../src/app';
 import { registerUser } from '../../src/services/auth.service';
 import { startInMemoryMongo, stopInMemoryMongo, clearDb } from '../helpers/mongo';
+import { ServiceRequestModel } from '../../src/models/ServiceRequest';
 
 beforeAll(startInMemoryMongo);
 afterAll(stopInMemoryMongo);
@@ -22,6 +23,30 @@ describe('admin', () => {
     expect(res.status).toBe(200);
     expect(res.body).toHaveProperty('userCount');
     expect(res.body).toHaveProperty('requestsToday');
+  });
+
+  it('stats include waiting work and analytics split requests per day by type', async () => {
+    const app = buildApp();
+    const { token } = await registerUser({ email: 'a2@b.com', password: 'secret12', displayName: 'A2', role: 'admin' });
+    const owner = await registerUser({ email: 'own@b.com', password: 'secret12', displayName: 'Owner' });
+    const base = { requesterId: owner.user._id, userName: 'Owner', vehicle: 'Car', issue: 'Flat tyre', location: 'X', latitude: 6.9, longitude: 79.8, phoneNumber: '+94770000000' };
+    await ServiceRequestModel.create({ ...base, type: 'roadside', status: 'pending' });
+    await ServiceRequestModel.create({ ...base, type: 'tow', status: 'requested' });
+    await ServiceRequestModel.create({ ...base, type: 'roadside', status: 'completed' });
+
+    const stats = await request(app).get('/api/admin/stats').set('Authorization', `Bearer ${token}`);
+    expect(stats.status).toBe(200);
+    expect(stats.body.waitingRequests).toBe(2);
+    expect(stats.body.oldestWaitingRequest).toMatchObject({ userName: 'Owner' });
+    expect(stats.body.pendingApplications).toBe(0);
+    expect(stats.body.oldestPendingApplication).toBeNull();
+    expect(stats.body.newUsersThisWeek).toBe(2);
+    expect(stats.body).toHaveProperty('requestsYesterday', 0);
+
+    const analytics = await request(app).get('/api/admin/analytics?days=7').set('Authorization', `Bearer ${token}`);
+    expect(analytics.status).toBe(200);
+    expect(analytics.body.requestsPerDayByType).toHaveLength(1);
+    expect(analytics.body.requestsPerDayByType[0]).toMatchObject({ roadside: 2, tow: 1 });
   });
 
   it('admin users list is paginated', async () => {

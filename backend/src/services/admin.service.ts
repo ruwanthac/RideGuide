@@ -54,6 +54,12 @@ export async function recordAudit(params: {
 export async function getStats() {
   const startOfDay = new Date();
   startOfDay.setHours(0, 0, 0, 0);
+  const startOfYesterday = new Date(startOfDay);
+  startOfYesterday.setDate(startOfYesterday.getDate() - 1);
+  const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+  /** Open jobs nobody has taken yet: roadside starts at `pending`, tow at `requested`. */
+  const waitingFilter = { status: { $in: ['pending', 'requested'] }, acceptedBy: null };
+  const pendingApplicationFilter = { role: { $in: ['mechanic', 'tow'] }, providerVerificationStatus: 'pending' };
   const [
     userCount,
     vehicleCount,
@@ -62,6 +68,12 @@ export async function getStats() {
     requestsToday,
     activeMechanics,
     activeTowDrivers,
+    requestsYesterday,
+    newUsersThisWeek,
+    waitingRequests,
+    oldestWaiting,
+    pendingApplications,
+    oldestApplication,
   ] = await Promise.all([
     UserModel.countDocuments(),
     VehicleModel.countDocuments(),
@@ -70,7 +82,20 @@ export async function getStats() {
     ServiceRequestModel.countDocuments({ createdAt: { $gte: startOfDay } }),
     UserModel.countDocuments({ role: 'mechanic', mechanicAvailable: true }),
     UserModel.countDocuments({ role: 'tow', towAvailable: true }),
+    ServiceRequestModel.countDocuments({ createdAt: { $gte: startOfYesterday, $lt: startOfDay } }),
+    UserModel.countDocuments({ createdAt: { $gte: weekAgo } }),
+    ServiceRequestModel.countDocuments(waitingFilter),
+    ServiceRequestModel.findOne(waitingFilter).sort({ createdAt: 1 }).select('userName type issue createdAt').lean(),
+    UserModel.countDocuments(pendingApplicationFilter),
+    UserModel.findOne(pendingApplicationFilter)
+      .sort({ providerVerificationSubmittedAt: 1, createdAt: 1 })
+      .select('displayName providerVerificationSubmittedAt createdAt')
+      .lean(),
   ]);
+  const oldestApp = oldestApplication as
+    | { displayName?: string; providerVerificationSubmittedAt?: Date; createdAt?: Date }
+    | null;
+  const oldestReq = oldestWaiting as { userName?: string; type?: string; issue?: string; createdAt?: Date } | null;
   return {
     userCount,
     vehicleCount,
@@ -79,6 +104,19 @@ export async function getStats() {
     requestsToday,
     activeMechanics,
     activeTowDrivers,
+    requestsYesterday,
+    newUsersThisWeek,
+    waitingRequests,
+    oldestWaitingRequest: oldestReq
+      ? { userName: oldestReq.userName ?? '', type: oldestReq.type ?? '', issue: oldestReq.issue ?? '', createdAt: oldestReq.createdAt }
+      : null,
+    pendingApplications,
+    oldestPendingApplication: oldestApp
+      ? {
+          displayName: oldestApp.displayName ?? '',
+          submittedAt: oldestApp.providerVerificationSubmittedAt ?? oldestApp.createdAt,
+        }
+      : null,
   };
 }
 
@@ -524,7 +562,7 @@ export async function getAnalytics(query: Record<string, unknown>) {
   since.setDate(since.getDate() - days);
   since.setHours(0, 0, 0, 0);
 
-  const [byType, byStatus, dailySeries, completedInRange, diagnosisCount, acceptanceAgg] = await Promise.all([
+  const [byType, byStatus, dailySeries, completedInRange, diagnosisCount, acceptanceAgg, dailyByType] = await Promise.all([
     ServiceRequestModel.aggregate([
       { $match: { createdAt: { $gte: since } } },
       { $group: { _id: '$type', count: { $sum: 1 } } },
@@ -571,7 +609,23 @@ export async function getAnalytics(query: Record<string, unknown>) {
         },
       },
     ]),
+    ServiceRequestModel.aggregate([
+      { $match: { createdAt: { $gte: since } } },
+      {
+        $group: {
+          _id: { date: { $dateToString: { format: '%Y-%m-%d', date: '$createdAt' } }, type: '$type' },
+          count: { $sum: 1 },
+        },
+      },
+    ]),
   ]);
+  const perDayByType = new Map<string, { date: string; roadside: number; tow: number }>();
+  for (const r of dailyByType as { _id: { date: string; type: string }; count: number }[]) {
+    const row = perDayByType.get(r._id.date) ?? { date: r._id.date, roadside: 0, tow: 0 };
+    if (r._id.type === 'roadside') row.roadside += r.count;
+    else if (r._id.type === 'tow') row.tow += r.count;
+    perDayByType.set(r._id.date, row);
+  }
   const acceptanceByType = new Map<string, { avgAcceptMs: number; sampleCount: number }>();
   for (const r of acceptanceAgg) {
     acceptanceByType.set(String(r._id), {
@@ -587,6 +641,7 @@ export async function getAnalytics(query: Record<string, unknown>) {
     requestsByType: byType.map((r) => ({ type: r._id, count: r.count })),
     requestsByStatus: byStatus.map((r) => ({ status: r._id, count: r.count })),
     requestsPerDay: dailySeries.map((r) => ({ date: r._id, count: r.count })),
+    requestsPerDayByType: [...perDayByType.values()].sort((a, b) => a.date.localeCompare(b.date)),
     completedRequestsInRange: completedInRange,
     diagnosesInRange: diagnosisCount,
     acceptanceTimeAvgMinutes: {

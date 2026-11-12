@@ -9,7 +9,7 @@ import { UserModel } from '../src/models/User';
 
 const email = (process.env.DEV_ADMIN_EMAIL ?? 'admin@rideguide.test').toLowerCase().trim();
 const password = process.env.DEV_ADMIN_PASSWORD;
-const displayName = (process.env.DEV_ADMIN_DISPLAY_NAME ?? 'RideGuide Admin').trim() || 'RideGuide Admin';
+const displayName = (process.env.DEV_ADMIN_DISPLAY_NAME ?? 'Admin').trim() || 'Admin';
 
 async function main() {
   if (!password || password.length < 8) {
