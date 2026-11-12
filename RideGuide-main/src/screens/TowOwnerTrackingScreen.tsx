@@ -14,7 +14,7 @@ import {
   Linking,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { WebView } from 'react-native-webview';
+import { HtmlMap } from '../components/HtmlMap';
 import { Icon, TrackingPanel } from '../components';
 import { colors } from '../constants/theme';
 import { useResponsive } from '../hooks';
@@ -281,7 +281,7 @@ export const TowOwnerTrackingScreen: React.FC<TowOwnerTrackingScreenProps> = ({
         if (showDropFlag) points.push([dropLat, dropLng]);
         if (canRenderDriver) points.push([driverLat, driverLng]);
         if (points.length === 0) points.push([ownerLat, ownerLng]);
-        const map=L.map('map');
+        const map=L.map('map',{zoomControl:false});
         if (points.length === 1) {
           map.setView(points[0], 15);
         } else {
@@ -661,13 +661,9 @@ export const TowOwnerTrackingScreen: React.FC<TowOwnerTrackingScreenProps> = ({
   };
   return (
     <View style={styles.container}>
-      <WebView
-        source={{ html: mapHtml }}
-        style={styles.map}
-        scrollEnabled={false}
-        scalesPageToFit={false}
-        androidLayerType="hardware"
-      />
+      <View style={styles.map}>
+        <HtmlMap html={mapHtml} />
+      </View>
       <View style={styles.topBar}>
         <TouchableOpacity
           style={styles.backRound}

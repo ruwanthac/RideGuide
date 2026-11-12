@@ -12,7 +12,7 @@ import {
   Alert,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { WebView } from 'react-native-webview';
+import { HtmlMap } from '../components/HtmlMap';
 import { Icon, TrackingPanel } from '../components';
 import { colors } from '../constants/theme';
 import { useResponsive } from '../hooks';
@@ -317,7 +317,7 @@ export const RoadsideOwnerTrackingScreen: React.FC<RoadsideOwnerTrackingScreenPr
         if (canRenderMechanic) points.push([mechanicLat, mechanicLng]);
         if (points.length === 0) points.push([pickupLat, pickupLng]);
 
-        const map=L.map('map');
+        const map=L.map('map',{zoomControl:false});
         if (points.length === 1) {
           map.setView(points[0], 15);
         } else {
@@ -658,7 +658,7 @@ export const RoadsideOwnerTrackingScreen: React.FC<RoadsideOwnerTrackingScreenPr
     <View style={styles.container}>
       {/* The box keeps the map's space even while (or if) the map itself can't render. */}
       <View style={[styles.map, { backgroundColor: '#E8EDF3' }]}>
-        <WebView source={{ html: mapHtml }} style={{ flex: 1 }} />
+        <HtmlMap html={mapHtml} />
       </View>
       <View style={styles.topBar}>
         <TouchableOpacity

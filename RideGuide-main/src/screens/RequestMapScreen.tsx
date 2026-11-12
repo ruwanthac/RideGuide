@@ -7,7 +7,7 @@ import {
   useWindowDimensions,
   ActivityIndicator,
 } from 'react-native';
-import { WebView } from 'react-native-webview';
+import { HtmlMap } from '../components/HtmlMap';
 import { useRoute, RouteProp } from '@react-navigation/native';
 import * as Location from 'expo-location';
 import { Icon } from '../components';
@@ -401,16 +401,7 @@ export const RequestMapScreen: React.FC<RequestMapScreenProps> = ({ onBack }) =>
             <ActivityIndicator size="large" color={colors.primary} />
           </View>
         ) : (
-          <WebView
-            key={webKey}
-            source={{ html }}
-            style={{ flex: 1 }}
-            scrollEnabled
-            bounces={false}
-            originWhitelist={['*']}
-            javaScriptEnabled
-            domStorageEnabled
-          />
+          <HtmlMap html={html} mapKey={String(webKey)} scrollEnabled />
         )}
       </View>
     </View>

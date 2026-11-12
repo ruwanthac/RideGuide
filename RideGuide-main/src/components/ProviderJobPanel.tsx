@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { View, Text, StyleSheet, Pressable, ActivityIndicator, Linking, Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { WebView } from 'react-native-webview';
+import { HtmlMap } from './HtmlMap';
 import { Icon } from './Icon';
 import { colors } from '../constants/theme';
 import { useResponsive } from '../hooks';
@@ -53,18 +53,8 @@ export function openDirections(to: Point | null) {
   void Linking.openURL(url);
 }
 
-/** The job map: Leaflet HTML in a WebView on phones, or in an iframe on web (WebView has no web support). */
-export const JobMap: React.FC<{ html: string; mapKey: string }> = ({ html, mapKey }) => {
-  if (Platform.OS === 'web') {
-    return React.createElement('iframe', {
-      key: mapKey,
-      srcDoc: html,
-      title: 'Job map',
-      style: { border: 0, width: '100%', height: '100%', display: 'block' },
-    });
-  }
-  return <WebView key={mapKey} source={{ html }} style={{ flex: 1 }} scrollEnabled={false} androidLayerType="hardware" />;
-};
+/** The job map (WebView on phones, iframe on web). */
+export const JobMap: React.FC<{ html: string; mapKey: string }> = ({ html, mapKey }) => <HtmlMap html={html} mapKey={mapKey} />;
 
 /** Back button (left) and Navigate pill (right) floating over the job map. */
 export const JobMapTopBar: React.FC<{ onBack: () => void; onNavigate?: () => void; navigateLabel?: string }> = ({
