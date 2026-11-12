@@ -1,24 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  TouchableOpacity,
-  ActivityIndicator,
-  Linking,
-  Alert,
-  Animated,
-  Easing,
-  Dimensions,
-  PanResponder,
-  ScrollView,
-} from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { WebView } from 'react-native-webview';
+import { View, StyleSheet, ActivityIndicator, Linking, Alert } from 'react-native';
 import * as Location from 'expo-location';
-import { Icon, UnreadRedDot } from '../components';
+import { JobMap, JobMapTopBar, JobSheet, openDirections, useDrivingEta } from '../components/ProviderJobPanel';
 import { colors } from '../constants/theme';
-import { useResponsive } from '../hooks';
 import type { ServiceRequest } from '../backend/types';
 import { listServiceRequests, subscribeRequestById, updateServiceRequest } from '../backend/serviceRequestsService';
 import { extractApiError } from '../backend/apiClient';
@@ -41,16 +25,11 @@ const NEXT_STATUS: Record<string, 'attending_to_location' | 'completed' | null> 
   vehicle_in_tow: null,
 };
 
-const STATUS_PILL: Record<string, string> = {
-  accepted: 'Accepted',
-  attending_to_location: 'Attending to location',
-  completed: 'Completed',
-};
-
-/** Label for advancing *into* the next status (same flow as previous screen). */
-const NEXT_BUTTON_LABEL: Record<string, string> = {
-  attending_to_location: 'Attending to location',
-  completed: 'Mark completed',
+/** Sheet title and progress for each roadside status (Accepted · On the way · Done). */
+const STAGE: Record<string, { title: string; stepsDone: number }> = {
+  accepted: { title: 'Job accepted', stepsDone: 1 },
+  attending_to_location: { title: 'On your way', stepsDone: 2 },
+  completed: { title: 'Job complete', stepsDone: 3 },
 };
 
 const MAPBOX_TOKEN = process.env.EXPO_PUBLIC_MAPBOX_ACCESS_TOKEN?.trim() ?? '';
@@ -116,8 +95,6 @@ export const MechanicActiveJobScreen: React.FC<MechanicActiveJobScreenProps> = (
   onDone,
   onOpenChat,
 }) => {
-  const insets = useSafeAreaInsets();
-  const { spacing, fontSizes, borderRadius, width: windowWidth } = useResponsive();
   const { role } = useUserRole();
   const { user } = useAuth();
   const { syncFromServiceRequest } = useOngoingActivity();
@@ -126,52 +103,10 @@ export const MechanicActiveJobScreen: React.FC<MechanicActiveJobScreenProps> = (
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [mechanicLive, setMechanicLive] = useState<{ latitude: number; longitude: number } | null>(null);
-  const pulse = useRef(new Animated.Value(1)).current;
   const completionTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hasRedirectedRef = useRef(false);
   const watchRef = useRef<Location.LocationSubscription | null>(null);
   const lastLocationPatchAtRef = useRef(0);
-
-  const screenHeight = Dimensions.get('window').height;
-  const sheetCollapsedHeight = Math.round(screenHeight * 0.26) + insets.bottom;
-  const sheetExpandedHeight = Math.round(screenHeight * 0.74);
-  const maxSheetTranslate = Math.max(16, sheetExpandedHeight - sheetCollapsedHeight);
-  const sheetTranslateY = useRef(new Animated.Value(0)).current;
-  const sheetDragStartY = useRef(0);
-
-  const sheetPanResponder = useMemo(
-    () =>
-      PanResponder.create({
-        onStartShouldSetPanResponder: () => true,
-        onMoveShouldSetPanResponder: (_e, g) => Math.abs(g.dy) > 6 && Math.abs(g.dy) > Math.abs(g.dx) * 1.05,
-        onPanResponderTerminationRequest: () => false,
-        onPanResponderGrant: () => {
-          sheetTranslateY.stopAnimation((v) => {
-            sheetDragStartY.current = typeof v === 'number' ? v : 0;
-          });
-        },
-        onPanResponderMove: (_e, g) => {
-          const next = Math.min(maxSheetTranslate, Math.max(0, sheetDragStartY.current + g.dy));
-          sheetTranslateY.setValue(next);
-        },
-        onPanResponderRelease: (_e, g) => {
-          const raw = sheetDragStartY.current + g.dy;
-          const mid = maxSheetTranslate / 2;
-          const vy = typeof g.vy === 'number' ? g.vy : 0;
-          let snap: number;
-          if (vy > 0.6) snap = maxSheetTranslate;
-          else if (vy < -0.6) snap = 0;
-          else snap = raw > mid ? maxSheetTranslate : 0;
-          Animated.spring(sheetTranslateY, {
-            toValue: snap,
-            useNativeDriver: false,
-            friction: 8,
-            tension: 65,
-          }).start();
-        },
-      }),
-    [maxSheetTranslate, sheetTranslateY],
-  );
 
   const scheduleDoneOnce = () => {
     if (hasRedirectedRef.current) return;
@@ -186,15 +121,6 @@ export const MechanicActiveJobScreen: React.FC<MechanicActiveJobScreenProps> = (
       hasRedirectedRef.current = false;
     };
   }, []);
-
-  useEffect(() => {
-    Animated.loop(
-      Animated.sequence([
-        Animated.timing(pulse, { toValue: 1.05, duration: 500, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
-        Animated.timing(pulse, { toValue: 1, duration: 500, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
-      ]),
-    ).start();
-  }, [pulse]);
 
   useEffect(() => {
     if (role !== 'mechanic') onDone();
@@ -413,7 +339,7 @@ export const MechanicActiveJobScreen: React.FC<MechanicActiveJobScreenProps> = (
   if (showOwnerPin) points.push([ownerPinLat, ownerPinLng]);
   if (showMechPin) points.push([mechLat, mechLng]);
 
-  const map = L.map('map');
+  const map = L.map('map', { zoomControl: false });
   if (points.length === 0) {
     map.setView([ownerLat, ownerLng], 12);
   } else if (points.length === 1) {
@@ -544,99 +470,18 @@ export const MechanicActiveJobScreen: React.FC<MechanicActiveJobScreenProps> = (
     void Linking.openURL(`tel:${request.phoneNumber}`);
   };
 
-  const styles = useMemo(
-    () =>
-      StyleSheet.create({
-        container: { flex: 1, backgroundColor: colors.background },
-        map: { ...StyleSheet.absoluteFill },
-        sheet: {
-          position: 'absolute',
-          left: 0,
-          right: 0,
-          bottom: 0,
-          backgroundColor: colors.card,
-          borderTopLeftRadius: borderRadius.xl,
-          borderTopRightRadius: borderRadius.xl,
-          paddingBottom: Math.max(spacing.sm, insets.bottom),
-          shadowColor: '#000',
-          shadowOffset: { width: 0, height: -2 },
-          shadowOpacity: 0.12,
-          shadowRadius: 10,
-          elevation: 14,
-          overflow: 'hidden',
-        },
-        sheetGrabArea: {
-          paddingTop: spacing.sm,
-          paddingBottom: spacing.sm,
-          alignItems: 'center',
-        },
-        sheetGrabIndicator: {
-          width: Math.min(160, windowWidth * 0.38),
-          height: 5,
-          borderRadius: 3,
-          backgroundColor: colors.border,
-          marginBottom: spacing.xs,
-        },
-        sheetGrabHint: {
-          fontSize: fontSizes.xs,
-          color: colors.textSecondary,
-          fontWeight: '600',
-        },
-        sheetInner: {
-          paddingHorizontal: spacing.lg,
-          paddingBottom: spacing.md,
-        },
-        title: { fontSize: fontSizes.lg, fontWeight: '700', color: colors.text, marginBottom: spacing.xs },
-        subtitle: { color: colors.textSecondary, marginBottom: spacing.sm },
-        statusPill: {
-          flexDirection: 'row',
-          alignItems: 'center',
-          alignSelf: 'flex-start',
-          borderRadius: borderRadius.full,
-          backgroundColor: 'rgba(37,99,235,0.12)',
-          paddingHorizontal: spacing.md,
-          paddingVertical: spacing.xs,
-        },
-        statusText: { marginLeft: spacing.xs, color: colors.primary, fontWeight: '600', fontSize: fontSizes.sm },
-        actionsRow: { flexDirection: 'row', marginTop: spacing.md },
-        iconBtn: {
-          width: 44,
-          height: 44,
-          borderRadius: 22,
-          backgroundColor: colors.primary + '10',
-          alignItems: 'center',
-          justifyContent: 'center',
-          marginRight: spacing.sm,
-          position: 'relative',
-        },
-        nextBtn: {
-          backgroundColor: colors.primary,
-          borderRadius: borderRadius.md,
-          paddingVertical: spacing.md,
-          alignItems: 'center',
-          marginTop: spacing.md,
-        },
-        nextBtnText: { color: '#fff', fontWeight: '700' },
-        topBar: {
-          position: 'absolute',
-          top: insets.top + spacing.sm,
-          left: spacing.md,
-          zIndex: 10,
-        },
-        minimizeBtn: {
-          backgroundColor: colors.card,
-          borderRadius: borderRadius.full,
-          borderWidth: 1,
-          borderColor: colors.border,
-          paddingHorizontal: spacing.sm,
-          paddingVertical: spacing.xs,
-          flexDirection: 'row',
-          alignItems: 'center',
-        },
-        minimizeText: { marginLeft: spacing.xs, color: colors.text, fontSize: fontSizes.xs, fontWeight: '600' },
-      }),
-    [borderRadius.full, borderRadius.md, borderRadius.xl, fontSizes.lg, fontSizes.sm, fontSizes.xs, insets.bottom, insets.top, spacing.lg, spacing.md, spacing.sm, spacing.xs, windowWidth],
+  const ownerPoint = request ? resolveOwnerPickup(request) : null;
+  const acceptedAt = sanitizeLatLng(
+    request?.acceptedProviderLocation?.latitude,
+    request?.acceptedProviderLocation?.longitude,
   );
+  const myPoint = mechanicLive
+    ? { lat: mechanicLive.latitude, lng: mechanicLive.longitude }
+    : acceptedAt
+    ? { lat: acceptedAt[0], lng: acceptedAt[1] }
+    : null;
+  const driving = request?.status === 'accepted' || request?.status === 'attending_to_location';
+  const eta = useDrivingEta(driving ? myPoint : null, driving ? ownerPoint : null);
 
   if (loading || !request) {
     return (
@@ -646,82 +491,51 @@ export const MechanicActiveJobScreen: React.FC<MechanicActiveJobScreenProps> = (
     );
   }
 
-  const statusLine = STATUS_PILL[request.status] ?? request.status.replace(/_/g, ' ');
+  const firstName = request.userName.trim().split(/\s+/)[0] || 'the driver';
+  const stage = STAGE[request.status] ?? STAGE.accepted;
+  const minimize = () => {
+    if (user?.role === 'mechanic') syncFromServiceRequest(request, user.role);
+    onMinimize?.();
+  };
 
   return (
     <View style={styles.container}>
-      <WebView
-        key={mapWebViewKey || 'mechanic-map'}
-        source={{ html: mapHtml }}
-        style={styles.map}
-        scrollEnabled={false}
-        androidLayerType="hardware"
-      />
-      <View style={styles.topBar}>
-        <TouchableOpacity
-          style={styles.minimizeBtn}
-          onPress={() => {
-            if (request && user?.role === 'mechanic') syncFromServiceRequest(request, user.role);
-            onMinimize?.();
-          }}
-          activeOpacity={0.85}
-        >
-          <Icon name="chevron-back" size={16} color={colors.primary} />
-          <Text style={styles.minimizeText}>Continue in background</Text>
-        </TouchableOpacity>
+      <View style={styles.mapArea}>
+        <JobMap html={mapHtml} mapKey={mapWebViewKey || 'mechanic-map'} />
       </View>
-
-      <Animated.View
-        style={[
-          styles.sheet,
-          {
-            height: sheetExpandedHeight,
-            transform: [{ translateY: sheetTranslateY }],
-          },
-        ]}
-      >
-        <View {...sheetPanResponder.panHandlers} style={styles.sheetGrabArea}>
-          <View style={styles.sheetGrabIndicator} />
-          <Text style={styles.sheetGrabHint}>Drag up/down to show map or job details</Text>
-        </View>
-        <ScrollView
-          style={{ flex: 1 }}
-          contentContainerStyle={styles.sheetInner}
-          nestedScrollEnabled
-          keyboardShouldPersistTaps="handled"
-          bounces
-        >
-          <Text style={styles.title}>Roadside active job</Text>
-          <Text style={styles.subtitle}>
-            {request.userName} · {request.vehicle}
-          </Text>
-          <Text style={styles.subtitle}>{request.pickupAddress || request.location}</Text>
-          <Animated.View style={[styles.statusPill, { transform: [{ scale: pulse }] }]}>
-            <Icon name="construct" size={16} color={colors.primary} />
-            <Text style={styles.statusText}>{statusLine}</Text>
-          </Animated.View>
-          <View style={styles.actionsRow}>
-            <TouchableOpacity style={styles.iconBtn} onPress={onCall} activeOpacity={0.85}>
-              <Icon name="call" size={18} color={colors.primary} />
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.iconBtn} onPress={() => onOpenChat(request)} activeOpacity={0.85}>
-              <Icon name="chatbubble" size={18} color={colors.primary} />
-              <UnreadRedDot visible={hasUnreadRequestChat} />
-            </TouchableOpacity>
-          </View>
-          {nextStatus ? (
-            <TouchableOpacity disabled={saving} style={styles.nextBtn} onPress={onAdvanceStatus} activeOpacity={0.85}>
-              <Text style={styles.nextBtnText}>
-                {saving ? 'Updating...' : NEXT_BUTTON_LABEL[nextStatus] ?? nextStatus.replace(/_/g, ' ')}
-              </Text>
-            </TouchableOpacity>
-          ) : (
-            <TouchableOpacity style={styles.nextBtn} onPress={onDone} activeOpacity={0.85}>
-              <Text style={styles.nextBtnText}>Back to dashboard</Text>
-            </TouchableOpacity>
-          )}
-        </ScrollView>
-      </Animated.View>
+      <JobMapTopBar
+        onBack={minimize}
+        onNavigate={driving && ownerPoint ? () => openDirections(ownerPoint) : undefined}
+      />
+      <JobSheet
+        title={stage.title}
+        subtitle={request.pickupAddress || request.location}
+        eta={driving ? eta : undefined}
+        customerName={request.userName}
+        vehicle={request.vehicle}
+        issue={request.issue}
+        onCall={onCall}
+        onMessage={() => onOpenChat(request)}
+        hasUnreadMessage={hasUnreadRequestChat}
+        stepCount={3}
+        stepsDone={stage.stepsDone}
+        stepLabels={['Accepted', 'On the way', 'Done']}
+        primaryLabel={
+          nextStatus === 'attending_to_location'
+            ? `Start driving to ${firstName}`
+            : nextStatus === 'completed'
+            ? 'Job done: mark as complete'
+            : 'Back to jobs'
+        }
+        primaryTone={nextStatus === 'completed' ? 'green' : 'blue'}
+        onPrimary={nextStatus ? onAdvanceStatus : onDone}
+        busy={saving}
+      />
     </View>
   );
 };
+
+const styles = StyleSheet.create({
+  container: { flex: 1, backgroundColor: '#E8EDF3' },
+  mapArea: { flex: 1 },
+});

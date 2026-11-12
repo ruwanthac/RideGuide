@@ -1,24 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  TouchableOpacity,
-  ActivityIndicator,
-  Animated,
-  Easing,
-  Dimensions,
-  PanResponder,
-  ScrollView,
-  Linking,
-  Alert,
-} from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { WebView } from 'react-native-webview';
+import { View, StyleSheet, ActivityIndicator, Linking, Alert } from 'react-native';
 import * as Location from 'expo-location';
-import { Icon, UnreadRedDot } from '../components';
+import { JobMap, JobMapTopBar, JobSheet, openDirections, useDrivingEta } from '../components/ProviderJobPanel';
 import { colors } from '../constants/theme';
-import { useResponsive } from '../hooks';
 import type { ServiceRequest } from '../backend/types';
 import { listServiceRequests, subscribeRequestById, updateServiceRequest } from '../backend/serviceRequestsService';
 import { updateUserProfile } from '../backend/userProfileService';
@@ -44,23 +28,23 @@ const NEXT_STATUS: Record<
   pending: null,
 };
 
-const BUTTON_LABELS: Record<string, string> = {
-  driver_picked_hire: 'Mark picked up hire',
-  driver_on_the_way: 'Mark on the way',
-  driver_arrived: 'Mark arrived',
-  vehicle_in_tow: 'Mark vehicle in tow',
-  completed: 'Mark completed',
+/** Sheet title and progress for each tow status (Accepted · On the way · Arrived · Towing · Done). */
+const STAGE: Record<string, { title: string; stepsDone: number }> = {
+  accepted: { title: 'Job accepted', stepsDone: 1 },
+  driver_picked_hire: { title: 'Job accepted', stepsDone: 1 },
+  driver_on_the_way: { title: 'On your way to pick up', stepsDone: 2 },
+  driver_arrived: { title: 'At the pick-up point', stepsDone: 3 },
+  vehicle_in_tow: { title: 'Towing to drop-off', stepsDone: 4 },
+  completed: { title: 'Job complete', stepsDone: 5 },
 };
 
-/** Short status line in the pill (matches tow tracking style). */
-const STATUS_PILL_TEXT: Record<string, string> = {
-  requested: 'requested',
-  driver_picked_hire: 'driver picked hire',
-  driver_on_the_way: 'driver on the way',
-  driver_arrived: 'driver arrived',
-  vehicle_in_tow: 'vehicle in tow',
-  completed: 'completed',
-  cancelled: 'cancelled',
+/** Button text for moving *into* each next status. */
+const NEXT_LABEL: Record<string, string> = {
+  driver_picked_hire: 'Accept this job',
+  driver_on_the_way: 'Start driving to pick up',
+  driver_arrived: 'I’ve arrived at pick up',
+  vehicle_in_tow: 'Vehicle loaded: start towing',
+  completed: 'Delivered: mark as complete',
 };
 
 const MAPBOX_TOKEN = process.env.EXPO_PUBLIC_MAPBOX_ACCESS_TOKEN?.trim() ?? '';
@@ -131,8 +115,6 @@ export const TowDriverActiveJobScreen: React.FC<TowDriverActiveJobScreenProps> =
   onDone,
   onOpenChat,
 }) => {
-  const insets = useSafeAreaInsets();
-  const { spacing, fontSizes, borderRadius, width: windowWidth } = useResponsive();
   const { role } = useUserRole();
   const { user } = useAuth();
   const { syncFromServiceRequest } = useOngoingActivity();
@@ -142,52 +124,10 @@ export const TowDriverActiveJobScreen: React.FC<TowDriverActiveJobScreenProps> =
   const [saving, setSaving] = useState(false);
   /** Live GPS for “your truck” marker and map bounds. */
   const [driverLive, setDriverLive] = useState<{ latitude: number; longitude: number } | null>(null);
-  const pulse = useRef(new Animated.Value(1)).current;
   const completionTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hasRedirectedRef = useRef(false);
   const watchRef = useRef<Location.LocationSubscription | null>(null);
   const lastLocationPatchAtRef = useRef(0);
-
-  const screenHeight = Dimensions.get('window').height;
-  const sheetCollapsedHeight = Math.round(screenHeight * 0.26) + insets.bottom;
-  const sheetExpandedHeight = Math.round(screenHeight * 0.74);
-  const maxSheetTranslate = Math.max(16, sheetExpandedHeight - sheetCollapsedHeight);
-  const sheetTranslateY = useRef(new Animated.Value(0)).current;
-  const sheetDragStartY = useRef(0);
-
-  const sheetPanResponder = useMemo(
-    () =>
-      PanResponder.create({
-        onStartShouldSetPanResponder: () => true,
-        onMoveShouldSetPanResponder: (_e, g) => Math.abs(g.dy) > 6 && Math.abs(g.dy) > Math.abs(g.dx) * 1.05,
-        onPanResponderTerminationRequest: () => false,
-        onPanResponderGrant: () => {
-          sheetTranslateY.stopAnimation((v) => {
-            sheetDragStartY.current = typeof v === 'number' ? v : 0;
-          });
-        },
-        onPanResponderMove: (_e, g) => {
-          const next = Math.min(maxSheetTranslate, Math.max(0, sheetDragStartY.current + g.dy));
-          sheetTranslateY.setValue(next);
-        },
-        onPanResponderRelease: (_e, g) => {
-          const raw = sheetDragStartY.current + g.dy;
-          const mid = maxSheetTranslate / 2;
-          const vy = typeof g.vy === 'number' ? g.vy : 0;
-          let snap: number;
-          if (vy > 0.6) snap = maxSheetTranslate;
-          else if (vy < -0.6) snap = 0;
-          else snap = raw > mid ? maxSheetTranslate : 0;
-          Animated.spring(sheetTranslateY, {
-            toValue: snap,
-            useNativeDriver: false,
-            friction: 8,
-            tension: 65,
-          }).start();
-        },
-      }),
-    [maxSheetTranslate, sheetTranslateY],
-  );
 
   const scheduleDoneOnce = () => {
     if (hasRedirectedRef.current) return;
@@ -202,15 +142,6 @@ export const TowDriverActiveJobScreen: React.FC<TowDriverActiveJobScreenProps> =
       hasRedirectedRef.current = false;
     };
   }, []);
-
-  useEffect(() => {
-    Animated.loop(
-      Animated.sequence([
-        Animated.timing(pulse, { toValue: 1.05, duration: 500, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
-        Animated.timing(pulse, { toValue: 1, duration: 500, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
-      ]),
-    ).start();
-  }, [pulse]);
 
   useEffect(() => {
     if (role !== 'tow') onDone();
@@ -432,7 +363,7 @@ export const TowDriverActiveJobScreen: React.FC<TowDriverActiveJobScreenProps> =
   if (showDropPin) points.push([dropLat, dropLng]);
   if (showTruckPin) points.push([truckLat, truckLng]);
 
-  const map = L.map('map');
+  const map = L.map('map', { zoomControl: false });
   if (points.length === 0) {
     map.setView([pickupLat, pickupLng], 12);
   } else if (points.length === 1) {
@@ -523,102 +454,6 @@ export const TowDriverActiveJobScreen: React.FC<TowDriverActiveJobScreenProps> =
     `;
   }, [request, driverLive?.latitude, driverLive?.longitude]);
 
-  const styles = useMemo(
-    () =>
-      StyleSheet.create({
-        container: { flex: 1, backgroundColor: colors.background },
-        map: { ...StyleSheet.absoluteFill },
-        sheet: {
-          position: 'absolute',
-          left: 0,
-          right: 0,
-          bottom: 0,
-          backgroundColor: colors.card,
-          borderTopLeftRadius: borderRadius.xl,
-          borderTopRightRadius: borderRadius.xl,
-          paddingBottom: Math.max(spacing.sm, insets.bottom),
-          shadowColor: '#000',
-          shadowOffset: { width: 0, height: -2 },
-          shadowOpacity: 0.12,
-          shadowRadius: 10,
-          elevation: 14,
-          overflow: 'hidden',
-        },
-        sheetGrabArea: {
-          paddingTop: spacing.sm,
-          paddingBottom: spacing.sm,
-          alignItems: 'center',
-        },
-        sheetGrabIndicator: {
-          width: Math.min(160, windowWidth * 0.38),
-          height: 5,
-          borderRadius: 3,
-          backgroundColor: colors.border,
-          marginBottom: spacing.xs,
-        },
-        sheetGrabHint: {
-          fontSize: fontSizes.xs,
-          color: colors.textSecondary,
-          fontWeight: '600',
-        },
-        sheetInner: {
-          paddingHorizontal: spacing.lg,
-          paddingBottom: spacing.md,
-        },
-        title: { fontSize: fontSizes.lg, fontWeight: '700', color: colors.text, marginBottom: spacing.xs },
-        subtitle: { color: colors.textSecondary, marginBottom: spacing.md },
-        ownerPhone: { color: colors.textSecondary, marginBottom: spacing.sm, fontSize: fontSizes.sm },
-        actionsRow: { flexDirection: 'row', marginBottom: spacing.sm },
-        iconBtn: {
-          width: 44,
-          height: 44,
-          borderRadius: 22,
-          backgroundColor: colors.primary + '10',
-          alignItems: 'center',
-          justifyContent: 'center',
-          marginRight: spacing.sm,
-          position: 'relative',
-        },
-        amount: { fontWeight: '700', color: colors.text, marginBottom: spacing.sm },
-        nextBtn: {
-          backgroundColor: colors.primary,
-          borderRadius: borderRadius.md,
-          paddingVertical: spacing.md,
-          alignItems: 'center',
-          marginTop: spacing.md,
-        },
-        nextBtnText: { color: '#fff', fontWeight: '700' },
-        statusPill: {
-          flexDirection: 'row',
-          alignItems: 'center',
-          alignSelf: 'flex-start',
-          borderRadius: borderRadius.full,
-          backgroundColor: 'rgba(37,99,235,0.12)',
-          paddingHorizontal: spacing.md,
-          paddingVertical: spacing.xs,
-        },
-        statusText: { marginLeft: spacing.xs, color: colors.primary, fontWeight: '600', fontSize: fontSizes.sm },
-        topBar: {
-          position: 'absolute',
-          top: insets.top + spacing.sm,
-          left: spacing.md,
-          zIndex: 10,
-        },
-        minimizeBtn: {
-          backgroundColor: colors.card,
-          borderRadius: borderRadius.full,
-          borderWidth: 1,
-          borderColor: colors.border,
-          paddingHorizontal: spacing.sm,
-          paddingVertical: spacing.xs,
-          flexDirection: 'row',
-          alignItems: 'center',
-        },
-        minimizeText: { marginLeft: spacing.xs, color: colors.text, fontSize: fontSizes.xs, fontWeight: '600' },
-      }),
-    [borderRadius.full, borderRadius.md, borderRadius.xl, fontSizes.lg, fontSizes.sm, fontSizes.xs, insets.bottom, insets.top, spacing.lg, spacing.md, spacing.sm, spacing.xs, windowWidth],
-  );
-
   const onAdvanceStatus = async () => {
     if (!request || !nextStatus) return;
     setSaving(true);
@@ -669,22 +504,11 @@ export const TowDriverActiveJobScreen: React.FC<TowDriverActiveJobScreenProps> =
       setRequest(updated);
       if (updated.status === 'completed') scheduleDoneOnce();
     } catch (error) {
-      alert(extractApiError(error, 'Failed to update status'));
+      Alert.alert('Could not update the job', extractApiError(error, 'Please try again.'));
     } finally {
       setSaving(false);
     }
   };
-
-  if (loading || !request) {
-    return (
-      <View style={[styles.container, { justifyContent: 'center', alignItems: 'center' }]}>
-        <ActivityIndicator size="large" color={colors.primary} />
-      </View>
-    );
-  }
-
-  const statusLine =
-    STATUS_PILL_TEXT[request.status] ?? request.status.replace(/_/g, ' ');
 
   const onCall = () => {
     if (!request?.phoneNumber?.trim()) {
@@ -694,83 +518,74 @@ export const TowDriverActiveJobScreen: React.FC<TowDriverActiveJobScreenProps> =
     void Linking.openURL(`tel:${request.phoneNumber}`);
   };
 
+  const status = request?.status;
+  const towing = status === 'vehicle_in_tow';
+  const pickupPoint = request ? resolveOwnerPickup(request) : null;
+  const dropPair = sanitizeLatLng(request?.dropoffLatitude, request?.dropoffLongitude);
+  const dropPoint = dropPair ? { lat: dropPair[0], lng: dropPair[1] } : null;
+  const target = towing ? dropPoint : pickupPoint;
+  const driving =
+    status === 'accepted' || status === 'driver_picked_hire' || status === 'driver_on_the_way' || towing;
+  const myPoint = driverLive ? { lat: driverLive.latitude, lng: driverLive.longitude } : null;
+  const eta = useDrivingEta(driving ? myPoint : null, driving ? target : null);
+
+  if (loading || !request) {
+    return (
+      <View style={[styles.container, { justifyContent: 'center', alignItems: 'center' }]}>
+        <ActivityIndicator size="large" color={colors.primary} />
+      </View>
+    );
+  }
+
+  const stage = STAGE[request.status] ?? STAGE.driver_picked_hire;
+  const pickup = request.pickupAddress?.trim() || request.location;
+  const dropoff = request.dropoffAddress?.trim() || 'Not given';
+  const fare =
+    typeof request.estimatedAmount === 'number'
+      ? formatCurrencyAmount(request.currency, request.estimatedAmount)
+      : null;
+  const extraLines = [
+    towing ? { label: 'Picked up from', value: pickup } : { label: 'Drop off', value: dropoff },
+    ...(fare ? [{ label: 'Estimated fare', value: fare }] : []),
+  ];
+  const minimize = () => {
+    if (user?.role === 'tow') syncFromServiceRequest(request, user.role);
+    onMinimize?.();
+  };
+
   return (
     <View style={styles.container}>
-      <WebView
-        key={mapWebViewKey || 'tow-map'}
-        source={{ html: mapHtml }}
-        style={styles.map}
-        scrollEnabled={false}
-        androidLayerType="hardware"
-      />
-      <View style={styles.topBar}>
-        <TouchableOpacity
-          style={styles.minimizeBtn}
-          onPress={() => {
-            if (request && user?.role === 'tow') syncFromServiceRequest(request, user.role);
-            onMinimize?.();
-          }}
-          activeOpacity={0.85}
-        >
-          <Icon name="chevron-back" size={16} color={colors.primary} />
-          <Text style={styles.minimizeText}>Continue in background</Text>
-        </TouchableOpacity>
+      <View style={styles.mapArea}>
+        <JobMap html={mapHtml} mapKey={mapWebViewKey || 'tow-map'} />
       </View>
-
-      <Animated.View
-        style={[
-          styles.sheet,
-          {
-            height: sheetExpandedHeight,
-            transform: [{ translateY: sheetTranslateY }],
-          },
-        ]}
-      >
-        <View {...sheetPanResponder.panHandlers} style={styles.sheetGrabArea}>
-          <View style={styles.sheetGrabIndicator} />
-          <Text style={styles.sheetGrabHint}>Drag up/down to show map or job details</Text>
-        </View>
-        <ScrollView
-          style={{ flex: 1 }}
-          contentContainerStyle={styles.sheetInner}
-          nestedScrollEnabled
-          keyboardShouldPersistTaps="handled"
-          bounces
-        >
-          <Text style={styles.title}>Tow active job</Text>
-          <Text style={styles.subtitle}>
-            {request.userName} · {request.vehicle}
-          </Text>
-          <Text style={styles.ownerPhone}>Owner contact: {request.phoneNumber || 'Not provided'}</Text>
-          <View style={styles.actionsRow}>
-            <TouchableOpacity style={styles.iconBtn} onPress={onCall} activeOpacity={0.85}>
-              <Icon name="call" size={18} color={colors.primary} />
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.iconBtn} onPress={() => onOpenChat(request)} activeOpacity={0.85}>
-              <Icon name="chatbubble" size={18} color={colors.primary} />
-              <UnreadRedDot visible={hasUnreadRequestChat} />
-            </TouchableOpacity>
-          </View>
-          <Animated.View style={[styles.statusPill, { transform: [{ scale: pulse }] }]}>
-            <Icon name="send" size={16} color={colors.primary} />
-            <Text style={styles.statusText}>{statusLine}</Text>
-          </Animated.View>
-          <Text style={styles.amount}>
-            Estimated fare: {formatCurrencyAmount(request.currency, request.estimatedAmount ?? 0)}
-          </Text>
-          {nextStatus ? (
-            <TouchableOpacity disabled={saving} style={styles.nextBtn} onPress={onAdvanceStatus} activeOpacity={0.85}>
-              <Text style={styles.nextBtnText}>
-                {saving ? 'Updating...' : BUTTON_LABELS[nextStatus] ?? 'Next status'}
-              </Text>
-            </TouchableOpacity>
-          ) : (
-            <TouchableOpacity style={styles.nextBtn} onPress={onDone} activeOpacity={0.85}>
-              <Text style={styles.nextBtnText}>Back to dashboard</Text>
-            </TouchableOpacity>
-          )}
-        </ScrollView>
-      </Animated.View>
+      <JobMapTopBar
+        onBack={minimize}
+        onNavigate={driving && target ? () => openDirections(target) : undefined}
+      />
+      <JobSheet
+        title={stage.title}
+        subtitle={towing ? dropoff : pickup}
+        eta={driving ? eta : undefined}
+        customerName={request.userName}
+        vehicle={request.vehicle}
+        issue={request.issue}
+        extraLines={extraLines}
+        onCall={onCall}
+        onMessage={() => onOpenChat(request)}
+        hasUnreadMessage={hasUnreadRequestChat}
+        stepCount={5}
+        stepsDone={stage.stepsDone}
+        stepLabels={['Accepted', 'On the way', 'Arrived', 'Towing', 'Done']}
+        primaryLabel={nextStatus ? NEXT_LABEL[nextStatus] ?? 'Next step' : 'Back to jobs'}
+        primaryTone={nextStatus === 'completed' ? 'green' : 'blue'}
+        onPrimary={nextStatus ? onAdvanceStatus : onDone}
+        busy={saving}
+      />
     </View>
   );
 };
+
+const styles = StyleSheet.create({
+  container: { flex: 1, backgroundColor: '#E8EDF3' },
+  mapArea: { flex: 1 },
+});

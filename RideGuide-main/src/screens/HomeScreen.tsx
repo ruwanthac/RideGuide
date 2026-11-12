@@ -1,39 +1,20 @@
 import React, { useMemo, useState, useEffect, useCallback } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  Image,
-  ScrollView,
-  TouchableOpacity,
-  Pressable,
-  Platform,
-  RefreshControl,
-  Linking,
-  Alert,
-} from 'react-native';
-import { Card, Icon, NewsAndTips, OwnerHome, UnreadRedDot } from '../components';
-import { colors } from '../constants/theme';
-import type { IconName } from '../components';
-import { useResponsive } from '../hooks';
+import { Alert } from 'react-native';
+import { OwnerHome, ProviderHome } from '../components';
 import { useUserRole } from '../context/UserRoleContext';
-import { useFocusEffect, useNavigation } from '@react-navigation/native';
+import { useNavigation } from '@react-navigation/native';
 import { useVehicles } from '../context/VehiclesContext';
 import { useAuth } from '../context/AuthContext';
-import { useUnreadRequestChat } from '../context/UnreadRequestChatContext';
 import { useOngoingActivity } from '../context/OngoingActivityContext';
 import { subscribeServiceRequests, updateServiceRequest } from '../backend/serviceRequestsService';
 import type { ServiceRequest } from '../backend/types';
 import { extractApiError } from '../backend/apiClient';
-import {
-  getLastAccessedFunctions,
-  recordHomeFunctionAccess,
-  type HomeFunctionId,
-} from '../utils/homeLastAccessed';
+import { recordHomeFunctionAccess, type HomeFunctionId } from '../utils/homeLastAccessed';
 import { hasSavedProfilePhone } from '../utils/profilePhone';
 import { navigateToProfilePrivacy } from '../navigation/historyCrossTabNavigate';
-import { fetchDrivingDistanceKm } from '../utils/drivingDistance';
-import { formatCurrencyAmount } from '../utils/formatMoneyAmount';
+import { fetchDrivingRoute } from '../utils/drivingDistance';
+
+type DrivingRoute = { km: number; minutes: number };
 
 function alertProviderPhoneRequired(navigation: { getParent: () => unknown }) {
   Alert.alert(
@@ -49,13 +30,6 @@ function alertProviderPhoneRequired(navigation: { getParent: () => unknown }) {
   );
 }
 
-interface MenuItem {
-  id: string;
-  icon: IconName;
-  title: string;
-  onPress: () => void;
-}
-
 interface HomeScreenProps {
   onDiagnose: () => void;
   onTowTruckAssistant: () => void;
@@ -65,23 +39,6 @@ interface HomeScreenProps {
   onVideoCallPress?: () => void;
 }
 
-const HERO_IMAGE = require('../../assets/images/hero.gif');
-
-function getTimeBasedGreeting(): string {
-  const hour = new Date().getHours();
-  let greeting = '';
-  if (hour < 12) greeting = 'Good Morning';
-  else if (hour < 18) greeting = 'Good Afternoon';
-  else greeting = 'Good Evening';
-  return greeting;
-}
-
-const MENU_ITEMS: Omit<MenuItem, 'onPress'>[] = [
-  { id: 'diagnose', icon: 'construct', title: 'Diagnose Issue' },
-  { id: 'chat', icon: 'chatbubble', title: 'AI Assistant' },
-  { id: 'tow', icon: 'car', title: 'Tow Truck Assistant and Roadside Help' },
-];
-
 export const HomeScreen: React.FC<HomeScreenProps> = ({
   onDiagnose,
   onTowTruckAssistant,
@@ -89,20 +46,16 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   onChatAssistant,
   onVideoCallPress,
 }) => {
-  const { spacing, fontSizes, iconSizes, isSmallScreen, scale, width, verticalScale } = useResponsive();
   const { role } = useUserRole();
   const { selectedVehicleId, refresh: refreshVehicles } = useVehicles();
   const { refreshProfile, user } = useAuth();
-  const { hasUnreadRequestChat } = useUnreadRequestChat();
   const { syncFromServiceRequest } = useOngoingActivity();
-  const greeting = getTimeBasedGreeting();
   const [refreshing, setRefreshing] = useState(false);
   const [requests, setRequests] = useState<ServiceRequest[]>([]);
   /** Bumped on pull-to-refresh so the service-request subscription reloads from the API (resets socket listener state). */
   const [requestReloadToken, setRequestReloadToken] = useState(0);
-  const [lastAccessedIds, setLastAccessedIds] = useState<HomeFunctionId[]>([]);
-  /** Open-job card chip: driving distance (km) per request; `null` = route API failed. */
-  const [drivingKmByRequestId, setDrivingKmByRequestId] = useState<Record<string, number | null>>({});
+  /** Open-job card chip: road distance and drive time per request; `null` = route API failed. */
+  const [drivingRouteByRequestId, setDrivingRouteByRequestId] = useState<Record<string, DrivingRoute | null>>({});
 
   useEffect(() => {
     let unsub: (() => void) | null = null;
@@ -194,19 +147,6 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
     }
   };
 
-  const openCall = (phoneNumber: string) => {
-    Linking.openURL(`tel:${phoneNumber}`);
-  };
-
-  const openRequestChat = (request: ServiceRequest) => {
-    navigation.navigate('RequestChat', {
-      requestId: request._id,
-      userName: request.userName,
-      vehicle: request.vehicle,
-      issue: request.issue,
-    });
-  };
-
   function resolveOwnerJobPoint(req: ServiceRequest): { lat: number; lng: number } | null {
     const live = req.requesterLiveLocation;
     if (
@@ -274,7 +214,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
     const me = coordsFromUserLocation(user);
     const pool = openJobPoolForDriving;
     if (!me || pool.length === 0) {
-      setDrivingKmByRequestId({});
+      setDrivingRouteByRequestId({});
       return;
     }
     let cancelled = false;
@@ -283,63 +223,18 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
         pool.map(async (req) => {
           const o = resolveOwnerJobPoint(req);
           if (!o) return [req._id, null] as const;
-          const km = await fetchDrivingDistanceKm(me, o, mapboxTokenForRoutes);
-          return [req._id, km] as const;
+          const route = await fetchDrivingRoute(me, o, mapboxTokenForRoutes);
+          return [req._id, route] as const;
         }),
       );
       if (cancelled) return;
-      setDrivingKmByRequestId(Object.fromEntries(entries) as Record<string, number | null>);
+      setDrivingRouteByRequestId(Object.fromEntries(entries) as Record<string, DrivingRoute | null>);
     })();
     return () => {
       cancelled = true;
     };
   }, [openJobPoolForDriving, user?.location, mapboxTokenForRoutes]);
 
-  const getMapPreviewMeta = (req: ServiceRequest) => {
-    const o = resolveOwnerJobPoint(req);
-    const me = coordsFromUserLocation(user);
-    if (!o || !me) {
-      return {
-        hasCoords: false,
-        primary: 'Distance unavailable',
-      };
-    }
-    const road = drivingKmByRequestId[req._id];
-    if (road === undefined) {
-      return { hasCoords: true, primary: 'Road distance…' };
-    }
-    if (road === null) {
-      return { hasCoords: true, primary: 'Road route unavailable' };
-    }
-    return {
-      hasCoords: true,
-      primary: `≈ ${road.toFixed(1)} km`,
-    };
-  };
-
-  const loadLastAccessed = useCallback(async () => {
-    const uid = user?._id;
-    if (!uid) {
-      setLastAccessedIds([]);
-      return;
-    }
-    setLastAccessedIds(await getLastAccessedFunctions(uid));
-  }, [user?._id]);
-
-  useFocusEffect(
-    useCallback(() => {
-      void loadLastAccessed();
-    }, [loadLastAccessed])
-  );
-
-  const runHomeFunction = useCallback(
-    (id: HomeFunctionId) => {
-      if (id === 'diagnose') onDiagnose();
-      else if (id === 'chat') onChatAssistant();
-      else onTowTruckAssistant();
-    },
-    [onDiagnose, onChatAssistant, onTowTruckAssistant]
-  );
 
   const recordAndAccess = useCallback(
     (id: HomeFunctionId, fn: () => void) => () => {
@@ -353,7 +248,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   const onRefresh = async () => {
     setRefreshing(true);
     try {
-      await Promise.all([refreshProfile(), refreshVehicles(), loadLastAccessed()]);
+      await Promise.all([refreshProfile(), refreshVehicles()]);
       setRequestReloadToken((t) => t + 1);
     } catch {
       // non-fatal — individual contexts keep last good state
@@ -362,506 +257,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
     }
   };
 
-
-  const styles = useMemo(
-    () =>
-      StyleSheet.create({
-        container: {
-          flex: 1,
-          backgroundColor: colors.background,
-        },
-        scrollView: {
-          flex: 1,
-        },
-        scrollContent: {
-          paddingBottom: spacing.xl * 2,
-        },
-        contentPadded: {
-          paddingHorizontal: spacing.lg,
-        },
-        header: {
-          paddingVertical: spacing.xl,
-        },
-        greeting: {
-          fontSize: fontSizes.xxxl,
-          fontWeight: '700',
-          color: colors.text,
-        },
-        subtitle: {
-          fontSize: fontSizes.md,
-          color: colors.textSecondary,
-          marginTop: spacing.xs,
-        },
-        rolePill: {
-          alignSelf: 'flex-start',
-          marginTop: spacing.sm,
-          paddingHorizontal: spacing.sm,
-          paddingVertical: spacing.xs,
-          borderRadius: scale(20),
-          backgroundColor: 'rgba(37, 99, 235, 0.08)',
-        },
-        rolePillText: {
-          fontSize: fontSizes.xs,
-          color: colors.primary,
-          fontWeight: '500',
-        },
-        grid: {
-          flexDirection: 'row',
-          flexWrap: 'wrap',
-          marginHorizontal: -spacing.sm,
-          paddingTop: spacing.lg,
-        },
-        cardWrapper: {
-          width: isSmallScreen ? '100%' : '50%',
-          padding: spacing.sm,
-          marginBottom: spacing.md,
-        },
-        cardWrapperFullWidth: {
-          width: '100%',
-          paddingHorizontal: 0,
-        },
-        cardContent: {
-          alignItems: 'center',
-          justifyContent: 'center',
-          minHeight: verticalScale(120),
-        },
-        cardIconWrap: {
-          position: 'relative',
-          marginBottom: spacing.md,
-        },
-        cardTitle: {
-          fontSize: fontSizes.md,
-          fontWeight: '600',
-          color: colors.text,
-          textAlign: 'center',
-        },
-        heroBanner: {
-          width: width,
-          height: scale(220),
-          marginBottom: spacing.xl,
-          overflow: 'hidden',
-          backgroundColor: colors.card,
-          borderBottomLeftRadius: 24,
-          borderBottomRightRadius: 24,
-        },
-        heroImage: {
-          width: '100%',
-          height: '100%',
-          resizeMode: 'cover',
-        },
-        heroOverlay: {
-          ...StyleSheet.absoluteFill,
-          justifyContent: 'flex-end',
-          padding: spacing.lg,
-          backgroundColor: 'rgba(0, 0, 0, 0.25)',
-        },
-        heroGreeting: {
-          fontSize: fontSizes.xxl,
-          fontWeight: '700',
-          color: '#FFFFFF',
-          textShadowColor: 'rgba(0, 0, 0, 0.5)',
-          textShadowOffset: { width: 0, height: 1 },
-          textShadowRadius: 4,
-        },
-        heroSubtitle: {
-          fontSize: fontSizes.md,
-          fontWeight: '500',
-          color: 'rgba(255, 255, 255, 0.95)',
-          marginTop: spacing.xs,
-          textShadowColor: 'rgba(0, 0, 0, 0.5)',
-          textShadowOffset: { width: 0, height: 1 },
-          textShadowRadius: 2,
-        },
-        videoCallButton: {
-          position: 'absolute',
-          bottom: spacing.lg,
-          right: spacing.lg,
-          width: 40,
-          height: 40,
-          borderRadius: 20,
-          backgroundColor: 'rgba(255, 255, 255, 0.3)',
-          alignItems: 'center',
-          justifyContent: 'center',
-          zIndex: 10,
-        },
-        activitiesSection: {
-          marginTop: spacing.xl,
-          marginBottom: spacing.lg,
-        },
-        activitiesTitle: {
-          fontSize: fontSizes.lg,
-          fontWeight: '700',
-          color: colors.text,
-          marginBottom: spacing.md,
-          paddingHorizontal: spacing.lg,
-        },
-        activitiesList: {
-          backgroundColor: colors.card,
-          marginHorizontal: spacing.lg,
-          borderRadius: 12,
-          overflow: 'hidden',
-        },
-        activityRow: {
-          flexDirection: 'row',
-          alignItems: 'center',
-          paddingVertical: spacing.md,
-          paddingHorizontal: spacing.lg,
-          borderBottomWidth: 1,
-          borderBottomColor: colors.border,
-        },
-        activityRowLast: {
-          borderBottomWidth: 0,
-        },
-        activityIcon: {
-          width: 40,
-          height: 40,
-          borderRadius: 20,
-          backgroundColor: colors.background,
-          alignItems: 'center',
-          justifyContent: 'center',
-          marginRight: spacing.md,
-          position: 'relative',
-        },
-        activityContent: {
-          flex: 1,
-        },
-        activityTitle: {
-          fontSize: fontSizes.md,
-          fontWeight: '600',
-          color: colors.text,
-        },
-        activitySubtitle: {
-          fontSize: fontSizes.sm,
-          color: colors.textSecondary,
-          marginTop: 2,
-        },
-        activityArrow: {
-          fontSize: fontSizes.sm,
-          color: colors.textSecondary,
-        },
-        requestsCard: {
-          paddingHorizontal: isSmallScreen ? spacing.md : spacing.xl,
-          paddingVertical: isSmallScreen ? spacing.md : spacing.lg,
-        },
-        requestsCardExpanded: {
-          marginHorizontal: isSmallScreen ? -spacing.xs : -spacing.sm,
-        },
-        requestHeaderRow: {
-          flexDirection: 'row',
-          alignItems: 'center',
-          justifyContent: 'center',
-          paddingTop: spacing.sm,
-          marginBottom: spacing.lg,
-        },
-        requestSectionTitle: {
-          fontSize: fontSizes.lg,
-          fontWeight: '600',
-          color: colors.text,
-          textAlign: 'center',
-        },
-        requestSectionSubtitle: {
-          fontSize: fontSizes.sm,
-          color: colors.textSecondary,
-          marginTop: spacing.xs,
-          textAlign: 'center',
-        },
-        requestBadge: {
-          minWidth: scale(28),
-          paddingHorizontal: spacing.xs,
-          paddingVertical: spacing.xs / 2,
-          borderRadius: 999,
-          backgroundColor: colors.primary + '18',
-          alignItems: 'center',
-          justifyContent: 'center',
-        },
-        requestBadgeText: {
-          fontSize: fontSizes.sm,
-          fontWeight: '600',
-          color: colors.primary,
-        },
-        emptyRequestsContainer: {
-          alignItems: 'center',
-          justifyContent: 'center',
-          paddingVertical: spacing.xl,
-          paddingHorizontal: spacing.md,
-        },
-        emptyRequestsTitle: {
-          fontSize: fontSizes.md,
-          fontWeight: '600',
-          color: colors.text,
-          marginTop: spacing.sm,
-          marginBottom: spacing.xs,
-        },
-        requestRow: {
-          paddingVertical: isSmallScreen ? spacing.sm : spacing.md,
-          paddingHorizontal: isSmallScreen ? spacing.sm : spacing.md,
-          borderRadius: 12,
-          borderWidth: 1,
-          borderColor: colors.border,
-          marginBottom: spacing.sm,
-          backgroundColor: colors.card,
-          overflow: 'hidden',
-        },
-        requestRowLast: {
-          marginBottom: 0,
-        },
-        requestRowMain: {
-          flexDirection: 'row',
-          alignItems: 'flex-start',
-        },
-        requestAvatar: {
-          width: isSmallScreen ? 36 : 40,
-          height: isSmallScreen ? 36 : 40,
-          borderRadius: isSmallScreen ? 18 : 20,
-          backgroundColor: colors.primary + '18',
-          alignItems: 'center',
-          justifyContent: 'center',
-          marginRight: isSmallScreen ? spacing.sm : spacing.md,
-          marginTop: 2,
-          flexShrink: 0,
-        },
-        requestAvatarText: {
-          fontSize: isSmallScreen ? fontSizes.sm : fontSizes.md,
-          fontWeight: '600',
-          color: colors.primary,
-        },
-        /** Lets long names/locations wrap correctly inside row flex (esp. web). */
-        requestBody: {
-          flex: 1,
-          minWidth: 0,
-        },
-        requestCustomerName: {
-          fontSize: isSmallScreen ? fontSizes.sm : fontSizes.md,
-          fontWeight: '700',
-          color: colors.text,
-        },
-        requestVehicleLine: {
-          fontSize: isSmallScreen ? fontSizes.xs : fontSizes.sm,
-          fontWeight: '600',
-          color: colors.text,
-          marginTop: spacing.xs / 2,
-        },
-        requestTimeMuted: {
-          fontSize: fontSizes.xs,
-          color: colors.textSecondary,
-          marginTop: spacing.xs,
-        },
-        requestMeta: {
-          fontSize: isSmallScreen ? fontSizes.xs : fontSizes.sm,
-          color: colors.textSecondary,
-          marginTop: spacing.xs,
-          lineHeight: (isSmallScreen ? fontSizes.xs : fontSizes.sm) * 1.4,
-        },
-        requestBadgeRow: {
-          flexDirection: 'row',
-          flexWrap: 'wrap',
-          alignItems: 'center',
-          marginTop: spacing.sm,
-        },
-        requestTag: {
-          paddingHorizontal: isSmallScreen ? spacing.xs : spacing.sm,
-          paddingVertical: spacing.xs / 2,
-          borderRadius: 8,
-          backgroundColor: colors.background,
-          borderWidth: 1,
-          borderColor: colors.border,
-          marginRight: spacing.xs,
-          marginBottom: spacing.xs,
-        },
-        requestTagText: {
-          fontSize: fontSizes.xs,
-          fontWeight: '600',
-          color: colors.text,
-        },
-        requestFooterColumn: {
-          marginTop: spacing.md,
-          paddingTop: spacing.sm,
-          borderTopWidth: StyleSheet.hairlineWidth,
-          borderTopColor: colors.border,
-        },
-        requestPhoneRow: {
-          flexDirection: 'row',
-          alignItems: 'flex-start',
-          minWidth: 0,
-        },
-        requestPhoneText: {
-          flex: 1,
-          fontSize: isSmallScreen ? fontSizes.xs : fontSizes.sm,
-          color: colors.textSecondary,
-          marginLeft: spacing.xs,
-          minWidth: 0,
-        },
-        requestFooterActions: {
-          flexDirection: 'row',
-          alignItems: 'center',
-          justifyContent: 'flex-end',
-          marginTop: spacing.sm,
-        },
-        iconActionBtn: {
-          width: isSmallScreen ? 40 : 36,
-          height: isSmallScreen ? 40 : 36,
-          borderRadius: isSmallScreen ? 20 : 18,
-          alignItems: 'center',
-          justifyContent: 'center',
-          backgroundColor: colors.primary + '08',
-          marginLeft: spacing.sm,
-        },
-        requestActions: {
-          marginTop: spacing.md,
-          alignSelf: 'stretch',
-          width: '100%',
-        },
-        acceptBtn: {
-          paddingVertical: spacing.sm,
-          paddingHorizontal: spacing.md,
-          borderRadius: 8,
-          backgroundColor: colors.success,
-          minWidth: 80,
-          alignItems: 'center',
-          alignSelf: isSmallScreen ? 'stretch' : 'flex-start',
-        },
-        acceptBtnText: {
-          fontSize: fontSizes.sm,
-          fontWeight: '600',
-          color: '#FFFFFF',
-        },
-        mapPreviewStrip: {
-          marginTop: spacing.md,
-          borderRadius: 12,
-          borderWidth: StyleSheet.hairlineWidth,
-          borderColor: colors.border,
-          backgroundColor: colors.card,
-          overflow: 'hidden',
-          ...Platform.select({
-            ios: {
-              shadowColor: '#000',
-              shadowOffset: { width: 0, height: 1 },
-              shadowOpacity: 0.06,
-              shadowRadius: 3,
-            },
-            android: { elevation: 2 },
-            default: {},
-          }),
-        },
-        mapPreviewStripPressed: {
-          backgroundColor: colors.primary + '0C',
-          borderColor: colors.primary + '40',
-        },
-        mapPreviewContent: {
-          paddingHorizontal: spacing.md,
-          paddingTop: spacing.md,
-          paddingBottom: spacing.md,
-        },
-        mapPreviewTopRow: {
-          flexDirection: 'row',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          gap: spacing.sm,
-        },
-        mapPreviewDivider: {
-          height: StyleSheet.hairlineWidth,
-          backgroundColor: colors.border,
-          marginVertical: spacing.sm,
-        },
-        mapPreviewBottomRow: {
-          flexDirection: 'row',
-          alignItems: 'center',
-          justifyContent: 'flex-end',
-        },
-        mapPreviewLeft: {
-          flexDirection: 'row',
-          alignItems: 'center',
-          flex: 1,
-          minWidth: 0,
-        },
-        mapIconCircle: {
-          width: 44,
-          height: 44,
-          borderRadius: 22,
-          alignItems: 'center',
-          justifyContent: 'center',
-          backgroundColor: colors.primary + '18',
-          marginRight: spacing.sm,
-        },
-        mapPreviewTitles: {
-          flex: 1,
-          minWidth: 0,
-        },
-        mapPreviewTitle: {
-          fontSize: isSmallScreen ? fontSizes.sm : fontSizes.md,
-          fontWeight: '700',
-          color: colors.text,
-        },
-        mapPreviewSubtitle: {
-          fontSize: fontSizes.xs,
-          color: colors.textSecondary,
-          marginTop: 2,
-        },
-        mapDistanceChip: {
-          flexDirection: 'row',
-          alignItems: 'center',
-          gap: 4,
-          paddingVertical: spacing.xs,
-          paddingHorizontal: spacing.sm,
-          borderRadius: 10,
-          backgroundColor: colors.background,
-          borderWidth: StyleSheet.hairlineWidth,
-          borderColor: colors.border,
-          maxWidth: '100%',
-        },
-        mapDistancePrimary: {
-          fontSize: fontSizes.xs,
-          fontWeight: '700',
-          color: colors.text,
-        },
-        mapPreviewChevron: {
-          marginLeft: spacing.xs,
-          opacity: 0.55,
-        },
-        mapPreviewDistanceCol: {
-          alignItems: 'flex-end',
-          flexShrink: 1,
-        },
-        emptyRequestsText: {
-          fontSize: fontSizes.sm,
-          color: colors.textSecondary,
-          textAlign: 'center',
-          paddingVertical: spacing.lg,
-          paddingHorizontal: spacing.sm,
-        },
-      }),
-    [spacing, fontSizes, iconSizes, isSmallScreen, scale, width]
-  );
-
-  const items: MenuItem[] = useMemo(
-    () => [
-      { ...MENU_ITEMS[0], onPress: recordAndAccess('diagnose', onDiagnose) },
-      { ...MENU_ITEMS[1], onPress: recordAndAccess('chat', onChatAssistant) },
-      { ...MENU_ITEMS[2], onPress: recordAndAccess('tow', onTowTruckAssistant) },
-    ],
-    [recordAndAccess, onDiagnose, onChatAssistant, onTowTruckAssistant]
-  );
-
-  const recentRows = useMemo(() => {
-    const rows: { id: HomeFunctionId; icon: IconName; title: string }[] = [];
-    for (const id of lastAccessedIds) {
-      const meta = MENU_ITEMS.find((m) => m.id === id);
-      if (meta) rows.push({ id, icon: meta.icon, title: meta.title });
-    }
-    return rows;
-  }, [lastAccessedIds]);
-
-  const formatTowBookingType = (bookingType?: ServiceRequest['bookingType']) => {
-    if (bookingType === 'scheduled') return 'Scheduled';
-    return 'On-demand';
-  };
-
-  const formatTowAmount = (req: ServiceRequest) => {
-    if (typeof req.estimatedAmount !== 'number') return null;
-    return formatCurrencyAmount(req.currency, req.estimatedAmount);
-  };
-
-  // Owners get the vehicle dashboard; mechanics and tow drivers keep their job-feed home below.
+  // Owners get the vehicle dashboard; mechanics and tow drivers get the job feed.
   if (role === 'owner') {
     return (
       <OwnerHome
@@ -878,280 +274,21 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   }
 
   return (
-    <View style={styles.container}>
-      <ScrollView
-        style={styles.scrollView}
-        contentContainerStyle={styles.scrollContent}
-        showsVerticalScrollIndicator={false}
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={onRefresh}
-            tintColor={colors.primary}
-            colors={[colors.primary]}
-          />
-        }
-      >
-        <View style={styles.heroBanner}>
-          <Image source={HERO_IMAGE} style={styles.heroImage} resizeMode="cover" />
-          <View style={styles.heroOverlay}>
-            <Text style={styles.heroGreeting}>{greeting}</Text>
-            <Text style={styles.heroSubtitle}>
-              {role === 'mechanic'
-                ? 'Manage your workshop and service jobs.'
-                : role === 'tow'
-                ? 'Handle live tow requests and availability.'
-                : 'How can we help you today?'}
-            </Text>
-          </View>
-          <TouchableOpacity
-            style={styles.videoCallButton}
-            onPress={onVideoCallPress}
-            activeOpacity={0.7}
-          >
-            <Icon name="videocam" size={22} color="#FFFFFF" />
-          </TouchableOpacity>
-        </View>
-
-      <View style={[styles.contentPadded, styles.grid]}>
-        {items.map((item) => (
-          <View
-            key={item.id}
-            style={[styles.cardWrapper, item.id === 'tow' && styles.cardWrapperFullWidth]}
-          >
-            {(role === 'mechanic' || role === 'tow') && item.id === 'tow' ? (
-              (() => {
-                const isTow = role === 'tow';
-                const providerOffline =
-                  (role === 'mechanic' && user?.mechanicAvailable === false) ||
-                  (role === 'tow' && user?.towAvailable === false);
-                const sectionTitle = isTow ? 'Tow truck requests' : 'Roadside help requests';
-                const requests = isTow ? towRequests : roadsideRequests;
-                const onAccept = isTow
-                  ? (req: ServiceRequest) => { void handleAcceptTowRequest(req); }
-                  : (req: ServiceRequest) => { void handleAcceptRequest(req); };
-                return (
-                  <Card padded={false} style={[styles.requestsCard, styles.requestsCardExpanded]}>
-                    <View style={styles.requestHeaderRow}>
-                      <View>
-                        <Text style={styles.requestSectionTitle}>{sectionTitle}</Text>
-                        <Text style={styles.requestSectionSubtitle}>
-                          Handle incoming {isTow ? 'tow' : 'roadside'} requests in real time.
-                        </Text>
-                      </View>
-                    </View>
-                    {requests.length === 0 ? (
-                      <View style={styles.emptyRequestsContainer}>
-                        <Icon
-                          name={isTow ? 'car' : 'help-circle'}
-                          size={iconSizes.lg}
-                          color={colors.textSecondary}
-                        />
-                        <Text style={styles.emptyRequestsTitle}>You’re all caught up</Text>
-                        <Text style={styles.emptyRequestsText}>
-                          {isTow
-                            ? 'New tow requests will appear here instantly.'
-                            : providerOffline
-                            ? 'Turn on availability in Profile to receive new requests. Finished jobs stay in history.'
-                            : 'New roadside requests will appear here instantly.'}
-                        </Text>
-                      </View>
-                    ) : (
-                      requests.map((req, index) => (
-                        <View
-                          key={req._id}
-                          style={[
-                            styles.requestRow,
-                            index === requests.length - 1 && styles.requestRowLast,
-                          ]}
-                        >
-                          <View style={styles.requestRowMain}>
-                            <View style={styles.requestAvatar}>
-                              <Text style={styles.requestAvatarText}>
-                                {req.userName.charAt(0).toUpperCase()}
-                              </Text>
-                            </View>
-                            <View style={styles.requestBody}>
-                              <Text style={styles.requestCustomerName} numberOfLines={2}>
-                                {req.userName}
-                              </Text>
-                              <Text style={styles.requestVehicleLine} numberOfLines={2}>
-                                {req.vehicle}
-                              </Text>
-                              <Text style={styles.requestTimeMuted}>
-                                {new Date(req.createdAt).toLocaleString()}
-                              </Text>
-                              <Text style={styles.requestMeta} numberOfLines={3}>
-                                {req.location}
-                              </Text>
-                              <Text style={styles.requestMeta} numberOfLines={3}>
-                                {req.issue}
-                              </Text>
-                              {isTow ? (
-                                <>
-                                  <Text style={styles.requestMeta} numberOfLines={2}>
-                                    Pickup: {req.pickupAddress?.trim() || req.location}
-                                  </Text>
-                                  <Text style={styles.requestMeta} numberOfLines={2}>
-                                    Drop: {req.dropoffAddress?.trim() || 'Not provided'}
-                                  </Text>
-                                  {(req.bookingType === 'scheduled' || Boolean(req.scheduledAt)) && (
-                                    <Text style={styles.requestMeta} numberOfLines={2}>
-                                      Scheduled for:{' '}
-                                      {req.scheduledAt
-                                        ? new Date(req.scheduledAt).toLocaleString()
-                                        : 'Not set'}
-                                    </Text>
-                                  )}
-                                  <View style={styles.requestBadgeRow}>
-                                    <View style={styles.requestTag}>
-                                      <Text style={styles.requestTagText}>Tow</Text>
-                                    </View>
-                                    <View style={styles.requestTag}>
-                                      <Text style={styles.requestTagText}>
-                                        {formatTowBookingType(req.bookingType)}
-                                      </Text>
-                                    </View>
-                                    {formatTowAmount(req) ? (
-                                      <View style={styles.requestTag}>
-                                        <Text style={styles.requestTagText}>{formatTowAmount(req)}</Text>
-                                      </View>
-                                    ) : null}
-                                  </View>
-                                </>
-                              ) : (
-                                <View style={styles.requestBadgeRow}>
-                                  <View style={styles.requestTag}>
-                                    <Text style={styles.requestTagText}>Roadside</Text>
-                                  </View>
-                                </View>
-                              )}
-                            </View>
-                          </View>
-                          <Pressable
-                            onPress={() => openRequestOnMap(req)}
-                            style={({ pressed }) => [
-                              styles.mapPreviewStrip,
-                              pressed && styles.mapPreviewStripPressed,
-                            ]}
-                            android_ripple={{ color: colors.primary + '22' }}
-                            accessibilityRole="button"
-                            accessibilityLabel="Map and route to vehicle owner"
-                            accessibilityHint="Opens full map with driving route and distance from your position"
-                          >
-                            <View style={styles.mapPreviewContent}>
-                              <View style={styles.mapPreviewTopRow}>
-                                <View style={styles.mapPreviewLeft}>
-                                  <View style={styles.mapIconCircle}>
-                                    <Icon name="map" size={22} color={colors.primary} />
-                                  </View>
-                                  <View style={styles.mapPreviewTitles}>
-                                    <Text style={styles.mapPreviewTitle}>Map & route</Text>
-                                    <Text style={styles.mapPreviewSubtitle} numberOfLines={2}>
-                                      Tap for full map, road route, and driving distance
-                                    </Text>
-                                  </View>
-                                </View>
-                                <Icon
-                                  name="chevron-forward"
-                                  size={22}
-                                  color={colors.textSecondary}
-                                  style={styles.mapPreviewChevron}
-                                />
-                              </View>
-                              <View style={styles.mapPreviewDivider} />
-                              {(() => {
-                                const meta = getMapPreviewMeta(req);
-                                return (
-                                  <View style={styles.mapPreviewBottomRow}>
-                                    <View style={styles.mapPreviewDistanceCol}>
-                                      <View style={styles.mapDistanceChip}>
-                                        <Icon
-                                          name="navigate"
-                                          size={14}
-                                          color={meta.hasCoords ? colors.primary : colors.textSecondary}
-                                        />
-                                        <Text style={styles.mapDistancePrimary} numberOfLines={1}>
-                                          {meta.primary}
-                                        </Text>
-                                      </View>
-                                    </View>
-                                  </View>
-                                );
-                              })()}
-                            </View>
-                          </Pressable>
-                          <View style={styles.requestActions}>
-                            {isTow || req.status === 'pending' ? (
-                              <TouchableOpacity
-                                style={styles.acceptBtn}
-                                onPress={() => onAccept(req)}
-                                activeOpacity={0.9}
-                              >
-                                <Text style={styles.acceptBtnText}>{isTow ? 'Accept & Start' : 'Accept'}</Text>
-                              </TouchableOpacity>
-                            ) : (
-                              <Text style={styles.requestTimeMuted}>
-                                {req.status === 'accepted' ? 'Accepted by you' : `Status: ${req.status}`}
-                              </Text>
-                            )}
-                          </View>
-                        </View>
-                      ))
-                    )}
-                  </Card>
-                );
-              })()
-            ) : (
-              <Card onPress={item.onPress} padded>
-                <View style={styles.cardContent}>
-                  <View style={styles.cardIconWrap}>
-                    <Icon name={item.icon} size={iconSizes.lg} color={colors.primary} />
-                    <UnreadRedDot visible={hasUnreadRequestChat && item.id === 'chat'} />
-                  </View>
-                  <Text style={styles.cardTitle}>{item.title}</Text>
-                </View>
-              </Card>
-            )}
-          </View>
-        ))}
-      </View>
-
-      {recentRows.length > 0 ? (
-        <View style={styles.activitiesSection}>
-          <Text style={styles.activitiesTitle}>Recently used</Text>
-          <View style={styles.activitiesList}>
-            {recentRows.map((row, i) => (
-              <TouchableOpacity
-                key={row.id}
-                style={[
-                  styles.activityRow,
-                  i === recentRows.length - 1 && styles.activityRowLast,
-                ]}
-                onPress={() => {
-                  const uid = user?._id;
-                  if (uid) void recordHomeFunctionAccess(uid, row.id);
-                  runHomeFunction(row.id);
-                }}
-                activeOpacity={0.7}
-              >
-                <View style={styles.activityIcon}>
-                  <Icon name={row.icon} size={20} color={colors.primary} />
-                  <UnreadRedDot visible={hasUnreadRequestChat && row.icon === 'chatbubble'} />
-                </View>
-                <View style={styles.activityContent}>
-                  <Text style={styles.activityTitle}>{row.title}</Text>
-                  <Text style={styles.activitySubtitle}>Quick access</Text>
-                </View>
-                <Text style={styles.activityArrow}>›</Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-        </View>
-      ) : null}
-
-      <NewsAndTips refreshKey={requestReloadToken} />
-      </ScrollView>
-    </View>
+    <ProviderHome
+      role={role === 'tow' ? 'tow' : 'mechanic'}
+      requests={role === 'tow' ? towRequests : roadsideRequests}
+      routeFor={(req) => {
+        if (!resolveOwnerJobPoint(req) || !coordsFromUserLocation(user)) return null;
+        return drivingRouteByRequestId[req._id];
+      }}
+      onAccept={role === 'tow' ? handleAcceptTowRequest : handleAcceptRequest}
+      onOpenMap={openRequestOnMap}
+      onDiagnose={onDiagnose}
+      onChatAssistant={onChatAssistant}
+      onVideoCall={() => onVideoCallPress?.()}
+      refreshing={refreshing}
+      onRefresh={onRefresh}
+      refreshKey={requestReloadToken}
+    />
   );
 };

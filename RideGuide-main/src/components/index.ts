@@ -18,3 +18,4 @@ export { DiagnosisResult, diagnosisAsText, diagnosisSummary, SEVERITY_BANNER } f
 export { TrackingPanel } from './TrackingPanel';
 export { OwnerHistory } from './OwnerHistory';
 export { OwnerProfile } from './OwnerProfile';
+export { ProviderHome } from './ProviderHome';
