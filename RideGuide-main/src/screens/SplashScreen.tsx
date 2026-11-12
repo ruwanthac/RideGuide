@@ -173,7 +173,7 @@ export const SplashScreen: React.FC<SplashScreenProps> = ({ onFinish }) => {
         </Animated.View>
 
         <Animated.Text style={[styles.title, { opacity: titleAnim }]}>
-          AI Vehicle Diagnosis
+          RideGuide
         </Animated.Text>
         <Animated.Text style={[styles.subtitle, { opacity: subtitleAnim }]}>
           Smart assistance for your vehicle

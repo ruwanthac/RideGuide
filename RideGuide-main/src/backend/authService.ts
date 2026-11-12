@@ -1,3 +1,4 @@
+import { Platform } from 'react-native';
 import { api, setAuthToken, extractApiError } from './apiClient';
 import { AuthUser } from './types';
 
@@ -33,7 +34,21 @@ function guessMime(uri: string): string {
   return 'image/jpeg';
 }
 
-function appendFileField(form: FormData, field: string, uri: string) {
+const EXTENSION_FOR_MIME: Record<string, string> = {
+  'image/png': 'png',
+  'image/webp': 'webp',
+  'application/pdf': 'pdf',
+  'image/jpeg': 'jpg',
+};
+
+async function appendFileField(form: FormData, field: string, uri: string) {
+  if (Platform.OS === 'web') {
+    // Browsers give blob:/data: URIs and need a real Blob; the { uri, name, type } shape below is native-only.
+    const blob = await (await fetch(uri)).blob();
+    const type = blob.type || guessMime(uri);
+    form.append(field, blob, `${field}.${EXTENSION_FOR_MIME[type] ?? 'jpg'}`);
+    return;
+  }
   const name = uri.split('/').pop()?.split('?')[0] || `${field}.jpg`;
   const type = guessMime(uri);
   form.append(field, { uri, name, type } as unknown as Blob);
@@ -69,7 +84,7 @@ export async function registerWithApi(
         }
       }
       for (const [field, uri] of Object.entries(input.provider.files)) {
-        if (uri) appendFileField(form, field, uri);
+        if (uri) await appendFileField(form, field, uri);
       }
       const { data } = await api.post<{ user: AuthUser; pendingVerification: boolean }>(
         '/auth/register-provider',

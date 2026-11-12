@@ -51,7 +51,7 @@ export function setupNeeded(
 const COPY = {
   owner: {
     icon: 'car' as const,
-    title: 'Add your vehicle',
+    title: 'Last step: your vehicle',
     subtitle: 'We use these details for diagnoses, tow bookings and to give advice that fits your vehicle.',
     button: 'Save and continue',
   },
@@ -111,6 +111,8 @@ const ProfileSetupForm: React.FC<{ user: AuthUser; kind: 'owner' | 'mechanic' | 
   const [saving, setSaving] = useState(false);
 
   const firstName = (user.displayName || '').trim().split(/\s+/)[0];
+  // Right after sign-up this is step 5 of 5, so it continues the sign-up progress bar.
+  const justSignedUp = kind === 'owner' && Date.now() - Date.parse(user.createdAt) < 24 * 60 * 60 * 1000;
 
   const validate = (): Record<string, string> => {
     const e: Record<string, string> = {};
@@ -189,6 +191,8 @@ const ProfileSetupForm: React.FC<{ user: AuthUser; kind: 'owner' | 'mechanic' | 
           justifyContent: 'center',
           marginBottom: spacing.md,
         },
+        progress: { flexDirection: 'row', gap: 6, marginBottom: spacing.xl },
+        progressSeg: { flex: 1, height: 5, borderRadius: 3, backgroundColor: colors.primary },
         welcome: { fontSize: fontSizes.sm, fontWeight: '600', color: colors.primary, marginBottom: 4 },
         title: { fontSize: fontSizes.xxl, fontWeight: '800', color: colors.text, marginBottom: spacing.sm },
         subtitle: {
@@ -223,6 +227,13 @@ const ProfileSetupForm: React.FC<{ user: AuthUser; kind: 'owner' | 'mechanic' | 
   return (
     <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+        {justSignedUp ? (
+          <View style={styles.progress} accessibilityLabel="Step 5 of 5">
+            {[0, 1, 2, 3, 4].map((i) => (
+              <View key={i} style={styles.progressSeg} />
+            ))}
+          </View>
+        ) : null}
         <View style={styles.icon}>
           <Icon name={copy.icon} size={scale(30)} color={colors.primary} />
         </View>

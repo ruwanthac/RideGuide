@@ -1,642 +1,633 @@
-import React, { useState, useMemo } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import {
   View,
   Text,
   StyleSheet,
-  TouchableOpacity,
+  Pressable,
   ScrollView,
   Image,
   KeyboardAvoidingView,
   Platform,
   ActivityIndicator,
   Alert,
+  TextInput,
+  type TextInputProps,
 } from 'react-native';
+import { StatusBar } from 'expo-status-bar';
 import * as ImagePicker from 'expo-image-picker';
-import { PrimaryButton, InputField, Icon } from '../components';
+import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Icon } from '../components';
 import { colors } from '../constants/theme';
 import { useResponsive } from '../hooks';
-import { shadows } from '../constants/theme';
 import { useAuth } from '../context/AuthContext';
 import { formatAuthError } from '../backend';
 
-const HERO_IMAGE = 'https://images.unsplash.com/photo-1503376780353-7e6692767b70?w=800';
+type AccountType = 'owner' | 'mechanic' | 'tow';
+type Step = 'type' | 'name' | 'contact' | 'password' | 'business' | 'documents';
+
+const INK = '#0F172A';
+const MUTED = '#64748B';
+const LINE = '#E2E8F0';
+
+/** Owners finish with "add your vehicle" (step 5) after the account exists; providers with their documents. */
+const TOTAL_STEPS = 5;
+const STEPS: Record<AccountType, Step[]> = {
+  owner: ['type', 'name', 'contact', 'password'],
+  mechanic: ['type', 'name', 'contact', 'business', 'documents'],
+  tow: ['type', 'name', 'contact', 'business', 'documents'],
+};
+
+const ROLES: { id: AccountType; title: string; text: string; tint: string; ink: string }[] = [
+  { id: 'owner', title: 'Vehicle owner', text: 'Diagnose problems, talk to the AI expert, and book roadside help or a tow.', tint: '#DBEAFE', ink: '#1D4ED8' },
+  { id: 'mechanic', title: 'Mechanic', text: 'Get roadside jobs from drivers near your workshop.', tint: '#FFEDD5', ink: '#C2410C' },
+  { id: 'tow', title: 'Tow truck driver', text: 'Get tow jobs nearby and on schedule.', tint: '#DCFCE7', ink: '#15803D' },
+];
+
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+
+/** Accepts "0771234567", "771234567" or "+94 77 123 4567"; returns +94XXXXXXXXX, or null if it isn't 9 digits. */
+export function toSriLankanMobile(input: string): string | null {
+  let digits = input.replace(/\D/g, '');
+  if (digits.startsWith('94') && digits.length === 11) digits = digits.slice(2);
+  if (digits.startsWith('0')) digits = digits.slice(1);
+  return /^\d{9}$/.test(digits) ? `+94${digits}` : null;
+}
 
 interface RegisterScreenProps {
   onNavigateToLogin: () => void;
 }
 
+/** Sign-up, one question per screen. */
 export const RegisterScreen: React.FC<RegisterScreenProps> = ({ onNavigateToLogin }) => {
   const { registerWithEmail } = useAuth();
+  const insets = useSafeAreaInsets();
+  const { scale } = useResponsive();
+
+  const [accountType, setAccountType] = useState<AccountType>('owner');
+  const [stepIndex, setStepIndex] = useState(0);
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
+  const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
-  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
-  const [phone, setPhone] = useState('');
-  const [accountType, setAccountType] = useState<'owner' | 'mechanic' | 'tow'>('owner');
-  const [imageError, setImageError] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
   const [businessName, setBusinessName] = useState('');
   const [businessAddress, setBusinessAddress] = useState('');
   const [truckName, setTruckName] = useState('');
   const [plateNumber, setPlateNumber] = useState('');
-  const [mechanicBrUri, setMechanicBrUri] = useState<string | null>(null);
-  const [mechanicNicUri, setMechanicNicUri] = useState<string | null>(null);
-  const [towCompanyBrUri, setTowCompanyBrUri] = useState<string | null>(null);
-  const [towTruckRegUri, setTowTruckRegUri] = useState<string | null>(null);
-  const [towTruckNicUri, setTowTruckNicUri] = useState<string | null>(null);
+  const [docs, setDocs] = useState<Record<string, string | null>>({});
+  const [error, setError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [submitted, setSubmitted] = useState(false);
+  const secondFieldRef = useRef<TextInput>(null);
 
-  const { spacing, fontSizes, width, scale, borderRadius, iconSizes } = useResponsive();
+  const steps = STEPS[accountType];
+  const step = steps[stepIndex];
+  const isLastStep = stepIndex === steps.length - 1;
+  const isProvider = accountType !== 'owner';
+
+  const requiredDocs: { key: string; label: string; hint: string }[] =
+    accountType === 'mechanic'
+      ? [
+          { key: 'mechanicBrCopy', label: 'Business registration (BR)', hint: 'Photo of your BR certificate' },
+          { key: 'mechanicNicCopy', label: 'National ID (NIC)', hint: 'Front of your NIC' },
+        ]
+      : [
+          { key: 'towCompanyBrCopy', label: 'Company registration (BR)', hint: 'Photo of your BR certificate' },
+          { key: 'towTruckRegCopy', label: 'Truck registration', hint: 'The truck’s registration certificate (CR)' },
+          { key: 'towTruckNicCopy', label: 'Driver’s NIC', hint: 'Front of the driver’s NIC' },
+        ];
+
+  const goBack = () => {
+    setError(null);
+    if (stepIndex === 0) onNavigateToLogin();
+    else setStepIndex((i) => i - 1);
+  };
+
+  /** Returns an error message for the current step, or null when it's complete. */
+  const validateStep = (): string | null => {
+    switch (step) {
+      case 'name':
+        return name.trim().length >= 2 ? null : 'Please enter your full name.';
+      case 'contact':
+        if (!EMAIL_PATTERN.test(email.trim())) return 'Please enter a valid email address.';
+        if (!toSriLankanMobile(phone)) return 'Please enter a 9-digit mobile number, e.g. 77 123 4567.';
+        return null;
+      case 'password':
+        if (password.length < 8) return 'Your password must be at least 8 characters.';
+        if (password !== confirmPassword) return 'The two passwords don’t match.';
+        return null;
+      case 'business':
+        if (!businessName.trim()) return accountType === 'mechanic' ? 'Please enter your workshop name.' : 'Please enter your company name.';
+        if (accountType === 'mechanic' && !businessAddress.trim()) return 'Please enter your workshop address.';
+        if (accountType === 'tow' && (!truckName.trim() || !plateNumber.trim())) return 'Please enter the truck name and plate number.';
+        return null;
+      case 'documents': {
+        const missing = requiredDocs.find((d) => !docs[d.key]);
+        return missing ? `Please add your ${missing.label}.` : null;
+      }
+      default:
+        return null;
+    }
+  };
+
+  const submit = () => {
+    const mobile = toSriLankanMobile(phone) ?? phone.trim();
+    const provider = isProvider
+      ? {
+          businessName: businessName.trim(),
+          ...(accountType === 'mechanic'
+            ? { businessAddress: businessAddress.trim() }
+            : { truckName: truckName.trim(), plateNumber: plateNumber.trim().toUpperCase() }),
+          files: Object.fromEntries(requiredDocs.map((d) => [d.key, docs[d.key] as string])),
+        }
+      : undefined;
+    setSubmitting(true);
+    void registerWithEmail(name.trim(), email.trim(), isProvider ? undefined : password, accountType, mobile, provider)
+      .then(({ pendingVerification }) => {
+        // Owners are signed in now and move on to "add your vehicle"; providers wait for approval.
+        if (pendingVerification) setSubmitted(true);
+      })
+      .catch((e) => {
+        const message = formatAuthError(e, "We couldn't create your account. Please try again.");
+        // An email that's already registered is fixed on the contact step.
+        if (/email/i.test(message)) setStepIndex(steps.indexOf('contact'));
+        setError(message);
+      })
+      .finally(() => setSubmitting(false));
+  };
+
+  const next = () => {
+    const problem = validateStep();
+    setError(problem);
+    if (problem) return;
+    if (isLastStep) submit();
+    else setStepIndex((i) => i + 1);
+  };
+
+  const pickDoc = async (key: string, source: 'gallery' | 'camera') => {
+    const permission =
+      source === 'gallery'
+        ? await ImagePicker.requestMediaLibraryPermissionsAsync()
+        : await ImagePicker.requestCameraPermissionsAsync();
+    if (permission.status !== 'granted') {
+      Alert.alert(
+        source === 'gallery' ? 'Allow access to photos' : 'Allow access to the camera',
+        source === 'gallery'
+          ? 'Please allow photo access in Settings to upload your documents.'
+          : 'Please allow camera access in Settings to photograph your documents.'
+      );
+      return;
+    }
+    try {
+      const options: ImagePicker.ImagePickerOptions = { mediaTypes: ['images'], allowsEditing: true, quality: 0.85 };
+      const result =
+        source === 'gallery' ? await ImagePicker.launchImageLibraryAsync(options) : await ImagePicker.launchCameraAsync(options);
+      const uri = result.canceled ? null : result.assets[0]?.uri;
+      if (uri) {
+        setDocs((d) => ({ ...d, [key]: uri }));
+        setError(null);
+      }
+    } catch {
+      Alert.alert(
+        source === 'gallery' ? "Couldn't open photos" : "Couldn't open the camera",
+        'Please try again.'
+      );
+    }
+  };
 
   const styles = useMemo(
     () =>
       StyleSheet.create({
-        container: {
-          flex: 1,
-          backgroundColor: colors.background,
+        screen: { flex: 1, backgroundColor: '#FFFFFF' },
+        top: { paddingTop: insets.top + 12, paddingHorizontal: 24, flexDirection: 'row', alignItems: 'center', gap: 14 },
+        backBtn: { width: 44, height: 44, borderRadius: 22, borderWidth: 1, borderColor: LINE, alignItems: 'center', justifyContent: 'center' },
+        progress: { flex: 1, flexDirection: 'row', gap: 6 },
+        progressSeg: { flex: 1, height: 5, borderRadius: 3 },
+        body: { flexGrow: 1, paddingHorizontal: 24, paddingTop: 32, paddingBottom: 24 },
+        stepLabel: { fontSize: 14, fontWeight: '600', color: MUTED },
+        question: {
+          fontSize: Math.round(scale(30)),
+          lineHeight: Math.round(scale(35)),
+          fontWeight: '800',
+          color: INK,
+          letterSpacing: -0.8,
+          marginTop: 8,
         },
-        heroSection: {
-          height: scale(160),
-          backgroundColor: colors.primary,
-          overflow: 'hidden',
+        helper: { fontSize: 16, lineHeight: 23, color: MUTED, marginTop: 10 },
+        fields: { marginTop: 28, gap: 18 },
+        bigInput: {
+          height: 60,
+          borderBottomWidth: 2,
+          borderBottomColor: colors.primary,
+          fontSize: 24,
+          fontWeight: '600',
+          color: INK,
+          paddingHorizontal: 2,
         },
-        heroImage: {
-          width: '100%',
-          height: '100%',
-          resizeMode: 'cover',
-          opacity: 0.85,
-        },
-        heroOverlay: {
-          ...StyleSheet.absoluteFill,
-          backgroundColor: 'rgba(37, 99, 235, 0.35)',
-        },
-        scrollContent: {
-          flexGrow: 1,
-          paddingHorizontal: spacing.lg,
-          paddingTop: spacing.xl,
-          paddingBottom: spacing.xl * 2,
-        },
-        content: {
-          maxWidth: Math.min(400, width * 0.92),
-          width: '100%',
-          alignSelf: 'center',
-        },
-        formCard: {
-          backgroundColor: colors.card,
-          borderRadius: scale(24),
-          paddingHorizontal: spacing.xl + spacing.sm,
-          paddingVertical: spacing.xl + spacing.xs,
-          marginBottom: spacing.xl,
-          ...shadows.md,
-        },
-        headerRow: {
-          marginBottom: spacing.xl,
-        },
-        title: {
-          fontSize: fontSizes.xxxl,
-          fontWeight: '700',
-          color: colors.text,
-          marginBottom: spacing.xs,
-        },
-        subtitle: {
-          fontSize: fontSizes.md,
-          color: colors.textSecondary,
-        },
-        form: {
-          marginBottom: spacing.md,
-        },
-        button: {
-          marginTop: spacing.sm,
-        },
-        divider: {
-          flexDirection: 'row',
+        label: { fontSize: 14, fontWeight: '600', color: INK, marginBottom: 6 },
+        input: { height: 52, borderRadius: 14, borderWidth: 1.5, borderColor: '#CBD5E1', paddingHorizontal: 16, fontSize: 16, color: INK },
+        phoneRow: { flexDirection: 'row', gap: 8 },
+        prefix: {
+          height: 52,
+          paddingHorizontal: 14,
+          borderRadius: 14,
+          backgroundColor: '#F1F5F9',
           alignItems: 'center',
-          marginVertical: spacing.xl,
+          justifyContent: 'center',
         },
-        dividerLine: {
-          flex: 1,
-          height: 1,
-          backgroundColor: colors.border,
-        },
-        dividerText: {
-          fontSize: fontSizes.sm,
-          color: colors.textSecondary,
-          paddingHorizontal: spacing.md,
-        },
-        loginPrompt: {
-          alignItems: 'center',
-          paddingVertical: spacing.md,
-        },
-        loginText: {
-          fontSize: fontSizes.md,
-          color: colors.textSecondary,
-        },
-        loginLink: {
-          color: colors.primary,
-          fontWeight: '700',
-        },
-        errorText: {
-          fontSize: fontSizes.sm,
-          color: colors.error,
-          marginBottom: spacing.sm,
-          textAlign: 'center',
-        },
-        accountTypeLabel: {
-          fontSize: fontSizes.sm,
-          fontWeight: '600',
-          color: colors.text,
-          marginBottom: spacing.sm,
-        },
-        roleRow: {
-          flexDirection: 'row',
-          flexWrap: 'wrap',
-          gap: spacing.sm,
-          marginBottom: spacing.md,
-        },
-        roleChip: {
-          paddingVertical: spacing.sm,
-          paddingHorizontal: spacing.md,
-          borderRadius: scale(20),
-          borderWidth: 1,
-          borderColor: colors.border,
-          backgroundColor: colors.background,
-        },
-        roleChipActive: {
-          borderColor: colors.primary,
-          backgroundColor: 'rgba(37, 99, 235, 0.12)',
-        },
-        roleChipText: {
-          fontSize: fontSizes.sm,
-          color: colors.textSecondary,
-          fontWeight: '600',
-        },
-        roleChipTextActive: {
-          color: colors.primary,
-        },
-        providerSectionTitle: {
-          fontSize: fontSizes.sm,
-          fontWeight: '600',
-          color: colors.text,
-          marginTop: spacing.md,
-          marginBottom: spacing.sm,
-        },
-        docCard: {
-          borderWidth: 1,
-          borderColor: colors.border,
-          borderRadius: borderRadius.lg,
-          padding: spacing.sm,
-          marginBottom: spacing.sm,
-          backgroundColor: colors.background,
-        },
-        docLabel: {
-          fontSize: fontSizes.xs,
-          fontWeight: '600',
-          color: colors.textSecondary,
-          marginBottom: spacing.xs,
-        },
-        docPreview: {
-          width: '100%',
-          height: scale(100),
-          borderRadius: borderRadius.md,
-          backgroundColor: colors.card,
-          marginBottom: spacing.xs,
-        },
-        docActions: {
-          flexDirection: 'row',
-          gap: spacing.sm,
-        },
+        prefixText: { fontSize: 16, fontWeight: '700', color: INK },
+        eye: { position: 'absolute', right: 4, bottom: 4, width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
+        roleCard: { flexDirection: 'row', alignItems: 'center', gap: 14, padding: 16, borderRadius: 18 },
+        roleIcon: { width: 48, height: 48, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
+        roleTitle: { fontSize: 16, fontWeight: '700', color: INK },
+        roleText: { fontSize: 13, lineHeight: 19, color: MUTED, marginTop: 3 },
+        radio: { width: 22, height: 22, borderRadius: 11, borderWidth: 2, alignItems: 'center', justifyContent: 'center' },
+        radioDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: colors.primary },
+        note: { fontSize: 13, lineHeight: 19, color: MUTED, marginTop: 16 },
+        docCard: { borderWidth: 1.5, borderColor: LINE, borderRadius: 16, padding: 14, gap: 12 },
+        docHead: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+        docThumb: { width: 52, height: 52, borderRadius: 10, backgroundColor: '#F1F5F9', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
+        docTitle: { fontSize: 15, fontWeight: '700', color: INK },
+        docHint: { fontSize: 13, color: MUTED, marginTop: 2 },
+        docActions: { flexDirection: 'row', gap: 10 },
         docBtn: {
           flex: 1,
+          height: 44,
+          borderRadius: 12,
+          backgroundColor: '#EFF6FF',
           flexDirection: 'row',
           alignItems: 'center',
           justifyContent: 'center',
-          paddingVertical: spacing.sm,
-          borderRadius: borderRadius.md,
-          borderWidth: 1,
-          borderColor: colors.primary,
-          backgroundColor: 'rgba(37,99,235,0.06)',
+          gap: 8,
         },
-        docBtnText: {
-          fontSize: fontSizes.xs,
-          fontWeight: '600',
-          color: colors.primary,
-          marginLeft: spacing.xs,
+        docBtnText: { color: '#1D4ED8', fontSize: 14, fontWeight: '700' },
+        error: { color: colors.error, fontSize: 14, fontWeight: '600', marginTop: 16 },
+        footer: { paddingHorizontal: 24, paddingBottom: Math.max(insets.bottom, 16) + 8, paddingTop: 8 },
+        nextBtn: {
+          height: 54,
+          borderRadius: 16,
+          backgroundColor: colors.primary,
+          flexDirection: 'row',
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: 8,
         },
-        passwordFieldWrap: {
-          position: 'relative',
-        },
-        compactInputContainer: {
-          marginBottom: spacing.sm,
-        },
-        compactInputFollower: {
-          marginTop: -spacing.xs,
-        },
-        passwordEyeBtn: {
-          position: 'absolute',
-          right: spacing.md,
-          top: '50%',
-          zIndex: 10,
-          padding: spacing.xs,
-          transform: [{ translateY: -scale(11) }],
-        },
+        nextText: { color: '#FFFFFF', fontSize: 16, fontWeight: '700' },
+        signIn: { textAlign: 'center', color: MUTED, fontSize: 14, marginTop: 14 },
+        link: { color: colors.primary, fontWeight: '700' },
+        pressed: { opacity: 0.85 },
+        doneIcon: { width: 72, height: 72, borderRadius: 36, backgroundColor: '#DCFCE7', alignItems: 'center', justifyContent: 'center' },
       }),
-    [spacing, fontSizes, width, scale, borderRadius, iconSizes]
+    [insets, scale]
   );
 
-  const requestGalleryPermission = async () => {
-    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (status !== 'granted') {
-      Alert.alert('Permission required', 'Please allow gallery access to upload documents.');
-      return false;
-    }
-    return true;
-  };
-
-  const requestCameraPermission = async () => {
-    const { status } = await ImagePicker.requestCameraPermissionsAsync();
-    if (status !== 'granted') {
-      Alert.alert('Permission required', 'Please allow camera access to capture documents.');
-      return false;
-    }
-    return true;
-  };
-
-  const pickImage = async (setter: (u: string) => void) => {
-    if (!(await requestGalleryPermission())) return;
-    try {
-      const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ['images'],
-        allowsEditing: true,
-        quality: 0.85,
-      });
-      if (!result.canceled && result.assets[0]?.uri) {
-        setter(result.assets[0].uri);
-      }
-    } catch {
-      Alert.alert("Couldn't open photos", 'Please check that the app is allowed to access your photos, then try again.');
-    }
-  };
-
-  const captureImage = async (setter: (u: string) => void) => {
-    if (!(await requestCameraPermission())) return;
-    try {
-      const result = await ImagePicker.launchCameraAsync({
-        mediaTypes: ['images'],
-        allowsEditing: true,
-        quality: 0.85,
-      });
-      if (!result.canceled && result.assets[0]?.uri) {
-        setter(result.assets[0].uri);
-      }
-    } catch {
-      Alert.alert("Couldn't open the camera", 'Please check that the app is allowed to use the camera, then try again.');
-    }
-  };
-
-  const renderDocRow = (label: string, uri: string | null, setUri: (u: string) => void) => (
-    <View style={styles.docCard}>
-      <Text style={styles.docLabel}>{label}</Text>
-      {uri ? <Image source={{ uri }} style={styles.docPreview} resizeMode="cover" /> : null}
-      <View style={styles.docActions}>
-        <TouchableOpacity style={styles.docBtn} onPress={() => pickImage(setUri)} activeOpacity={0.8}>
-          <Icon name="image" size={iconSizes.sm} color={colors.primary} />
-          <Text style={styles.docBtnText}>Gallery</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.docBtn} onPress={() => captureImage(setUri)} activeOpacity={0.8}>
-          <Icon name="camera" size={iconSizes.sm} color={colors.primary} />
-          <Text style={styles.docBtnText}>Camera</Text>
-        </TouchableOpacity>
-      </View>
+  /** Labelled text field. A plain function, not a component, so inputs keep focus while typing. */
+  const field = ({ label, id, style, ...props }: { label: string; id: string } & TextInputProps) => (
+    <View key={id}>
+      <Text style={styles.label} nativeID={id}>
+        {label}
+      </Text>
+      <TextInput style={[styles.input, style]} placeholderTextColor="#94A3B8" accessibilityLabelledBy={id} accessibilityLabel={label} {...props} />
     </View>
   );
 
-  const handleRegister = () => {
-    setError(null);
-    if (!name.trim() || !email.trim()) {
-      setError('Fill in name and email.');
-      return;
-    }
-    if (!phone.trim()) {
-      setError('Phone number is required.');
-      return;
-    }
-    if (accountType === 'owner' && !password) {
-      setError('Owner accounts need a password.');
-      return;
-    }
-    if (accountType === 'owner' && password.length < 8) {
-      setError('Password must be at least 8 characters.');
-      return;
-    }
-    if (accountType === 'owner' && password !== confirmPassword) {
-      setError('Password and confirm password must match.');
-      return;
-    }
+  if (submitted) {
+    return (
+      <View style={[styles.screen, { paddingTop: insets.top + 80, paddingHorizontal: 24, paddingBottom: Math.max(insets.bottom, 16) + 8 }]}>
+        <StatusBar style="dark" />
+        <View style={styles.doneIcon}>
+          <Icon name="checkmark-circle" size={40} color="#15803D" />
+        </View>
+        <Text style={[styles.question, { marginTop: 24 }]} accessibilityRole="header">
+          Application submitted
+        </Text>
+        <Text style={styles.helper}>
+          Our team will check your documents. When your account is approved, we'll email {email.trim() || 'you'} a one-time
+          password to sign in.
+        </Text>
+        <View style={{ flex: 1 }} />
+        <Pressable style={({ pressed }) => [styles.nextBtn, pressed && styles.pressed]} onPress={onNavigateToLogin} accessibilityRole="button">
+          <Text style={styles.nextText}>Done</Text>
+        </Pressable>
+      </View>
+    );
+  }
 
-    let provider:
-      | {
-          businessName: string;
-          businessAddress?: string;
-          truckName?: string;
-          plateNumber?: string;
-          files: Record<string, string>;
-        }
-      | undefined;
-
-    if (accountType === 'mechanic') {
-      if (!businessName.trim() || !businessAddress.trim()) {
-        setError('Enter workshop name and address.');
-        return;
-      }
-      if (!mechanicBrUri || !mechanicNicUri) {
-        setError('Upload BR copy and NIC copy.');
-        return;
-      }
-      provider = {
-        businessName: businessName.trim(),
-        businessAddress: businessAddress.trim(),
-        files: {
-          mechanicBrCopy: mechanicBrUri,
-          mechanicNicCopy: mechanicNicUri,
-        },
-      };
-    } else if (accountType === 'tow') {
-      if (!businessName.trim() || !truckName.trim() || !plateNumber.trim()) {
-        setError('Enter company name, truck name, and plate number.');
-        return;
-      }
-      if (!towCompanyBrUri || !towTruckRegUri || !towTruckNicUri) {
-        setError('Upload all required document images.');
-        return;
-      }
-      provider = {
-        businessName: businessName.trim(),
-        truckName: truckName.trim(),
-        plateNumber: plateNumber.trim(),
-        files: {
-          towCompanyBrCopy: towCompanyBrUri,
-          towTruckRegCopy: towTruckRegUri,
-          towTruckNicCopy: towTruckNicUri,
-        },
-      };
-    }
-
-    setSubmitting(true);
-    void registerWithEmail(
-      name.trim(),
-      email.trim(),
-      accountType === 'owner' ? password : undefined,
-      accountType,
-      phone.trim() || undefined,
-      provider
-    )
-      .then(({ pendingVerification }) => {
-        if (pendingVerification) {
-          Alert.alert(
-            'Application submitted',
-            'Your documents are under review. When an admin approves your account, you will receive an email with a one-time password to sign in.',
-            [{ text: 'OK', onPress: onNavigateToLogin }]
-          );
-        }
-      })
-      .catch((e) => setError(formatAuthError(e)))
-      .finally(() => setSubmitting(false));
-  };
+  const roleTitle = ROLES.find((r) => r.id === accountType)?.title ?? '';
+  const stepNumber = stepIndex + 1;
 
   return (
-    <View style={styles.container}>
-      <View style={styles.heroSection}>
-        {!imageError ? (
-          <Image
-            source={{ uri: HERO_IMAGE }}
-            style={styles.heroImage}
-            resizeMode="cover"
-            onError={() => setImageError(true)}
-          />
-        ) : (
-          <View
-            style={[
-              StyleSheet.absoluteFill,
-              {
-                backgroundColor: colors.primary,
-                alignItems: 'center',
-                justifyContent: 'center',
-              },
-            ]}
-          >
-            <Icon name="car" size={scale(72)} color="#FFFFFF" />
-          </View>
-        )}
-        <View style={styles.heroOverlay} />
+    <KeyboardAvoidingView style={styles.screen} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <StatusBar style="dark" />
+      <View style={styles.top}>
+        <Pressable
+          style={({ pressed }) => [styles.backBtn, pressed && styles.pressed]}
+          onPress={goBack}
+          accessibilityRole="button"
+          accessibilityLabel={stepIndex === 0 ? 'Back to welcome' : 'Previous step'}
+        >
+          <Icon name="chevron-back" size={20} color={INK} />
+        </Pressable>
+        <View style={styles.progress} accessibilityLabel={`Step ${stepNumber} of ${TOTAL_STEPS}`}>
+          {Array.from({ length: TOTAL_STEPS }, (_, i) => (
+            <View key={i} style={[styles.progressSeg, { backgroundColor: i < stepNumber ? colors.primary : LINE }]} />
+          ))}
+        </View>
       </View>
 
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        keyboardVerticalOffset={0}
-      >
-        <ScrollView
-          contentContainerStyle={styles.scrollContent}
-          keyboardShouldPersistTaps="handled"
-          showsVerticalScrollIndicator={false}
-        >
-          <View style={styles.content}>
-            <View style={styles.formCard}>
-              <View style={styles.headerRow}>
-                <Text style={styles.title}>Create Account</Text>
-                <Text style={styles.subtitle}>
-                  {accountType === 'owner'
-                    ? 'Sign up as a vehicle owner.'
-                    : accountType === 'mechanic'
-                    ? 'Sign up as a mechanic. Submit workshop verification details'
-                    : 'Sign up as a tow driver. Submit company and truck documents for verification.'}
+      <ScrollView contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled">
+        <Text style={styles.stepLabel}>
+          {step === 'type' ? `Step 1 of ${TOTAL_STEPS}` : `${roleTitle} · Step ${stepNumber} of ${TOTAL_STEPS}`}
+        </Text>
+
+        {step === 'type' ? (
+          <>
+            <Text style={styles.question} accessibilityRole="header">
+              How will you use RideGuide?
+            </Text>
+            <Text style={styles.helper}>Pick the one that fits you.</Text>
+            <View style={styles.fields} accessibilityRole="radiogroup">
+              {ROLES.map((r) => {
+                const on = r.id === accountType;
+                return (
+                  <Pressable
+                    key={r.id}
+                    onPress={() => setAccountType(r.id)}
+                    style={[
+                      styles.roleCard,
+                      { borderWidth: on ? 2 : 1.5, borderColor: on ? colors.primary : LINE, backgroundColor: on ? '#F8FAFF' : '#FFFFFF' },
+                    ]}
+                    accessibilityRole="radio"
+                    accessibilityState={{ checked: on }}
+                    accessibilityLabel={`${r.title}. ${r.text}`}
+                  >
+                    <View style={[styles.roleIcon, { backgroundColor: r.tint }]}>
+                      {r.id === 'owner' ? (
+                        <Icon name="car" size={24} color={r.ink} />
+                      ) : r.id === 'mechanic' ? (
+                        <Icon name="construct" size={22} color={r.ink} />
+                      ) : (
+                        <MaterialCommunityIcons name="tow-truck" size={24} color={r.ink} />
+                      )}
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.roleTitle}>{r.title}</Text>
+                      <Text style={styles.roleText}>{r.text}</Text>
+                    </View>
+                    <View style={[styles.radio, { borderColor: on ? colors.primary : '#CBD5E1' }]}>{on ? <View style={styles.radioDot} /> : null}</View>
+                  </Pressable>
+                );
+              })}
+            </View>
+            <Text style={styles.note}>
+              Mechanics and tow drivers upload their documents during sign-up. Our team checks them before you can take jobs.
+            </Text>
+          </>
+        ) : null}
+
+        {step === 'name' ? (
+          <>
+            <Text style={styles.question} accessibilityRole="header" nativeID="q-name">
+              What's your name?
+            </Text>
+            <Text style={styles.helper}>
+              {isProvider
+                ? 'Vehicle owners see it when you accept their request.'
+                : 'Mechanics and tow drivers see it when they come to help you.'}
+            </Text>
+            <View style={styles.fields}>
+              <TextInput
+                style={styles.bigInput}
+                value={name}
+                onChangeText={setName}
+                placeholder="Full name"
+                placeholderTextColor="#94A3B8"
+                autoCapitalize="words"
+                autoComplete="name"
+                textContentType="name"
+                autoFocus
+                returnKeyType="next"
+                onSubmitEditing={next}
+                accessibilityLabelledBy="q-name"
+                accessibilityLabel="Full name"
+              />
+            </View>
+          </>
+        ) : null}
+
+        {step === 'contact' ? (
+          <>
+            <Text style={styles.question} accessibilityRole="header">
+              How can we reach you?
+            </Text>
+            <Text style={styles.helper}>
+              {isProvider
+                ? 'We’ll email you when your account is approved. Owners call this number when you’re on the way.'
+                : 'You sign in with your email. Mechanics and tow drivers call this number when they’re on the way.'}
+            </Text>
+            <View style={styles.fields}>
+              {field({
+                id: 'f-email',
+                label: 'Email',
+                value: email,
+                onChangeText: setEmail,
+                placeholder: 'name@example.com',
+                keyboardType: 'email-address',
+                autoCapitalize: 'none',
+                autoComplete: 'email',
+                textContentType: 'emailAddress',
+                returnKeyType: 'next',
+                onSubmitEditing: () => secondFieldRef.current?.focus(),
+              })}
+              <View>
+                <Text style={styles.label} nativeID="f-phone">
+                  Mobile number
                 </Text>
-              </View>
-
-              <View style={styles.form}>
-                <Text style={styles.accountTypeLabel}>I am signing up as</Text>
-                <View style={styles.roleRow}>
-                  {(
-                    [
-                      { id: 'owner' as const, label: 'Vehicle owner' },
-                      { id: 'mechanic' as const, label: 'Mechanic' },
-                      { id: 'tow' as const, label: 'Tow driver' },
-                    ] as const
-                  ).map(({ id, label }) => (
-                    <TouchableOpacity
-                      key={id}
-                      style={[styles.roleChip, accountType === id && styles.roleChipActive]}
-                      onPress={() => setAccountType(id)}
-                      activeOpacity={0.7}
-                    >
-                      <Text
-                        style={[styles.roleChipText, accountType === id && styles.roleChipTextActive]}
-                      >
-                        {label}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-                <InputField
-                  label="Full Name"
-                  placeholder="John Doe"
-                  value={name}
-                  onChangeText={setName}
-                  containerStyle={styles.compactInputContainer}
-                />
-                <InputField
-                  label="Email Address"
-                  placeholder="name@example.com"
-                  value={email}
-                  onChangeText={setEmail}
-                  keyboardType="email-address"
-                  autoCapitalize="none"
-                  containerStyle={styles.compactInputContainer}
-                />
-                <InputField
-                  label="Phone"
-                  placeholder="+94771234567"
-                  value={phone}
-                  onChangeText={setPhone}
-                  keyboardType="phone-pad"
-                  containerStyle={styles.compactInputContainer}
-                />
-                {accountType === 'owner' ? (
-                  <>
-                    <View style={styles.passwordFieldWrap}>
-                      <InputField
-                        label="Password"
-                        placeholder="At least 8 characters"
-                        value={password}
-                        onChangeText={setPassword}
-                        secureTextEntry={!showPassword}
-                        style={{ paddingRight: scale(46) }}
-                        containerStyle={styles.compactInputContainer}
-                      />
-                      <TouchableOpacity
-                        style={styles.passwordEyeBtn}
-                        onPress={() => setShowPassword((v) => !v)}
-                        activeOpacity={0.7}
-                      >
-                        <Icon
-                          name={showPassword ? 'eye-off' : 'eye'}
-                          size={iconSizes.md}
-                          color={colors.textSecondary}
-                        />
-                      </TouchableOpacity>
-                    </View>
-
-                    <View style={styles.passwordFieldWrap}>
-                      <InputField
-                        label="Confirm Password"
-                        placeholder="Re-enter password"
-                        value={confirmPassword}
-                        onChangeText={setConfirmPassword}
-                        secureTextEntry={!showConfirmPassword}
-                        style={{ paddingRight: scale(46) }}
-                        containerStyle={styles.compactInputContainer}
-                      />
-                      <TouchableOpacity
-                        style={styles.passwordEyeBtn}
-                        onPress={() => setShowConfirmPassword((v) => !v)}
-                        activeOpacity={0.7}
-                      >
-                        <Icon
-                          name={showConfirmPassword ? 'eye-off' : 'eye'}
-                          size={iconSizes.md}
-                          color={colors.textSecondary}
-                        />
-                      </TouchableOpacity>
-                    </View>
-                  </>
-                ) : null}
-                {accountType === 'mechanic' && (
-                  <>
-                    <Text style={styles.providerSectionTitle}>Workshop verification</Text>
-                    <InputField
-                      label="Workshop / business name"
-                      placeholder="e.g. Alex Auto Garage"
-                      value={businessName}
-                      onChangeText={setBusinessName}
-                    />
-                    <InputField
-                      label="Workshop address"
-                      placeholder="Street, city"
-                      value={businessAddress}
-                      onChangeText={setBusinessAddress}
-                    />
-                    {renderDocRow('Business registration (BR) copy', mechanicBrUri, setMechanicBrUri)}
-                    {renderDocRow('NIC copy', mechanicNicUri, setMechanicNicUri)}
-                  </>
-                )}
-
-                {accountType === 'tow' && (
-                  <>
-                    <Text style={styles.providerSectionTitle}>Company & truck verification</Text>
-                    <InputField
-                      label="Company name"
-                      placeholder="e.g. Colombo Tow Services"
-                      value={businessName}
-                      onChangeText={setBusinessName}
-                      containerStyle={styles.compactInputContainer}
-                    />
-                    <InputField
-                      label="Truck name / label"
-                      placeholder="e.g. Tow Truck A"
-                      value={truckName}
-                      onChangeText={setTruckName}
-                      containerStyle={[styles.compactInputContainer, styles.compactInputFollower]}
-                    />
-                    <InputField
-                      label="Plate number"
-                      placeholder="e.g. WP-1234"
-                      value={plateNumber}
-                      onChangeText={setPlateNumber}
-                      autoCapitalize="characters"
-                      containerStyle={[styles.compactInputContainer, styles.compactInputFollower]}
-                    />
-                    {renderDocRow('Company BR copy', towCompanyBrUri, setTowCompanyBrUri)}
-                    {renderDocRow('Truck registration copy', towTruckRegUri, setTowTruckRegUri)}
-                    {renderDocRow('Tow owner NIC copy', towTruckNicUri, setTowTruckNicUri)}
-                  </>
-                )}
-
-                {error ? <Text style={styles.errorText}>{error}</Text> : null}
-
-                {submitting ? (
-                  <ActivityIndicator color={colors.primary} style={{ marginVertical: spacing.md }} />
-                ) : (
-                  <PrimaryButton
-                    title="Create Account"
-                    onPress={handleRegister}
-                    style={styles.button}
+                <View style={styles.phoneRow}>
+                  <View style={styles.prefix}>
+                    <Text style={styles.prefixText}>+94</Text>
+                  </View>
+                  <TextInput
+                    ref={secondFieldRef}
+                    style={[styles.input, { flex: 1 }]}
+                    value={phone}
+                    onChangeText={setPhone}
+                    placeholder="77 123 4567"
+                    placeholderTextColor="#94A3B8"
+                    keyboardType="phone-pad"
+                    autoComplete="tel"
+                    textContentType="telephoneNumber"
+                    returnKeyType="next"
+                    onSubmitEditing={next}
+                    accessibilityLabelledBy="f-phone"
+                    accessibilityLabel="Mobile number"
                   />
-                )}
+                </View>
               </View>
             </View>
+          </>
+        ) : null}
 
-            <View style={styles.divider}>
-              <View style={styles.dividerLine} />
-              <Text style={styles.dividerText}>Already have an account?</Text>
-              <View style={styles.dividerLine} />
+        {step === 'password' ? (
+          <>
+            <Text style={styles.question} accessibilityRole="header">
+              Create a password
+            </Text>
+            <Text style={styles.helper}>At least 8 characters. A short phrase is easy to remember and hard to guess.</Text>
+            <View style={styles.fields}>
+              <View>
+                {field({
+                  id: 'f-pass',
+                  label: 'Password',
+                  value: password,
+                  onChangeText: setPassword,
+                  secureTextEntry: !showPassword,
+                  autoCapitalize: 'none',
+                  autoComplete: 'new-password',
+                  textContentType: 'newPassword',
+                  style: { paddingRight: 52 },
+                  returnKeyType: 'next',
+                  onSubmitEditing: () => secondFieldRef.current?.focus(),
+                })}
+                <Pressable
+                  style={styles.eye}
+                  onPress={() => setShowPassword((v) => !v)}
+                  accessibilityRole="button"
+                  accessibilityLabel={showPassword ? 'Hide password' : 'Show password'}
+                >
+                  <Icon name={showPassword ? 'eye-off' : 'eye'} size={20} color={MUTED} />
+                </Pressable>
+              </View>
+              <View>
+                <Text style={styles.label} nativeID="f-pass2">
+                  Type it again
+                </Text>
+                <TextInput
+                  ref={secondFieldRef}
+                  style={styles.input}
+                  value={confirmPassword}
+                  onChangeText={setConfirmPassword}
+                  secureTextEntry={!showPassword}
+                  autoCapitalize="none"
+                  textContentType="newPassword"
+                  returnKeyType="done"
+                  onSubmitEditing={next}
+                  accessibilityLabelledBy="f-pass2"
+                  accessibilityLabel="Type the password again"
+                />
+              </View>
             </View>
+          </>
+        ) : null}
 
-            <TouchableOpacity
-              style={styles.loginPrompt}
-              onPress={onNavigateToLogin}
-              activeOpacity={0.7}
-            >
-              <Text style={styles.loginText}>
-                Sign in instead{' '}
-                <Text style={styles.loginLink}>Log In</Text>
+        {step === 'business' ? (
+          <>
+            <Text style={styles.question} accessibilityRole="header">
+              {accountType === 'mechanic' ? 'Your workshop' : 'Your company and truck'}
+            </Text>
+            <Text style={styles.helper}>Vehicle owners see these details when you accept their job.</Text>
+            <View style={styles.fields}>
+              {field({ id: 'f-biz', label: accountType === 'mechanic' ? 'Workshop name' : 'Company name', value: businessName, onChangeText: setBusinessName, placeholder: accountType === 'mechanic' ? 'e.g. Sunil Auto Care' : 'e.g. Colombo Tow Services', autoCapitalize: "words" })}
+              {accountType === 'mechanic' ? (
+                field({ id: 'f-addr', label: "Workshop address", value: businessAddress, onChangeText: setBusinessAddress, placeholder: "Street, city", autoCapitalize: "words" })
+              ) : (
+                <>
+                  {field({ id: 'f-truck', label: "Truck name", value: truckName, onChangeText: setTruckName, placeholder: "e.g. Tow Truck A" })}
+                  {field({ id: 'f-plate', label: "Truck plate number", value: plateNumber, onChangeText: setPlateNumber, placeholder: "e.g. WP LK-1234", autoCapitalize: "characters" })}
+                </>
+              )}
+            </View>
+          </>
+        ) : null}
+
+        {step === 'documents' ? (
+          <>
+            <Text style={styles.question} accessibilityRole="header">
+              Upload your documents
+            </Text>
+            <Text style={styles.helper}>Clear photos, with all four corners showing. Only our team sees them.</Text>
+            <View style={styles.fields}>
+              {requiredDocs.map((d) => {
+                const uri = docs[d.key];
+                return (
+                  <View key={d.key} style={[styles.docCard, uri ? { borderColor: '#86EFAC' } : null]}>
+                    <View style={styles.docHead}>
+                      <View style={styles.docThumb}>
+                        {uri ? (
+                          <Image source={{ uri }} style={{ width: 52, height: 52 }} resizeMode="cover" accessibilityLabel={`${d.label} photo`} />
+                        ) : (
+                          <Icon name="document-text" size={22} color={MUTED} />
+                        )}
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.docTitle}>{d.label}</Text>
+                        <Text style={styles.docHint}>{uri ? 'Added. Tap below to replace it.' : d.hint}</Text>
+                      </View>
+                      {uri ? <Icon name="checkmark-circle" size={22} color="#15803D" /> : null}
+                    </View>
+                    <View style={styles.docActions}>
+                      <Pressable
+                        style={({ pressed }) => [styles.docBtn, pressed && styles.pressed]}
+                        onPress={() => void pickDoc(d.key, 'camera')}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Take a photo of your ${d.label}`}
+                      >
+                        <Icon name="camera" size={18} color="#1D4ED8" />
+                        <Text style={styles.docBtnText}>Take photo</Text>
+                      </Pressable>
+                      <Pressable
+                        style={({ pressed }) => [styles.docBtn, pressed && styles.pressed]}
+                        onPress={() => void pickDoc(d.key, 'gallery')}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Choose a photo of your ${d.label}`}
+                      >
+                        <Icon name="image" size={18} color="#1D4ED8" />
+                        <Text style={styles.docBtnText}>Choose photo</Text>
+                      </Pressable>
+                    </View>
+                  </View>
+                );
+              })}
+            </View>
+          </>
+        ) : null}
+
+        {error ? (
+          <Text style={styles.error} accessibilityRole="alert">
+            {error}
+          </Text>
+        ) : null}
+      </ScrollView>
+
+      <View style={styles.footer}>
+        <Pressable
+          style={({ pressed }) => [styles.nextBtn, (pressed || submitting) && styles.pressed]}
+          onPress={next}
+          disabled={submitting}
+          accessibilityRole="button"
+        >
+          {submitting ? (
+            <ActivityIndicator color="#FFFFFF" />
+          ) : (
+            <>
+              <Text style={styles.nextText}>
+                {isLastStep ? (isProvider ? 'Submit application' : 'Create account') : 'Next'}
               </Text>
-            </TouchableOpacity>
-          </View>
-        </ScrollView>
-      </KeyboardAvoidingView>
-    </View>
+              {isLastStep ? null : <Icon name="chevron-forward" size={18} color="#FFFFFF" />}
+            </>
+          )}
+        </Pressable>
+        {step === 'type' ? (
+          <Text style={styles.signIn}>
+            Already have an account?{' '}
+            <Text style={styles.link} onPress={onNavigateToLogin} accessibilityRole="link">
+              Sign in
+            </Text>
+          </Text>
+        ) : null}
+      </View>
+    </KeyboardAvoidingView>
   );
 };
