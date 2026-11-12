@@ -45,7 +45,9 @@ export type IconName =
   | 'share-outline'
   | 'checkmark'
   | 'chevron-up'
-  | 'chevron-down';
+  | 'chevron-down'
+  | 'add'
+  | 'arrow-up';
 
 interface IconProps {
   name: IconName;

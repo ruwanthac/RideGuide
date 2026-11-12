@@ -3,8 +3,8 @@ import {
   View,
   Text,
   TextInput,
-  TouchableOpacity,
   StyleSheet,
+  Pressable,
   FlatList,
   KeyboardAvoidingView,
   Platform,
@@ -15,9 +15,8 @@ import {
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { ChatBubble, Icon, TypingIndicator } from '../components';
-import { colors, shadows } from '../constants/theme';
-import { useResponsive } from '../hooks';
+import { Icon } from '../components';
+import { colors } from '../constants/theme';
 import { askAssistant, AssistantMsg } from '../backend/assistantService';
 import { getAssistantChatSession } from '../backend/assistantChatHistoryService';
 import { useVehicles } from '../context/VehiclesContext';
@@ -45,10 +44,58 @@ async function imageUriToBase64(uri: string): Promise<{ base64: string; mime: st
 
 interface Message {
   id: string;
+  /** Text sent to the AI (a photo-only message is sent as "Vehicle image") */
   text: string;
+  /** Text shown in the bubble; empty for a photo sent without a caption */
+  displayText?: string;
   isUser: boolean;
-  timestamp: string;
+  /** Epoch ms; drives the time under each group and the Today / Yesterday dividers */
+  createdAt: number;
   imageUri?: string | null;
+  /** The assistant couldn't answer; shown in a muted error style */
+  isError?: boolean;
+}
+
+
+const INK = '#0F172A';
+const MUTED = '#64748B';
+const LINE = '#E2E8F0';
+const SCREEN_BG = '#F4F6FA';
+/** Messages from the same sender within this gap share one time label and avatar */
+const GROUP_GAP_MS = 5 * 60 * 1000;
+
+type Row =
+  | { kind: 'divider'; key: string; label: string }
+  | { kind: 'message'; key: string; message: Message; firstInGroup: boolean; lastInGroup: boolean };
+
+function formatTime(ms: number): string {
+  return new Date(ms).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+}
+
+function dayLabel(ms: number): string {
+  const day = new Date(ms);
+  const today = new Date();
+  const yesterday = new Date();
+  yesterday.setDate(today.getDate() - 1);
+  if (day.toDateString() === today.toDateString()) return 'Today';
+  if (day.toDateString() === yesterday.toDateString()) return 'Yesterday';
+  return day.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' });
+}
+
+/** Adds day dividers and marks where each run of messages from one sender starts and ends. */
+function buildRows(messages: Message[]): Row[] {
+  const rows: Row[] = [];
+  messages.forEach((m, i) => {
+    const prev = messages[i - 1];
+    const next = messages[i + 1];
+    if (!prev || dayLabel(prev.createdAt) !== dayLabel(m.createdAt)) {
+      rows.push({ kind: 'divider', key: `day-${m.id}`, label: dayLabel(m.createdAt) });
+    }
+    const sameAs = (o?: Message) =>
+      !!o && o.isUser === m.isUser && Math.abs(o.createdAt - m.createdAt) < GROUP_GAP_MS && dayLabel(o.createdAt) === dayLabel(m.createdAt);
+    rows.push({ kind: 'message', key: m.id, message: m, firstInGroup: !sameAs(prev), lastInGroup: !sameAs(next) });
+  });
+  return rows;
 }
 
 interface ChatAssistantScreenProps {
@@ -63,14 +110,13 @@ export const ChatAssistantScreen: React.FC<ChatAssistantScreenProps> = ({
   onVideoCallPress,
   initialSessionId,
 }) => {
-  const { spacing, fontSizes, iconSizes, scale, borderRadius } = useResponsive();
   const insets = useSafeAreaInsets();
   const [messages, setMessages] = useState<Message[]>([
     {
       id: '1',
       text: 'Hi! I\'m your AI vehicle assistant. How can I help you today?',
       isUser: false,
-      timestamp: '10:30',
+      createdAt: Date.now(),
     },
   ]);
   const [inputText, setInputText] = useState('');
@@ -93,15 +139,13 @@ export const ChatAssistantScreen: React.FC<ChatAssistantScreenProps> = ({
         const doc = await getAssistantChatSession(initialSessionId);
         if (cancelled) return;
         assistantSessionIdRef.current = doc._id;
-        const time = new Date(doc.updatedAt).toLocaleTimeString([], {
-          hour: '2-digit',
-          minute: '2-digit',
-        });
+        // Saved chats only keep the session's last update time, so loaded messages share it.
+        const savedAt = Date.parse(doc.updatedAt) || Date.now();
         const mapped: Message[] = (doc.messages || []).map((m, i) => ({
           id: `loaded-${i}-${m.role}`,
           text: m.content,
           isUser: m.role === 'user',
-          timestamp: time,
+          createdAt: savedAt,
         }));
         if (mapped.length) setMessages(mapped);
       } catch {
@@ -185,113 +229,99 @@ export const ChatAssistantScreen: React.FC<ChatAssistantScreenProps> = ({
   const styles = useMemo(
     () =>
       StyleSheet.create({
-        container: {
-          flex: 1,
-          backgroundColor: colors.background,
-        },
+        container: { flex: 1, backgroundColor: SCREEN_BG },
         header: {
-          backgroundColor: colors.card,
-          paddingBottom: spacing.md,
-          paddingHorizontal: spacing.md,
+          backgroundColor: '#FFFFFF',
+          paddingBottom: 10,
+          paddingHorizontal: 12,
           borderBottomWidth: 1,
-          borderBottomColor: colors.border,
+          borderBottomColor: LINE,
           flexDirection: 'row',
           alignItems: 'center',
-          ...shadows.sm,
+          gap: 10,
         },
-        backButton: {
-          width: scale(40),
-          height: scale(40),
-          borderRadius: borderRadius.full,
+        iconButton: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center' },
+        avatarLg: { width: 40, height: 40, borderRadius: 20, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center' },
+        headerTitle: { fontSize: 16, fontWeight: '700', color: INK },
+        headerStatus: { fontSize: 12, fontWeight: '600', marginTop: 1 },
+        videoButton: {
+          width: 44,
+          height: 44,
+          borderRadius: 22,
+          borderWidth: 1,
+          borderColor: LINE,
           alignItems: 'center',
           justifyContent: 'center',
-          marginRight: spacing.md,
-          backgroundColor: colors.background,
+        },
+        chatContainer: { flex: 1 },
+        messageList: { paddingHorizontal: 16, paddingTop: 14, paddingBottom: 12 },
+        divider: {
+          alignSelf: 'center',
+          fontSize: 12,
+          fontWeight: '600',
+          color: MUTED,
+          backgroundColor: LINE,
+          paddingHorizontal: 10,
+          paddingVertical: 4,
+          borderRadius: 999,
+          overflow: 'hidden',
+          marginVertical: 8,
+        },
+        row: { flexDirection: 'row', alignItems: 'flex-end', gap: 8 },
+        avatarSm: { width: 28, height: 28, borderRadius: 14, backgroundColor: '#DBEAFE', alignItems: 'center', justifyContent: 'center' },
+        avatarSpacer: { width: 28 },
+        bubble: { paddingHorizontal: 14, paddingVertical: 10, maxWidth: '100%' },
+        userBubble: { backgroundColor: colors.primary, borderRadius: 18 },
+        aiBubble: { backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: LINE, borderRadius: 18 },
+        errorBubble: { backgroundColor: '#FEF2F2', borderWidth: 1, borderColor: '#FECACA', borderRadius: 18 },
+        userText: { color: '#FFFFFF', fontSize: 15, lineHeight: 21 },
+        aiText: { color: INK, fontSize: 15, lineHeight: 21 },
+        errorText: { color: '#991B1B', fontSize: 15, lineHeight: 21 },
+        photo: { width: 220, height: 165, borderRadius: 18, backgroundColor: LINE },
+        meta: { fontSize: 11, color: MUTED, marginTop: 3 },
+        typingBubble: {
+          flexDirection: 'row',
+          gap: 5,
+          backgroundColor: '#FFFFFF',
           borderWidth: 1,
-          borderColor: colors.border,
+          borderColor: LINE,
+          borderRadius: 18,
+          borderBottomLeftRadius: 6,
+          paddingHorizontal: 16,
+          paddingVertical: 14,
         },
-        headerTitle: {
-          fontSize: fontSizes.lg,
-          fontWeight: '700',
-          color: colors.text,
-          flex: 1,
-          letterSpacing: 0.15,
-        },
-        videoCallButton: {
-          width: scale(40),
-          height: scale(40),
-          borderRadius: borderRadius.full,
-          alignItems: 'center',
-          justifyContent: 'center',
-          marginLeft: spacing.md,
-          backgroundColor: colors.background,
-          borderWidth: 1,
-          borderColor: colors.border,
-        },
-        chatContainer: {
-          flex: 1,
-          backgroundColor: colors.background,
-        },
-        messageList: {
-          padding: spacing.md,
-          paddingBottom: spacing.md,
-        },
+        typingDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: '#94A3B8' },
         inputBar: {
-          flexDirection: 'row',
-          alignItems: 'flex-end',
-          paddingHorizontal: spacing.md,
-          paddingTop: spacing.md,
-          backgroundColor: colors.card,
+          backgroundColor: '#FFFFFF',
           borderTopWidth: 1,
-          borderTopColor: colors.border,
-          ...shadows.sm,
+          borderTopColor: LINE,
+          paddingHorizontal: 12,
+          paddingTop: 10,
         },
-        attachButton: {
-          width: scale(44),
-          height: scale(44),
-          borderRadius: borderRadius.full,
-          backgroundColor: colors.background,
-          borderWidth: 1,
-          borderColor: colors.border,
-          alignItems: 'center',
-          justifyContent: 'center',
-          marginRight: spacing.sm,
-        },
+        pending: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 10 },
+        pendingImage: { width: 56, height: 56, borderRadius: 12, backgroundColor: LINE },
+        pendingText: { flex: 1, fontSize: 13, color: MUTED },
+        inputRow: { flexDirection: 'row', alignItems: 'flex-end', gap: 8 },
+        plusButton: { width: 44, height: 44, borderRadius: 22, backgroundColor: '#F1F5F9', alignItems: 'center', justifyContent: 'center' },
         input: {
           flex: 1,
-          backgroundColor: colors.background,
-          borderRadius: borderRadius.full,
+          minHeight: 44,
+          maxHeight: 120,
+          borderRadius: 22,
           borderWidth: 1,
-          borderColor: colors.border,
-          paddingVertical: spacing.sm + 4,
-          paddingHorizontal: spacing.lg,
-          fontSize: fontSizes.md,
-          color: colors.text,
-          maxHeight: scale(100),
-          marginRight: spacing.sm,
+          borderColor: LINE,
+          backgroundColor: '#F8FAFC',
+          paddingHorizontal: 16,
+          paddingTop: Platform.OS === 'ios' ? 12 : 10,
+          paddingBottom: Platform.OS === 'ios' ? 12 : 10,
+          fontSize: 15,
+          color: INK,
         },
-        pendingImagePreview: {
-          width: scale(60),
-          height: scale(60),
-          borderRadius: borderRadius.md,
-          backgroundColor: colors.border,
-          marginRight: spacing.sm,
-          overflow: 'hidden',
-          borderWidth: 1,
-          borderColor: colors.border,
-        },
-        sendButton: {
-          width: scale(44),
-          height: scale(44),
-          borderRadius: borderRadius.full,
-          backgroundColor: colors.primary,
-          alignItems: 'center',
-          justifyContent: 'center',
-          ...shadows.sm,
-        },
-        sendDisabled: { opacity: 0.5 },
+        sendButton: { width: 44, height: 44, borderRadius: 22, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center' },
+        sendDisabled: { backgroundColor: '#BFDBFE' },
+        pressed: { opacity: 0.85 },
       }),
-    [spacing, fontSizes, iconSizes, scale, borderRadius]
+    []
   );
 
   const handleAttachPress = () => {
@@ -320,8 +350,9 @@ export const ChatAssistantScreen: React.FC<ChatAssistantScreenProps> = ({
     const userMessage: Message = {
       id: Date.now().toString(),
       text: text || (imgUri ? 'Vehicle image' : ''),
+      displayText: text,
       isUser: true,
-      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      createdAt: Date.now(),
       imageUri: imgUri ?? undefined,
     };
 
@@ -371,7 +402,7 @@ export const ChatAssistantScreen: React.FC<ChatAssistantScreenProps> = ({
           id: (Date.now() + 1).toString(),
           text: reply,
           isUser: false,
-          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          createdAt: Date.now(),
         },
       ]);
     } catch (e) {
@@ -381,7 +412,8 @@ export const ChatAssistantScreen: React.FC<ChatAssistantScreenProps> = ({
           id: (Date.now() + 1).toString(),
           text: friendlyErrorMessage(e, "Sorry, I can't reach the assistant right now. Please try again."),
           isUser: false,
-          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          createdAt: Date.now(),
+          isError: true,
         },
       ]);
     } finally {
@@ -392,99 +424,172 @@ export const ChatAssistantScreen: React.FC<ChatAssistantScreenProps> = ({
     }
   };
 
+  const rows = useMemo(() => buildRows(messages), [messages]);
+  const canSend = !!inputText.trim() || !!pendingImageUri;
+  const lastUserIndex = useMemo(() => {
+    for (let i = messages.length - 1; i >= 0; i--) if (messages[i].isUser) return i;
+    return -1;
+  }, [messages]);
+  // "Read" once the assistant is answering, or has answered, the latest message.
+  const lastUserRead = lastUserIndex >= 0 && (isTyping || lastUserIndex < messages.length - 1);
+
+  const renderRow = ({ item }: { item: Row }) => {
+    if (item.kind === 'divider') {
+      return <Text style={styles.divider}>{item.label}</Text>;
+    }
+    const m = item.message;
+    const time = formatTime(m.createdAt);
+    const isLastUser = m.isUser && messages[lastUserIndex]?.id === m.id;
+    const shownText = m.isUser ? m.displayText ?? m.text : m.text;
+    const bubbleRadius = m.isUser
+      ? { borderBottomRightRadius: item.lastInGroup ? 6 : 18 }
+      : { borderBottomLeftRadius: item.lastInGroup ? 6 : 18 };
+    const content = (
+      <View style={{ alignItems: m.isUser ? 'flex-end' : 'flex-start', gap: 6, flexShrink: 1 }}>
+        {m.imageUri ? (
+          <Image source={{ uri: m.imageUri }} style={styles.photo} resizeMode="cover" accessibilityLabel="Photo you sent" />
+        ) : null}
+        {shownText ? (
+          <View style={[styles.bubble, m.isUser ? styles.userBubble : m.isError ? styles.errorBubble : styles.aiBubble, bubbleRadius]}>
+            <Text style={m.isUser ? styles.userText : m.isError ? styles.errorText : styles.aiText} selectable>
+              {shownText}
+            </Text>
+          </View>
+        ) : null}
+        {item.lastInGroup ? (
+          <Text style={styles.meta}>
+            {time}
+            {isLastUser && lastUserRead ? ' · Read' : ''}
+          </Text>
+        ) : null}
+      </View>
+    );
+    return (
+      <View
+        style={[
+          styles.row,
+          { justifyContent: m.isUser ? 'flex-end' : 'flex-start', marginTop: item.firstInGroup ? 10 : 3 },
+          m.isUser ? { paddingLeft: 56 } : { paddingRight: 40 },
+        ]}
+      >
+        {!m.isUser ? (
+          item.lastInGroup ? (
+            <View style={[styles.avatarSm, { marginBottom: 18 }]}>
+              <Icon name="sparkles" size={14} color="#1D4ED8" />
+            </View>
+          ) : (
+            <View style={styles.avatarSpacer} />
+          )
+        ) : null}
+        {content}
+      </View>
+    );
+  };
+
   return (
     <View style={styles.container}>
       <StatusBar barStyle="dark-content" />
-      <View style={[styles.header, { paddingTop: insets.top + spacing.sm }]}>
-        <TouchableOpacity
-          style={styles.backButton}
-          onPress={onBack}
-          activeOpacity={0.7}
-        >
-          <Icon name="close" size={iconSizes.md} color={colors.text} />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>AI Assistant</Text>
-        {onVideoCallPress && (
-          <TouchableOpacity
-            style={styles.videoCallButton}
-            onPress={onVideoCallPress}
-            activeOpacity={0.7}
+      <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
+        <Pressable style={({ pressed }) => [styles.iconButton, pressed && styles.pressed]} onPress={onBack} accessibilityRole="button" accessibilityLabel="Back">
+          <Icon name="chevron-back" size={24} color={INK} />
+        </Pressable>
+        <View style={styles.avatarLg}>
+          <Icon name="sparkles" size={20} color="#FFFFFF" />
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.headerTitle} accessibilityRole="header">
+            AI Assistant
+          </Text>
+          <Text
+            style={[styles.headerStatus, { color: isTyping ? '#15803D' : MUTED }]}
+            accessibilityLiveRegion="polite"
           >
-            <Icon name="videocam" size={iconSizes.md} color={colors.primary} />
-          </TouchableOpacity>
-        )}
+            {isTyping ? 'Typing…' : 'Usually replies in seconds'}
+          </Text>
+        </View>
+        {onVideoCallPress ? (
+          <Pressable
+            style={({ pressed }) => [styles.videoButton, pressed && styles.pressed]}
+            onPress={onVideoCallPress}
+            accessibilityRole="button"
+            accessibilityLabel="Start a video call with the Vehicle Expert"
+          >
+            <Icon name="videocam" size={20} color={INK} />
+          </Pressable>
+        ) : null}
       </View>
 
-      <KeyboardAvoidingView
-        style={styles.chatContainer}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        keyboardVerticalOffset={0}
-      >
+      <KeyboardAvoidingView style={styles.chatContainer} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <FlatList
           ref={flatListRef}
-          data={messages}
-          keyExtractor={(item) => item.id}
-          renderItem={({ item }) => (
-            <ChatBubble
-              message={item.text}
-              isUser={item.isUser}
-              timestamp={item.timestamp}
-              imageUri={item.imageUri}
-            />
-          )}
+          data={rows}
+          keyExtractor={(row) => row.key}
+          renderItem={renderRow}
           contentContainerStyle={styles.messageList}
-          ListFooterComponent={isTyping ? <TypingIndicator /> : null}
+          ListFooterComponent={
+            isTyping ? (
+              <View style={[styles.row, { marginTop: 10 }]} accessibilityLabel="AI Assistant is typing">
+                <View style={styles.avatarSm}>
+                  <Icon name="sparkles" size={14} color="#1D4ED8" />
+                </View>
+                <View style={styles.typingBubble}>
+                  <View style={styles.typingDot} />
+                  <View style={styles.typingDot} />
+                  <View style={styles.typingDot} />
+                </View>
+              </View>
+            ) : null
+          }
           onContentSizeChange={scrollToBottom}
           keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="interactive"
         />
 
-        <View
-          style={[
-            styles.inputBar,
-            {
-              paddingBottom: keyboardVisible
-                ? spacing.sm
-                : Math.max(insets.bottom, spacing.md),
-            },
-          ]}
-        >
-          <TouchableOpacity
-            style={styles.attachButton}
-            onPress={handleAttachPress}
-            activeOpacity={0.7}
-          >
-            <Icon name="image" size={iconSizes.lg} color={colors.primary} />
-          </TouchableOpacity>
+        <View style={[styles.inputBar, { paddingBottom: keyboardVisible ? 10 : Math.max(insets.bottom, 12) }]}>
           {pendingImageUri ? (
-            <TouchableOpacity
-              style={styles.pendingImagePreview}
-              onPress={() => setPendingImageUri(null)}
-              activeOpacity={0.8}
-            >
-              <Image
-                source={{ uri: pendingImageUri }}
-                style={StyleSheet.absoluteFill}
-                resizeMode="cover"
-              />
-            </TouchableOpacity>
+            <View style={styles.pending}>
+              <Image source={{ uri: pendingImageUri }} style={styles.pendingImage} resizeMode="cover" accessibilityLabel="Photo to send" />
+              <Text style={styles.pendingText}>Photo ready. Add a question, or just send it.</Text>
+              <Pressable
+                style={({ pressed }) => [styles.iconButton, pressed && styles.pressed]}
+                onPress={() => setPendingImageUri(null)}
+                accessibilityRole="button"
+                accessibilityLabel="Remove photo"
+              >
+                <Icon name="close" size={20} color={MUTED} />
+              </Pressable>
+            </View>
           ) : null}
-          <TextInput
-            style={styles.input}
-            placeholder="Type a message..."
-            placeholderTextColor={colors.textSecondary}
-            value={inputText}
-            onChangeText={setInputText}
-            multiline
-            maxLength={500}
-          />
-          <TouchableOpacity
-            style={[styles.sendButton, !inputText.trim() && !pendingImageUri && styles.sendDisabled]}
-            onPress={handleSend}
-            disabled={!inputText.trim() && !pendingImageUri}
-            activeOpacity={0.7}
-          >
-            <Icon name="send" size={iconSizes.sm} color={colors.card} />
-          </TouchableOpacity>
+          <View style={styles.inputRow}>
+            <Pressable
+              style={({ pressed }) => [styles.plusButton, pressed && styles.pressed]}
+              onPress={handleAttachPress}
+              accessibilityRole="button"
+              accessibilityLabel="Add a photo"
+            >
+              <Icon name="add" size={22} color={INK} />
+            </Pressable>
+            <TextInput
+              style={styles.input}
+              placeholder="Message the AI Assistant"
+              placeholderTextColor="#94A3B8"
+              value={inputText}
+              onChangeText={setInputText}
+              multiline
+              maxLength={500}
+              accessibilityLabel="Message"
+            />
+            <Pressable
+              style={({ pressed }) => [styles.sendButton, !canSend && styles.sendDisabled, pressed && canSend && styles.pressed]}
+              onPress={handleSend}
+              disabled={!canSend}
+              accessibilityRole="button"
+              accessibilityLabel="Send"
+              accessibilityState={{ disabled: !canSend }}
+            >
+              <Icon name="arrow-up" size={20} color="#FFFFFF" />
+            </Pressable>
+          </View>
         </View>
       </KeyboardAvoidingView>
     </View>

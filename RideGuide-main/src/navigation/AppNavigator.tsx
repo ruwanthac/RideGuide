@@ -238,7 +238,8 @@ const MainTabNavigator = () => (
         return {
           tabBarLabel: 'Home',
           tabBarIcon: ({ color }) => <TabBarIcon name="home" color={color} />,
-          tabBarStyle: routeName === 'VideoCall' ? { display: 'none' } : undefined,
+          // Full-screen experiences hide the tab bar so their own input bar sits at the bottom.
+          tabBarStyle: routeName === 'VideoCall' || routeName === 'ChatAssistant' ? { display: 'none' } : undefined,
         };
       }}
     />
