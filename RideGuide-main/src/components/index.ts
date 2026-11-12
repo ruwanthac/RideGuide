@@ -19,3 +19,5 @@ export { TrackingPanel } from './TrackingPanel';
 export { OwnerHistory } from './OwnerHistory';
 export { OwnerProfile } from './OwnerProfile';
 export { ProviderHome } from './ProviderHome';
+export { ProviderHistory } from './ProviderHistory';
+export { ProviderProfile } from './ProviderProfile';

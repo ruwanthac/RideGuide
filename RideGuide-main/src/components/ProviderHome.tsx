@@ -1,17 +1,14 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, Pressable, RefreshControl, Alert, ActivityIndicator } from 'react-native';
+import React, { useEffect, useMemo, useState } from 'react';
+import { View, Text, StyleSheet, ScrollView, Pressable, RefreshControl, ActivityIndicator } from 'react-native';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
-import { useNavigation, useFocusEffect } from '@react-navigation/native';
+import { useNavigation } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Icon } from './Icon';
 import { NewsAndTips } from './NewsAndTips';
 import { colors } from '../constants/theme';
-import { useResponsive } from '../hooks';
+import { useResponsive, useCompletedJobs, completedAt, isSameMonth, useTowLiveLocation, useProviderAvailability } from '../hooks';
 import { useAuth } from '../context/AuthContext';
 import { useUnreadRequestChat } from '../context/UnreadRequestChatContext';
-import { listServiceRequests } from '../backend/serviceRequestsService';
-import { updateUserProfile } from '../backend/userProfileService';
-import { extractApiError } from '../backend/apiClient';
 import type { ServiceRequest } from '../backend/types';
 import { formatCurrencyAmount } from '../utils/formatMoneyAmount';
 
@@ -68,16 +65,6 @@ function routeLabel(route: ProviderRoute): string {
   return `${route.km.toFixed(1)} km · about ${route.minutes} min`;
 }
 
-function completedThisMonth(rows: ServiceRequest[], userId: string, type: ServiceRequest['type']): number {
-  const now = new Date();
-  return rows.filter((r) => {
-    if (r.type !== type || r.status !== 'completed') return false;
-    if (String(r.acceptedBy ?? '') !== String(userId)) return false;
-    const d = new Date(r.updatedAt ?? r.createdAt);
-    return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
-  }).length;
-}
-
 export const ProviderHome: React.FC<Props> = ({
   role,
   requests,
@@ -91,20 +78,18 @@ export const ProviderHome: React.FC<Props> = ({
   onRefresh,
   refreshKey,
 }) => {
-  const { user, refreshProfile } = useAuth();
+  const { user } = useAuth();
   const { hasUnreadRequestChat } = useUnreadRequestChat();
   const navigation = useNavigation<any>();
   const insets = useSafeAreaInsets();
   const { fontSizes, scale } = useResponsive();
 
   const isTow = role === 'tow';
-  const online = isTow ? user?.towAvailable !== false : user?.mechanicAvailable !== false;
+  const { online, switching, toggle } = useProviderAvailability();
   const businessName =
     user?.businessName?.trim() || (user?.displayName ?? '').trim() || (isTow ? 'Your tow service' : 'Your workshop');
 
-  const [switching, setSwitching] = useState(false);
   const [acceptingId, setAcceptingId] = useState<string | null>(null);
-  const [doneThisMonth, setDoneThisMonth] = useState<number | null>(null);
   // Re-render every 30 s so "2 min ago" and expiry counters stay current.
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
@@ -112,37 +97,14 @@ export const ProviderHome: React.FC<Props> = ({
     return () => clearInterval(id);
   }, []);
 
-  const loadDoneThisMonth = useCallback(async () => {
-    if (!user?._id) return;
-    try {
-      const rows = await listServiceRequests({ history: true });
-      setDoneThisMonth(completedThisMonth(rows, user._id, isTow ? 'tow' : 'roadside'));
-    } catch {
-      // Keep the last known value.
-    }
-  }, [user?._id, isTow]);
-
-  useEffect(() => {
-    void loadDoneThisMonth();
-  }, [loadDoneThisMonth, refreshKey]);
-  useFocusEffect(
-    useCallback(() => {
-      void loadDoneThisMonth();
-    }, [loadDoneThisMonth])
-  );
-
-  const toggleOnline = async () => {
-    if (!user?._id || switching) return;
-    setSwitching(true);
-    try {
-      await updateUserProfile(isTow ? { towAvailable: !online } : { mechanicAvailable: !online });
-      await refreshProfile();
-    } catch (e) {
-      Alert.alert('Could not change your status', extractApiError(e, 'Please try again.'));
-    } finally {
-      setSwitching(false);
-    }
-  };
+  const { jobs: doneJobs } = useCompletedJobs(isTow ? 'tow' : 'roadside', refreshKey);
+  const doneThisMonth = useMemo(() => {
+    if (!doneJobs) return null;
+    const t = new Date();
+    return doneJobs.filter((j) => isSameMonth(completedAt(j), t.getFullYear(), t.getMonth())).length;
+  }, [doneJobs]);
+  // Tow drivers share their position while online so owners can see trucks nearby.
+  useTowLiveLocation(isTow, online);
 
   const accept = async (req: ServiceRequest) => {
     if (acceptingId) return;
@@ -407,7 +369,7 @@ export const ProviderHome: React.FC<Props> = ({
 
         <Pressable
           style={({ pressed }) => [styles.toggleCard, online ? styles.toggleOn : styles.toggleOff, (pressed || switching) && styles.pressed]}
-          onPress={() => void toggleOnline()}
+          onPress={() => void toggle()}
           disabled={switching}
           accessibilityRole="switch"
           accessibilityState={{ checked: online, busy: switching }}

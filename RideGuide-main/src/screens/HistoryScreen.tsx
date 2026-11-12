@@ -2,7 +2,7 @@ import React, { useMemo } from 'react';
 import { View, Text, StyleSheet, ScrollView } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { Card, OwnerHistory } from '../components';
+import { Card, OwnerHistory, ProviderHistory } from '../components';
 import { colors } from '../constants/theme';
 import { useResponsive } from '../hooks';
 import { useUserRole } from '../context/UserRoleContext';
@@ -63,43 +63,14 @@ export const HistoryScreen: React.FC<HistoryScreenProps> = () => {
       ? `${carLabel} · Tow, roadside, and saved diagnoses`
       : 'Your previous vehicle diagnoses';
 
-  // Owners get one dated timeline; mechanics and tow drivers keep their history hub below.
+  // Owners get one dated timeline; mechanics and tow drivers get their monthly work summary.
   if (role === 'owner') {
     return <OwnerHistory />;
   }
-
-  if (role === 'tow') {
-    return (
-      <View style={styles.container}>
-        <View style={styles.header}>
-          <Text style={styles.title}>{title}</Text>
-          <Text style={styles.subtitle}>{subtitle}</Text>
-        </View>
-        <ScrollView contentContainerStyle={styles.hubScroll} showsVerticalScrollIndicator={false}>
-          <Card
-            style={styles.hubCard}
-            padded
-            onPress={() => navigation.navigate('ObdDiagnoseHistory')}
-          >
-            <Text style={styles.hubTitle}>OBD diagnose history</Text>
-            <Text style={styles.hubDesc}>
-              Saved diagnoses for this account — same as vehicle owners, including manual vehicle entries.
-            </Text>
-          </Card>
-          <Card
-            style={styles.hubCard}
-            padded
-            onPress={() => navigation.navigate('TowJobHistory')}
-          >
-            <Text style={styles.hubTitle}>Completed tow jobs</Text>
-            <Text style={styles.hubDesc}>
-              Tow requests you accepted and completed. Pull the list on the next screen to refresh.
-            </Text>
-          </Card>
-        </ScrollView>
-      </View>
-    );
+  if (role === 'mechanic' || role === 'tow') {
+    return <ProviderHistory role={role} />;
   }
+
 
   return (
     <View style={styles.container}>

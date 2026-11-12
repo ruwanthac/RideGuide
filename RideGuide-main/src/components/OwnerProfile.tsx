@@ -20,7 +20,7 @@ import { colors } from '../constants/theme';
 import { useAuth } from '../context/AuthContext';
 import { useVehicles } from '../context/VehiclesContext';
 import { useProfileNotifications } from '../context/ProfileNotificationsContext';
-import { changePasswordWithApi } from '../backend/authService';
+import { ChangePasswordSheet } from './BottomSheet';
 import { friendlyErrorMessage } from '../backend/apiClient';
 import type { Vehicle } from '../backend/types';
 
@@ -59,13 +59,7 @@ export const OwnerProfile: React.FC = () => {
   const [form, setForm] = useState<VehicleForm>(EMPTY_FORM);
   const [formError, setFormError] = useState<string | null>(null);
   const [savingVehicle, setSavingVehicle] = useState(false);
-
-  // Password sheet
   const [passwordOpen, setPasswordOpen] = useState(false);
-  const [pw, setPw] = useState('');
-  const [pw2, setPw2] = useState('');
-  const [pwError, setPwError] = useState<string | null>(null);
-  const [savingPw, setSavingPw] = useState(false);
 
   const openAdd = () => {
     setForm(EMPTY_FORM);
@@ -127,24 +121,6 @@ export const OwnerProfile: React.FC = () => {
         },
       },
     ]);
-  };
-
-  const savePassword = async () => {
-    if (pw.length < 8) return setPwError('Your password must be at least 8 characters.');
-    if (pw !== pw2) return setPwError('The two passwords don’t match.');
-    setPwError(null);
-    setSavingPw(true);
-    try {
-      await changePasswordWithApi(pw);
-      setPasswordOpen(false);
-      setPw('');
-      setPw2('');
-      Alert.alert('Password changed', 'Use your new password next time you sign in.');
-    } catch (e) {
-      setPwError(friendlyErrorMessage(e, "We couldn't change your password. Please try again."));
-    } finally {
-      setSavingPw(false);
-    }
   };
 
   const confirmLogout = () => {
@@ -219,7 +195,7 @@ export const OwnerProfile: React.FC = () => {
   const settings: { key: string; label: string; icon: IconName; bg: string; fg: string; onPress: () => void; badge?: number }[] = [
     { key: 'notifications', label: 'Notifications', icon: 'notifications-outline', bg: '#FEE2E2', fg: '#B91C1C', onPress: () => navigation.navigate('ProfileNotifications'), badge: unread },
     { key: 'details', label: 'Name and phone number', icon: 'person', bg: '#DBEAFE', fg: '#1D4ED8', onPress: () => navigation.navigate('Privacy') },
-    { key: 'password', label: 'Change password', icon: 'lock-closed', bg: '#DCFCE7', fg: '#15803D', onPress: () => { setPw(''); setPw2(''); setPwError(null); setPasswordOpen(true); } },
+    { key: 'password', label: 'Change password', icon: 'lock-closed', bg: '#DCFCE7', fg: '#15803D', onPress: () => setPasswordOpen(true) },
   ];
 
   const field = (key: keyof VehicleForm, label: string, props: React.ComponentProps<typeof TextInput> = {}) => (
@@ -391,42 +367,7 @@ export const OwnerProfile: React.FC = () => {
         </KeyboardAvoidingView>
       </Modal>
 
-      <Modal visible={passwordOpen} transparent animationType="slide" onRequestClose={() => setPasswordOpen(false)}>
-        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
-          <Pressable style={styles.backdrop} onPress={() => setPasswordOpen(false)} accessibilityLabel="Close">
-            <Pressable style={styles.sheet} onPress={() => undefined} accessible={false}>
-              <View style={styles.sheetHead}>
-                <Text style={styles.sheetTitle} accessibilityRole="header">
-                  Change password
-                </Text>
-                <Pressable style={styles.closeBtn} onPress={() => setPasswordOpen(false)} accessibilityRole="button" accessibilityLabel="Close">
-                  <Icon name="close" size={20} color={INK} />
-                </Pressable>
-              </View>
-              <View>
-                <Text style={styles.label} nativeID="pw-new">
-                  New password
-                </Text>
-                <TextInput style={styles.input} value={pw} onChangeText={setPw} secureTextEntry autoCapitalize="none" textContentType="newPassword" placeholder="At least 8 characters" placeholderTextColor="#94A3B8" accessibilityLabelledBy="pw-new" accessibilityLabel="New password" />
-              </View>
-              <View>
-                <Text style={styles.label} nativeID="pw-again">
-                  Type it again
-                </Text>
-                <TextInput style={styles.input} value={pw2} onChangeText={setPw2} secureTextEntry autoCapitalize="none" textContentType="newPassword" accessibilityLabelledBy="pw-again" accessibilityLabel="Type the new password again" />
-              </View>
-              {pwError ? (
-                <Text style={styles.error} accessibilityRole="alert">
-                  {pwError}
-                </Text>
-              ) : null}
-              <Pressable style={({ pressed }) => [styles.primary, (pressed || savingPw) && styles.pressed]} onPress={() => void savePassword()} disabled={savingPw} accessibilityRole="button">
-                {savingPw ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.primaryText}>Change password</Text>}
-              </Pressable>
-            </Pressable>
-          </Pressable>
-        </KeyboardAvoidingView>
-      </Modal>
+      <ChangePasswordSheet visible={passwordOpen} onClose={() => setPasswordOpen(false)} />
     </View>
   );
 };

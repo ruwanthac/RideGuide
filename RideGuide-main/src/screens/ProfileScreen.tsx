@@ -8,12 +8,10 @@ import {
   TextInput,
   Alert,
 } from 'react-native';
-import { Card, PrimaryButton, Icon, OwnerProfile } from '../components';
+import { Card, PrimaryButton, Icon, OwnerProfile, ProviderProfile } from '../components';
 import { colors } from '../constants/theme';
 import { useResponsive } from '../hooks';
 import { OwnerDashboard } from '../components/dashboards/OwnerDashboard';
-import { MechanicDashboard } from '../components/dashboards/MechanicDashboard';
-import { TowDashboard } from '../components/dashboards/TowDashboard';
 import { useUserRole } from '../context/UserRoleContext';
 import { useVehicles } from '../context/VehiclesContext';
 import { useAuth } from '../context/AuthContext';
@@ -432,21 +430,14 @@ export const ProfileScreen: React.FC = () => {
     [spacing, fontSizes, borderRadius, buttonHeight, iconSizes, scale]
   );
 
-  const renderDashboard = () => {
-    switch (userRole) {
-      case 'mechanic':
-        return <MechanicDashboard shopName={`${userName}'s Garage`} />;
-      case 'tow':
-        return <TowDashboard driverName={userName} />;
-      case 'owner':
-      default:
-        return <OwnerDashboard />;
-    }
-  };
+  const renderDashboard = () => <OwnerDashboard />;
 
-  // Owners get the account hub; mechanics and tow drivers keep their dashboard-style profile below.
+  // Owners get the account hub; mechanics and tow drivers get their business profile.
   if (userRole === 'owner') {
     return <OwnerProfile />;
+  }
+  if (userRole === 'mechanic' || userRole === 'tow') {
+    return <ProviderProfile role={userRole} />;
   }
 
   return (
@@ -466,30 +457,6 @@ export const ProfileScreen: React.FC = () => {
 
         <Card style={styles.section} padded>
         <Text style={styles.sectionTitle}>Settings</Text>
-        {(userRole === 'mechanic' || userRole === 'tow') && (
-          <TouchableOpacity
-            style={styles.menuItem}
-            onPress={() => navigation.navigate('ProfileNotifications' as never)}
-            activeOpacity={0.7}
-          >
-            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-              <Text style={styles.menuText}>Notifications</Text>
-              {hasProfileNotificationsUnread ? (
-                <View
-                  style={{
-                    width: 8,
-                    height: 8,
-                    borderRadius: 4,
-                    backgroundColor: '#EF4444',
-                    marginLeft: spacing.sm,
-                  }}
-                  accessibilityLabel="Unread notifications"
-                />
-              ) : null}
-            </View>
-            <Text style={styles.menuArrow}>›</Text>
-          </TouchableOpacity>
-        )}
         <TouchableOpacity style={[styles.menuItem, userRole !== 'admin' && styles.menuItemLast]}
           onPress={() => navigation.navigate('Privacy' as never)}
           activeOpacity={0.7}
@@ -508,13 +475,7 @@ export const ProfileScreen: React.FC = () => {
         <Card style={styles.section} padded>
           <Text style={styles.sectionTitle}>Account type</Text>
           <Text style={styles.currentProfileText}>
-            {userRole === 'mechanic'
-              ? 'You are signed in as a mechanic. Vehicle owner and tow features use separate accounts.'
-              : userRole === 'tow'
-              ? 'You are signed in as a tow truck driver. Owner and mechanic features use separate accounts.'
-              : userRole === 'admin'
-              ? 'Administrator account.'
-              : 'You are signed in as a vehicle owner. Mechanic and tow driver features use separate accounts.'}
+            {userRole === 'admin' ? 'Administrator account.' : 'You are signed in as a vehicle owner.'}
           </Text>
           <Text style={[styles.currentProfileText, { marginTop: spacing.sm, opacity: 0.85 }]}>
             To use another role, log out and create a new account with a different email (or sign in to that account).
