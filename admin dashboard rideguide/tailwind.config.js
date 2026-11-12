@@ -9,18 +9,19 @@ export default {
       },
       colors: {
         accent: {
-          50: '#f0f9ff',
-          100: '#e0f2fe',
-          200: '#bae6fd',
-          300: '#7dd3fc',
-          400: '#38bdf8',
-          500: '#0ea5e9',
-          600: '#0284c7',
+          50: '#eff6ff',
+          100: '#dbeafe',
+          200: '#bfdbfe',
+          300: '#93c5fd',
+          400: '#60a5fa',
+          500: '#2563eb',
+          600: '#1d4ed8',
+          700: '#1e40af',
         },
       },
       boxShadow: {
-        glass: '0 4px 30px rgba(0, 0, 0, 0.08)',
-        'glass-dark': '0 4px 30px rgba(0, 0, 0, 0.3)',
+        glass: '0 1px 2px rgba(15, 23, 42, 0.04)',
+        'glass-dark': '0 1px 2px rgba(0, 0, 0, 0.3)',
       },
       animation: {
         'fade-in': 'fadeIn 0.3s ease-out',

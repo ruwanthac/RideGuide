@@ -33,13 +33,13 @@ export function Modal({ isOpen, onClose, title, children, panelClassName }: Moda
         aria-hidden
       />
       <div
-        className={`relative w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-xl bg-white dark:bg-gray-900 shadow-xl border border-gray-200 dark:border-gray-800 animate-fade-in ${panelClassName ?? ''}`}
+        className={`relative w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-2xl bg-white dark:bg-gray-900 shadow-xl border border-slate-200 dark:border-gray-800 animate-fade-in ${panelClassName ?? ''}`}
         role="dialog"
         aria-modal="true"
         aria-labelledby="modal-title"
       >
         <div className="sticky top-0 flex items-center justify-between gap-4 border-b border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 px-6 py-4">
-          <h2 id="modal-title" className="text-lg font-semibold text-gray-900 dark:text-white">
+          <h2 id="modal-title" className="text-lg font-bold text-slate-900 dark:text-white">
             {title}
           </h2>
           <button

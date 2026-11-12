@@ -27,7 +27,7 @@ interface AnalyticsApi {
   acceptanceSamples: { roadside: number; tow: number };
 }
 
-const COLORS = ['#0ea5e9', '#10b981', '#f59e0b', '#a855f7', '#ec4899', '#64748b'];
+const COLORS = ['#2563EB', '#10b981', '#f59e0b', '#a855f7', '#ec4899', '#64748b'];
 
 export function Analytics() {
   const [days, setDays] = useState(90);
@@ -102,7 +102,7 @@ export function Analytics() {
     <div className="space-y-6 animate-fade-in">
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-semibold text-gray-900 dark:text-white">Analytics</h1>
+          <h1 className="text-2xl font-extrabold tracking-tight text-slate-900 dark:text-white">Analytics</h1>
           <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
             Request volumes and breakdowns for the period you select.
           </p>
@@ -131,7 +131,7 @@ export function Analytics() {
         <Card>
           <CardContent className="p-6">
             <p className="text-sm font-medium text-gray-500 dark:text-gray-400">Avg tow accept time</p>
-            <p className="mt-1 text-2xl font-semibold text-gray-900 dark:text-white">
+            <p className="mt-1 text-2xl font-extrabold tracking-tight text-slate-900 dark:text-white">
               {data.acceptanceTimeAvgMinutes.tow != null ? `${data.acceptanceTimeAvgMinutes.tow.toFixed(1)} min` : '—'}
             </p>
             <p className="mt-0.5 text-xs text-emerald-600 dark:text-emerald-400">
@@ -142,7 +142,7 @@ export function Analytics() {
         <Card>
           <CardContent className="p-6">
             <p className="text-sm font-medium text-gray-500 dark:text-gray-400">Avg roadside accept time</p>
-            <p className="mt-1 text-2xl font-semibold text-gray-900 dark:text-white">
+            <p className="mt-1 text-2xl font-extrabold tracking-tight text-slate-900 dark:text-white">
               {data.acceptanceTimeAvgMinutes.roadside != null
                 ? `${data.acceptanceTimeAvgMinutes.roadside.toFixed(1)} min`
                 : '—'}
@@ -155,14 +155,14 @@ export function Analytics() {
         <Card>
           <CardContent className="p-6">
             <p className="text-sm font-medium text-gray-500 dark:text-gray-400">Completed requests</p>
-            <p className="mt-1 text-2xl font-semibold text-gray-900 dark:text-white">{data.completedRequestsInRange}</p>
+            <p className="mt-1 text-2xl font-extrabold tracking-tight text-slate-900 dark:text-white">{data.completedRequestsInRange}</p>
             <p className="mt-0.5 text-xs text-accent-600 dark:text-accent-400">In selected window</p>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="p-6">
             <p className="text-sm font-medium text-gray-500 dark:text-gray-400">Diagnosis records</p>
-            <p className="mt-1 text-2xl font-semibold text-gray-900 dark:text-white">{data.diagnosesInRange}</p>
+            <p className="mt-1 text-2xl font-extrabold tracking-tight text-slate-900 dark:text-white">{data.diagnosesInRange}</p>
             <p className="mt-0.5 text-xs text-amber-600 dark:text-amber-400">DiagnosisHistory in range</p>
           </CardContent>
         </Card>
@@ -184,7 +184,7 @@ export function Analytics() {
                     backgroundColor: 'var(--bg)',
                   }}
                 />
-                <Bar dataKey="count" fill="#0ea5e9" radius={[4, 4, 0, 0]} />
+                <Bar dataKey="count" fill="#2563EB" radius={[4, 4, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           </div>

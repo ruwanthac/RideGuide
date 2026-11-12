@@ -10,11 +10,14 @@ export function Layout() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const { isDark, toggle: toggleDark } = useDarkMode();
+  const [adminName, setAdminName] = useState<string | undefined>();
 
   /** Optional: `GET /api/auth/me` — 401 is handled in `api.ts` (redirect to login). */
   useEffect(() => {
     if (!getToken()) return;
-    void fetchCurrentUser().catch(() => {});
+    void fetchCurrentUser()
+      .then((u) => setAdminName(u.displayName))
+      .catch(() => {});
   }, []);
 
   function handleLogout() {
@@ -23,7 +26,7 @@ export function Layout() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
+    <div className="min-h-screen bg-slate-100/70 dark:bg-gray-950">
       <Sidebar
         collapsed={sidebarCollapsed}
         onCollapsedChange={setSidebarCollapsed}
@@ -36,8 +39,9 @@ export function Layout() {
           onDarkModeToggle={toggleDark}
           onLogout={handleLogout}
           isDark={isDark}
+          adminName={adminName}
         />
-        <main className="p-4 lg:p-6">
+        <main className="mx-auto max-w-[1440px] p-4 lg:p-8">
           <Outlet />
         </main>
       </div>

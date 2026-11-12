@@ -1,3 +1,5 @@
+import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Search, Moon, Sun, Menu, LogOut } from 'lucide-react';
 
 interface NavbarProps {
@@ -5,49 +7,55 @@ interface NavbarProps {
   onDarkModeToggle: () => void;
   onLogout: () => void;
   isDark: boolean;
+  adminName?: string;
 }
 
-export function Navbar({ onMenuClick, onDarkModeToggle, onLogout, isDark }: NavbarProps) {
+const iconBtn =
+  'flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 transition-colors hover:bg-slate-50 hover:text-slate-900 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300 dark:hover:bg-gray-800';
+
+export function Navbar({ onMenuClick, onDarkModeToggle, onLogout, isDark, adminName }: NavbarProps) {
+  const navigate = useNavigate();
+  const [query, setQuery] = useState('');
+  const initial = (adminName?.trim() || 'Admin').charAt(0).toUpperCase();
+
   return (
-    <header className="sticky top-0 z-30 flex h-14 items-center gap-4 border-b border-gray-200/60 dark:border-gray-800/60 bg-white/80 dark:bg-gray-900/80 backdrop-blur-sm px-4 lg:pl-4">
-      <button
-        type="button"
-        onClick={onMenuClick}
-        className="rounded-lg p-2 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 lg:hidden"
-        aria-label="Open menu"
-      >
+    <header className="sticky top-0 z-30 flex h-16 items-center gap-3 border-b border-slate-200 bg-white/90 px-4 backdrop-blur dark:border-gray-800 dark:bg-gray-900/90 lg:px-8">
+      <button type="button" onClick={onMenuClick} className={`${iconBtn} lg:hidden`} aria-label="Open menu">
         <Menu className="h-5 w-5" />
       </button>
-      <div className="flex flex-1 items-center gap-4">
-        <div className="relative max-w-md flex-1">
-          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
-          <input
-            type="search"
-            placeholder="Search..."
-            className="w-full rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50 py-2 pl-10 pr-4 text-sm placeholder:text-gray-400 focus:border-accent-500 focus:outline-none focus:ring-2 focus:ring-accent-500/20 transition-colors"
-          />
-        </div>
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={onDarkModeToggle}
-            className="rounded-lg p-2 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
-            aria-label={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
-          >
-            {isDark ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
-          </button>
-          <button
-            type="button"
-            onClick={onLogout}
-            className="rounded-lg p-2 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
-            aria-label="Sign out"
-          >
-            <LogOut className="h-5 w-5" />
-          </button>
-          <div className="hidden sm:flex h-8 w-8 items-center justify-center rounded-full bg-accent-500/20 text-accent-600 dark:text-accent-400 font-medium text-sm">
-            A
-          </div>
-        </div>
+      <form
+        role="search"
+        className="relative max-w-md flex-1"
+        onSubmit={(e) => {
+          e.preventDefault();
+          const q = query.trim();
+          if (q) navigate(`/users?search=${encodeURIComponent(q)}`);
+        }}
+      >
+        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+        <input
+          type="search"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Search users by name, email or phone…"
+          aria-label="Search users"
+          className="h-10 w-full rounded-xl border border-slate-200 bg-slate-50 pl-9 pr-3 text-sm placeholder:text-slate-400 focus:border-accent-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-accent-500/20 dark:border-gray-700 dark:bg-gray-800/60 dark:focus:bg-gray-800"
+        />
+      </form>
+      <div className="ml-auto flex items-center gap-2">
+        <button type="button" onClick={onDarkModeToggle} className={iconBtn} aria-label={isDark ? 'Switch to light mode' : 'Switch to dark mode'}>
+          {isDark ? <Sun className="h-[18px] w-[18px]" /> : <Moon className="h-[18px] w-[18px]" />}
+        </button>
+        <button type="button" onClick={onLogout} className={iconBtn} aria-label="Sign out" title="Sign out">
+          <LogOut className="h-[18px] w-[18px]" />
+        </button>
+        <span
+          className="hidden h-10 w-10 items-center justify-center rounded-full bg-accent-100 text-sm font-extrabold text-accent-600 dark:bg-accent-500/20 dark:text-accent-300 sm:flex"
+          title={adminName}
+          aria-label={adminName ? `Signed in as ${adminName}` : undefined}
+        >
+          {initial}
+        </span>
       </div>
     </header>
   );

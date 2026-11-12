@@ -1,3 +1,4 @@
+import { useSearchParams } from 'react-router-dom';
 import { useEffect, useState } from 'react';
 import { Search, Pencil, Trash2 } from 'lucide-react';
 import { Card, CardHeader, CardContent } from '../components/ui/Card';
@@ -277,9 +278,19 @@ function DeleteUserModal({
 }
 
 export function Users() {
-  const [search, setSearch] = useState('');
-  const [debouncedSearch, setDebouncedSearch] = useState('');
-  const [roleFilter, setRoleFilter] = useState<UserRole | 'all'>('all');
+  // The top-bar search opens this page with ?search=…
+  const [searchParams] = useSearchParams();
+  const urlSearch = searchParams.get('search') ?? '';
+  const [search, setSearch] = useState(urlSearch);
+  const [debouncedSearch, setDebouncedSearch] = useState(urlSearch);
+  useEffect(() => {
+    setSearch(urlSearch);
+    setDebouncedSearch(urlSearch);
+  }, [urlSearch]);
+  const urlRole = searchParams.get('role');
+  const [roleFilter, setRoleFilter] = useState<UserRole | 'all'>(
+    urlRole === 'owner' || urlRole === 'mechanic' || urlRole === 'tow' || urlRole === 'admin' ? urlRole : 'all'
+  );
   const [statusFilter, setStatusFilter] = useState<UserStatus | 'all'>('all');
   const [page, setPage] = useState(1);
   const [data, setData] = useState<PaginatedUsers | null>(null);
@@ -340,7 +351,7 @@ export function Users() {
   return (
     <div className="space-y-6 animate-fade-in">
       <div>
-        <h1 className="text-2xl font-semibold text-gray-900 dark:text-white">Users</h1>
+        <h1 className="text-2xl font-extrabold tracking-tight text-slate-900 dark:text-white">Users</h1>
         <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">Manage platform users and roles</p>
       </div>
 
